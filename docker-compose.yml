@@ -1,0 +1,21 @@
+services:
+  # 生产数据库：PostgreSQL + PostGIS（空间轨迹/采样点查询用）
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: agriscout-postgres
+    environment:
+      POSTGRES_USER: agriscout
+      POSTGRES_PASSWORD: agriscout
+      POSTGRES_DB: agriscout
+    ports:
+      - "5432:5432"
+    volumes:
+      - agriscout-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agriscout"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  agriscout-pgdata:

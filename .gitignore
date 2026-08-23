@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+backend/.deps/
+*.egg-info/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+frontend/dist/
+
+# 本地配置与数据
+.env
+*.db
+*.sqlite3
+
+# 包管理器工作区缓存
+.pnpm-cache/
+.pnpm-data/
+.pnpm-state/
+
+# 编辑器
+.idea/
+.vscode/
+.DS_Store

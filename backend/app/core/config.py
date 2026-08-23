@@ -1,0 +1,27 @@
+"""应用配置：环境变量驱动，开发/生产零代码切换。"""
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    app_name: str = "AgriScout"
+    version: str = "0.1.0"
+    environment: str = "dev"
+
+    # 开发期默认 SQLite；生产切换 PostgreSQL(+PostGIS)
+    database_url: str = "sqlite:///./agriscout.db"
+
+    # 逗号分隔的允许跨域来源
+    cors_origins: str = "http://localhost:5173"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
