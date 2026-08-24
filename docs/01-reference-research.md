@@ -1,6 +1,6 @@
 # 参考资料研究笔记（AgriScout 立项调研）
 
-> 状态：✅ 精读完成（2 案例 + 3 论文）。原始网页/论文全文分别缓存于 `docs/research/` 与 `papers/`。
+> 状态：✅ 精读完成（2 案例 + 3 论文），精华全部提炼在下文。
 > 说明：原始资料清单中部分 URL 卷期/日期有误，下表以实际核查到的公开来源为准。
 
 ## 一、行业实践案例
@@ -8,8 +8,7 @@
 ### 1. 四川遂宁"火眼金睛"智能检测特种车 ⭐⭐⭐
 - 四川职业技术学院学生团队，遂宁市农业农村局报道：
   https://nyncj.suining.gov.cn/xinwen/show/8d6083d0a8e8b0e6de0b36b176bba8d5.html
-- 补充报道（163，原站403，镜像存档）：http://www.scmsbdw.com/index.php?c=show&id=47182
-- 原文 HTML 存档：`docs/research/hyj_*.html`
+- 补充报道（163，原站403，镜像源）：http://www.scmsbdw.com/index.php?c=show&id=47182
 
 **精读要点（与 AgriScout 契合度最高）**
 - 硬件：RK3588 边缘计算 + 高清摄像头 + 激光雷达 + RTK 定位 + 履带底盘；ROS 坐标系
@@ -28,7 +27,6 @@
 - 新湖南转载（原 voc 链接同文）：https://www.hunantoday.cn/news/xhn/202605/32728620.html
 - 背景补充（农大信息与电气工程学院）：
   https://ciee.cau.edu.cn/art/2026/7/14/art_50389_1122523.html
-- 原文 HTML 存档：`docs/research/snwt_*.html`
 
 **精读要点**
 - 团队：中国农大神农大模型团队 + 北京市植保站；宇树四足机器狗底座
@@ -63,7 +61,7 @@
 ### 1. 轮式作物生长监测机器人底盘设计与测试 ⭐⭐⭐
 - MDPI Agronomy 13(12):3043（用户 URL 正确）：
   https://www.mdpi.com/2073-4395/13/12/3043
-- 南京农业大学江晓平团队；全文缓存：`papers/agronomy_jina.md`
+- 南京农业大学江晓平团队
 - 相关延伸：轮履切换式作物表型信息感知机器人底盘
   http://faculty.njau.edu.cn/zhoudong/en/lwcg/154284/content/439802.htm
 
@@ -79,7 +77,7 @@
 - ⚠️ 用户原 URL 有误（25/10/3043），正确为 MDPI Sensors 25(17):5302：
   https://www.mdpi.com/1424-8220/25/17/5302
 - PubMed：https://pubmed.ncbi.nlm.nih.gov/40942729/
-- 江苏大学团队；全文缓存：`papers/sensors_text.txt`
+- 江苏大学团队
 
 **精读要点**
 - 端-边-云三层：云=全局调度/跨生育期建模；边=农田边缘服务器/车载计算机做实时决策与增量学习（"边缘执行-云演进"）；端=嵌入式预处理（能耗仅 8–15%）
@@ -93,7 +91,6 @@
   https://www.frontiersin.org/journals/plant-science/articles/10.3389/fpls.2025.1668545/full
 - PubMed：https://pubmed.ncbi.nlm.nih.gov/41164258/
 - 中文解读（生物通）：https://www.ebiotrade.com/newsf/2025-10/20251015001212187.htm
-- 全文缓存：`papers/frontiers_text.txt`
 
 **精读要点**
 - 职责：端=感知、边=分析、云=聚合决策；三种架构=层级式/星型/链式中继
