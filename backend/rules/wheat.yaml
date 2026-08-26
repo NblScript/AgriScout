@@ -1,0 +1,184 @@
+# AgriScout 小麦规则库 v1（首批作物=小麦，基线 B3）
+#
+# ⚠️ 出处说明：source 字段为答辩溯源依据。当前条目按公开农技推广资料与教科书
+#    常识整理，阈值为经验值——正式比赛材料提交前需农技人员/指导老师复核。
+# 同步方式：cd backend && .venv/bin/python -m app.tools.sync_rules
+# 或调用接口：POST /api/v1/rules/sync-yaml
+#
+# 条件键：stage(生育期名) / vigor_level / ndvi / risk_score / stress_detected /
+#         weather.{temp_c,humidity_pct,light_lux,wind_mps,rain_mm,soil_temp_c,soil_moisture_pct}
+# 算子：lt/lte/gt/gte/eq/between；routine 层必须无条件（保底层）
+
+rules:
+  # ================= 常规层（生育期保底，每点至少一条建议的来源） =================
+  - rule_key: R-WHEAT-ROUTINE-EMERGENCE
+    tier: routine
+    priority: low
+    condition:
+      stage: "出苗期"
+    action: "{stage}管理要点：查苗补苗，对缺苗断垄地段及时浸种补种，确保基本苗数。"
+    source: 《作物栽培学·北方冬小麦区》苗期管理章节（项目整理）
+
+  - rule_key: R-WHEAT-ROUTINE-TILLERING
+    tier: routine
+    priority: low
+    condition:
+      stage: "分蘖期"
+    action: "{stage}管理要点：适时化学除草，日平均气温稳定在5℃以上时选晴朗无风天气进行。"
+    source: 全国农技推广服务中心小麦田杂草防控技术意见（整理）
+
+  - rule_key: R-WHEAT-ROUTINE-JOINTING
+    tier: routine
+    priority: low
+    condition:
+      stage: "拔节期"
+    action: "{stage}管理要点：氮肥后移，追施拔节肥并浇拔节水，促大穗、增粒数。"
+    params: {}
+    source: 冬小麦氮肥后移技术（农业农村部主推技术，整理）
+
+  - rule_key: R-WHEAT-ROUTINE-HEADING
+    tier: routine
+    priority: low
+    condition:
+      stage: "抽穗期"
+    action: "{stage}管理要点：进入病虫统防统治窗口期，关注赤霉病与蚜虫发生动态。"
+    source: 小麦重大病虫害统防统治技术方案（整理）
+
+  - rule_key: R-WHEAT-ROUTINE-GRAIN_FILL
+    tier: routine
+    priority: low
+    condition:
+      stage: "灌浆期"
+    action: "{stage}管理要点：落实“一喷三防”（防干热风、防病虫、防早衰），延长灌浆时间。"
+    source: 全国农技推广服务中心小麦后期管理技术意见（整理）
+
+  - rule_key: R-WHEAT-ROUTINE-MATURITY
+    tier: routine
+    priority: low
+    condition:
+      stage: "成熟期"
+    action: "{stage}管理要点：蜡熟末期至完熟初期为最佳机收期，关注天气抢时收获，颗粒归仓。"
+    source: 小麦机械化收获减损技术指导意见（整理）
+
+  # ================= 天气阈值层 =================
+  - rule_key: R-WHEAT-DROUGHT-JOINTING
+    tier: threshold
+    priority: high
+    condition:
+      stage: 拔节期
+      weather:
+        soil_moisture_pct: {lt: 55}
+    action: "{stage}遇旱且土壤墒情不足（土壤湿度{soil_moisture_pct}%），拔节期为需水高峰，建议3日内浇拔节水，亩灌水量40–50方。"
+    params: {}
+    source: 冬小麦节水灌溉技术规程（整理，阈值待农技复核）
+
+  - rule_key: R-WHEAT-COLD-SNAP
+    tier: threshold
+    priority: high
+    condition:
+      stage: 拔节期
+      weather:
+        temp_c: {lte: 2}
+    action: "警惕倒春寒：{stage}遭遇低温（{temp_c}℃），寒潮来临前灌水调节田间小气候，冻害后及时追速效氮促恢复。"
+    params: {}
+    source: 小麦低温冻害防御与补救技术（整理）
+
+  - rule_key: R-WHEAT-WATERLOGGING
+    tier: threshold
+    priority: high
+    condition:
+      weather:
+        rain_mm: {gte: 50}
+    action: "强降雨预警：单点雨量达{rain_mm}mm，及时清沟沥水防渍涝，防止根系早衰与病害流行。"
+    params: {}
+    source: 小麦湿渍害防控技术（长江中下游麦区，整理）
+
+  - rule_key: R-WHEAT-DRY-HOT-WIND
+    tier: threshold
+    priority: high
+    condition:
+      stage: 灌浆期
+      weather:
+        temp_c: {gte: 32}
+        humidity_pct: {lte: 30}
+        wind_mps: {gte: 3}
+    action: "干热风风险：高温（{temp_c}℃）低湿（{humidity_pct}%）伴大风，建议浇灌浆水并结合一喷三防减轻危害。"
+    params: {}
+    source: 北方麦区干热风防御技术（整理）
+
+  - rule_key: R-WHEAT-FUSARIUM-WINDOW
+    tier: threshold
+    priority: high
+    condition:
+      stage: 抽穗期
+      weather:
+        humidity_pct: {gte: 85}
+    action: "赤霉病流行窗口：{stage}遇高湿环境（湿度{humidity_pct}%），坚持“见花打药”，齐穗扬花期主动用药预防。"
+    params: {}
+    source: 小麦赤霉病全生育期综合防控技术（整理）
+
+  - rule_key: R-WHEAT-STRONG-WIND
+    tier: threshold
+    priority: medium
+    condition:
+      weather:
+        wind_mps: {gte: 8}
+    action: "大风预警：风速达{wind_mps}m/s，巡检时留意倒伏迹象，发现点状倒伏及时记录并评估补救措施。"
+    params: {}
+    source: 项目通用风险提示
+
+  - rule_key: R-WHEAT-HEAT-DRY
+    tier: threshold
+    priority: medium
+    condition:
+      weather:
+        temp_c: {gte: 33}
+        soil_moisture_pct: {lt: 45}
+    action: "高温叠加土壤干旱（气温{temp_c}℃/墒情{soil_moisture_pct}%），有条件地块小水补灌，避免大水漫灌后骤晴。"
+    params: {}
+    source: 夏季高温干旱田间应对要点（整理）
+
+  # ================= 分析状态层 =================
+  - rule_key: R-WHEAT-STRESS-PATCH
+    tier: status
+    priority: high
+    condition:
+      stress_detected: true
+    action: "检出叶色异常斑块（疑似胁迫/早期病害），建议到该采样点实地复核，并在平台完成人工标注回流。"
+    source: 项目设计：识别结果人工复核闭环（docs/04 §8.1）
+
+  - rule_key: R-WHEAT-WEAK-VIGOR
+    tier: status
+    priority: medium
+    condition:
+      vigor_level: {lte: 2}
+    action: "该点位长势偏弱（长势等级{vigor_level}/5），排查脱肥、渍根或播种质量问题，必要时局部补肥。"
+    source: 小麦苗情诊断与分类管理（整理）
+
+  - rule_key: R-WHEAT-HIGH-RISK
+    tier: status
+    priority: high
+    condition:
+      risk_score: {gte: 0.6}
+    action: "综合风险评分{risk_score}偏高，建议将该采样点列入当日优先人工复核清单。"
+    params: {}
+    source: 项目设计：风险分级调度（docs/05 规则引擎生命周期）
+
+  - rule_key: R-WHEAT-LOW-COVERAGE
+    tier: status
+    priority: low
+    condition:
+      ndvi: {lt: 0}
+    action: "植被覆盖指标异常偏低（NDVI代理值{ndvi}），核查是否存在缺苗断垄或镜头遮挡。"
+    params: {}
+    source: 项目设计：占位算法自检提示
+
+  - rule_key: R-WHEAT-LUSH-TILLERING
+    tier: status
+    priority: medium
+    condition:
+      stage: 分蘖期
+      vigor_level: {eq: 5}
+    action: "{stage}长势过旺（等级{vigor_level}/5），群体偏大有倒伏风险，建议适度控旺（镇压或化控）。"
+    params: {}
+    source: 小麦旺长防控与化控技术（整理）

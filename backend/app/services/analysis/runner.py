@@ -97,6 +97,16 @@ def run_patrol_analysis(
         logger.info(
             "patrol %s analyzed: %s points, %s skipped", patrol_id, analyzed, skipped,
         )
+
+        # 分析完成 → 触发建议生成（任务流水线阶段⑥，docs/05）
+        try:
+            from app.services.advice import generate_advices_for_patrol
+
+            stats = generate_advices_for_patrol(db, patrol.id)
+            logger.info("patrol %s advices generated: %s", patrol_id, stats)
+        except Exception:  # noqa: BLE001 建议失败不影响分析结论，仅记录
+            db.rollback()
+            logger.exception("patrol %s advice generation failed", patrol_id)
     except Exception:
         db.rollback()
         try:

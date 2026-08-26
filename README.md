@@ -3,9 +3,9 @@
 农作物全生命周期管理系统：田间巡检小车每 0.5 米拍照 + 采集天气数据，
 平台自动判断作物生长情况并给出农事建议。
 
-## 当前状态：M3 分析管线 ✅
+## 当前状态：M4 建议引擎 ✅
 
-- `backend/` — Python FastAPI 后端（健康检查 + 基础管理 CRUD + 巡检包接入 + 异步分析管线，Alembic 迁移）
+- `backend/` — Python FastAPI 后端（基础管理 + 数据接入 + 分析管线 + 规则建议引擎，Alembic 迁移）
 - `frontend/` — Vue 3 + TypeScript + Element Plus 前端（系统状态页 + 四个管理页）
 - `docs/` — 设计文档（`01` 调研笔记 / `04` 主计划 / `05` 讨论决策日志 / `06` 嵌入式学习路线）
 - 架构基线见 `docs/05-discussion-decisions.md`「开发基线定稿」节
@@ -45,6 +45,10 @@ curl -X POST http://localhost:8000/api/v1/ingest/patrol \
 # 查询：GET /api/v1/patrols、/api/v1/patrols/{id}、
 #       /api/v1/capture-points?patrol_id=&bbox=minLng,minLat,maxLng,maxLat&limit=&skip=
 # 分析：GET /api/v1/patrols/{id}/analysis-summary、POST /api/v1/patrols/{id}/analyze(重分析)
+# 建议：分析完成后自动生成（可溯源 rule_snapshot）；
+#       GET /api/v1/patrols/{id}/advices、PATCH /api/v1/advices/{id}(采纳/驳回)
+# 规则：GET|POST|PATCH|DELETE /api/v1/rules（删除=软下线）；POST /api/v1/rules/sync-yaml
+#       或命令行同步：cd backend && .venv/bin/python -m app.tools.sync_rules
 ```
 
 ### 生产数据库（可选）
