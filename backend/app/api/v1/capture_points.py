@@ -37,7 +37,9 @@ def list_capture_points(
     limit: int = Query(100, ge=1, le=2000),
     db: Session = Depends(get_db),
 ):
-    stmt = select(CapturePoint).options(selectinload(CapturePoint.weather))
+    stmt = select(CapturePoint).options(
+        selectinload(CapturePoint.weather), selectinload(CapturePoint.analysis),
+    )
     if patrol_id is not None:
         stmt = stmt.where(CapturePoint.patrol_id == patrol_id)
     if bbox is not None:

@@ -65,12 +65,12 @@ def test_ingest_roundtrip_with_photos(client, media_dir):
     assert body["photos_saved"] == 1          # PNG 落盘
     assert body["photos_referenced"] == 1     # URL 引用透传
 
-    # 详情：轨迹已转 LineString，点数正确
+    # 详情：轨迹已转 LineString，点数正确；M3 起接入即自动完成分析
     detail = client.get(f"{BASE}/patrols/{body['patrol_id']}").json()
     assert detail["track"]["type"] == "LineString"
     assert len(detail["track"]["coordinates"]) == 3
     assert detail["point_count"] == 2
-    assert detail["status"] == "received" and detail["analysis_status"] == "pending"
+    assert detail["status"] == "received" and detail["analysis_status"] == "done"
     assert detail["device_code"] == device
 
     # 采样点回读：坐标/天气完整

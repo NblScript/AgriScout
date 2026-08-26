@@ -17,7 +17,7 @@ def media_dir(tmp_path) -> Path:
 @pytest.fixture()
 def client(media_dir: Path):
     # 延迟导入：保持 test_health「先设环境变量再导入」的语义不被破坏
-    from app.core.db import Base, get_db
+    from app.core.db import Base, get_db, get_session_factory
     from app.main import app
     from app.services.storage import LocalStorage, get_storage
 
@@ -37,6 +37,7 @@ def client(media_dir: Path):
             db.close()
 
     app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_session_factory] = lambda: TestSession  # 后台任务也写测试库
     app.dependency_overrides[get_storage] = lambda: LocalStorage(media_dir)
     yield TestClient(app)
     app.dependency_overrides.clear()

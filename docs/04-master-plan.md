@@ -142,7 +142,7 @@ class Analyzer(Protocol):
 | **M0 工程骨架** ✅ | 脚手架、配置、DB、健康检查、前后端联通 | 页面显示"系统在线" | 已完成 |
 | **M1 基础管理** | 认证砍除（get_current_user 插槽）、Field/Crop/Planting/Device 模型+CRUD、Alembic 迁移、前端管理页(Router+Pinia+Element Plus) | Web 创建地块/作物/种植记录 | 2–3 天 |
 | **M2 数据接入** ✅ | Patrol/CapturePoint/WeatherSample 模型、巡检包上传 API(单事务+重复防护)、照片存储(内容寻址本地目录)、查询接口(分页/bbox) | curl 上传巡检包→查得回全部数据 | 已完成 |
-| **M3 分析管线** | Analyzer 接口+占位实现、逐点分析任务、Analysis 写入、结果查询 | 上传照片→每点自动出评估 | 2–3 天 |
+| **M3 分析管线** ✅ | Analyzer 协议+占位实现(颜色统计L0+日历生育期)、BackgroundTasks 逐点分析、Analysis 写入(analyzer_version 可追溯)、结果查询+汇总+手动重分析 | 上传照片→每点自动出评估 | 已完成 |
 | **M4 建议引擎** | Rule 表+YAML 种子规则(先1种作物)、建议生成与状态管理 | 巡田后出带溯源的建议 | 2 天 |
 | **M5 模拟器** | 生成器(地块/垄行/0.5m点/坐标/天气曲线/真实农田照片样本)+上传器 | 一键生成完整虚拟巡田入库 | 2 天 |
 | **M6 可视化** | 地图(地块边界/轨迹/采样点热力)、点详情(照片+评估+天气)、时间轴回放、建议面板 | 浏览器完整回看虚拟巡田 | 4–5 天 |
@@ -178,9 +178,9 @@ M0 ✅ ── M1(3-4d) ── M2(2-3d) ── M3(2-3d) ── M4(2d) ── M5(2
 
 ## 14. 当前状态与下一步
 
-- M0 ✅ 工程骨架；M1 ✅ 基础管理（无认证 CRUD + Element Plus 管理页）；M2 ✅ 数据接入（巡检包协议 v1 落库、照片内容寻址存储、分页/bbox 查询，16 tests 通过），代码已推送 GitHub（NblScript/AgriScout）
+- M0 ✅ 工程骨架；M1 ✅ 基础管理；M2 ✅ 数据接入；M3 ✅ 分析管线（占位识别 placeholder-color-v0：绿色覆盖率→vigor/NDVI代理/风险分，日历法推小麦生育期；analysis_status 流转 pending→running→done/error），20 tests 通过，代码已推送 GitHub
 - 开发基线已定稿（2026-08）：几何存浮点+GeoJSON、Element Plus、首批作物小麦、砍除认证留插槽——详见 docs/05「开发基线定稿」节
-- 下一步：M3 分析管线（Analyzer 接口 + 占位实现 + BackgroundTasks 异步逐点分析 + analysis_status 进度）
+- 下一步：M4 建议引擎（Rule 表 + YAML 小麦种子规则 + 三层匹配 + Advice 冻结 rule_snapshot）
 - 待定：天气数据是否接气象局 API 补充；预算档位/T1 主控/T2 定距（硬件线，不阻塞软件）
 
 ---

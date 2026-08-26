@@ -27,6 +27,7 @@ class Patrol(TimestampMixin, Base):
     notes: Mapped[str | None] = mapped_column(Text)
 
     field: Mapped["Field"] = relationship()  # type: ignore[name-defined]  # noqa: F821
+    planting: Mapped["Planting | None"] = relationship()  # type: ignore[name-defined]  # noqa: F821
     device: Mapped["Device"] = relationship()  # type: ignore[name-defined]  # noqa: F821
     capture_points: Mapped[list["CapturePoint"]] = relationship(  # type: ignore[name-defined]  # noqa: F821
         back_populates="patrol", cascade="all, delete-orphan", passive_deletes=True,

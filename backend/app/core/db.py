@@ -35,3 +35,12 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def get_session_factory():
+    """FastAPI 依赖：给后台任务用的会话工厂。
+
+    后台任务不能复用请求会话（请求已结束），需自建会话；
+    测试通过 dependency_overrides 把本工厂指向测试内存库。
+    """
+    return SessionLocal

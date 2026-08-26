@@ -9,6 +9,7 @@ dependencies = [
     "sqlalchemy>=2.0",
     "alembic>=1.14",
     "pydantic-settings>=2.7",
+    "pillow>=11",
 ]
 
 [project.optional-dependencies]

@@ -10,9 +10,13 @@ _SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 class Storage(Protocol):
-    """照片存储接口：写入二进制，返回可直接访问的 URL。"""
+    """照片存储接口：写入二进制返回 URL；按 URL 读回字节（分析管线用）。"""
 
     def save(self, data: bytes, suffix: str = ".jpg") -> str: ...
+
+    def open(self, url: str) -> bytes | None:
+        """读回照片字节；非本地引用或文件缺失返回 None（调用方自行跳过）。"""
+        ...
 
 
 class LocalStorage:
@@ -35,6 +39,17 @@ class LocalStorage:
             tmp.write_bytes(data)
             tmp.replace(path)
         return f"/media/{name}"
+
+    def open(self, url: str) -> bytes | None:
+        if not url or not url.startswith("/media/"):
+            return None  # 外部 URL 不在本地，占位管线不联网抓取
+        name = url.removeprefix("/media/")
+        if not name or "/" in name or ".." in name:
+            return None  # 防路径穿越
+        try:
+            return (self.root / name).read_bytes()
+        except OSError:
+            return None
 
 
 def get_storage() -> Storage:

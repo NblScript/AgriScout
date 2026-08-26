@@ -4,6 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.analysis import AnalysisOut
 from app.schemas.patrol import WeatherPayload
 
 
@@ -23,6 +24,7 @@ class CapturePointOut(BaseModel):
     captured_at: datetime
     photo_url: str | None = None
     weather: WeatherOut | None = None
+    analysis: AnalysisOut | None = None
 
 
 class PatrolOut(BaseModel):

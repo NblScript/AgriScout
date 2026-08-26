@@ -28,3 +28,7 @@ class CapturePoint(TimestampMixin, Base):
         back_populates="capture_point", uselist=False,
         cascade="all, delete-orphan", passive_deletes=True,
     )
+    analysis: Mapped["Analysis | None"] = relationship(  # type: ignore[name-defined]  # noqa: F821
+        back_populates="capture_point", uselist=False,
+        cascade="all, delete-orphan", passive_deletes=True,
+    )
