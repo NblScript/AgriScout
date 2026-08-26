@@ -3,11 +3,12 @@
 农作物全生命周期管理系统：田间巡检小车每 0.5 米拍照 + 采集天气数据，
 平台自动判断作物生长情况并给出农事建议。
 
-## 当前状态：M0 工程骨架
+## 当前状态：M1 基础管理 ✅
 
-- `backend/` — Python FastAPI 后端（健康检查接口）
-- `frontend/` — Vue 3 + TypeScript + Vite 前端（系统状态页）
+- `backend/` — Python FastAPI 后端（健康检查 + 地块/作物/种植记录/设备 CRUD，Alembic 迁移）
+- `frontend/` — Vue 3 + TypeScript + Element Plus 前端（系统状态页 + 四个管理页）
 - `docs/` — 设计文档（`01` 调研笔记 / `04` 主计划 / `05` 讨论决策日志 / `06` 嵌入式学习路线）
+- 架构基线见 `docs/05-discussion-decisions.md`「开发基线定稿」节
 
 ## 快速启动
 
@@ -16,6 +17,7 @@
 cd backend
 python3 -m venv --without-pip .venv          # 若 venv 可用则 python3 -m venv .venv
 python3 -m pip install --target .venv/lib/python3.14/site-packages -r requirements.txt
+.venv/bin/python -m alembic upgrade head     # 建表/升级数据库结构
 .venv/bin/python -m uvicorn app.main:app --port 8000
 ```
 接口文档：http://localhost:8000/docs

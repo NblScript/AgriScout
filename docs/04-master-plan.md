@@ -55,13 +55,13 @@
 | Crop | name, variety, lifecycle_days, stages(JSON:各生育期天数), default_rules | 作物生命周期参数 |
 | Planting | field_id, crop_id, sowing_date, expected_harvest_date, status | 地块×作物×批次 |
 | Device | code, name, type(rover/drone/station), model, status | 载体抽象：小车/无人机/固定点都是数据源 |
-| Patrol | field_id, planting_id, device_id, started_at, ended_at, track(LineString), status | 一次巡检任务 |
+| Patrol | field_id, planting_id, device_id, started_at, ended_at, track(LineString), status, analysis_status | 一次巡检任务；分析进度 pending/running/done/error |
 | CapturePoint | patrol_id, seq, distance_m, geom(Point), captured_at, photo_url | 每 0.5m 一个点（一等公民） |
 | WeatherSample | capture_point_id, patrol_id, temp_c, humidity_pct, light_lux, wind_mps, rain_mm, soil_temp_c, soil_moisture_pct | 天气快照+时序 |
 | Analysis | capture_point_id, analyzer_version, growth_stage(JSON概率), vigor_level(1-5), ndvi, disease_detections(JSON), risk_score | 每个点的评估结果 |
-| Advice | patrol_id, capture_point_id, rule_id, content, priority, status(suggested/accepted/rejected) | 可追溯建议 |
-| Rule | rule_key, crop_id, condition(JSON), action, priority, active | 规则库，可配置 |
-| Annotation | capture_point_id, user_id, label, bbox, reviewed_at | 人工复核→数据集（回流闭环） |
+| Advice | patrol_id, capture_point_id, rule_id, rule_snapshot(JSON冻结命中时规则), content, priority, status(suggested/accepted/rejected) | 可追溯建议；快照保证规则改版后历史仍可解释 |
+| Rule | rule_key, crop_id, condition(JSON), action, priority, active, source | 规则库，可配置；source 标注农艺出处 |
+| Annotation | capture_point_id, annotator_name, label, bbox, reviewed_at | 人工复核→数据集（回流闭环）；认证已砍除故用姓名归属 |
 
 ## 7. 关键接口契约（提前定死）
 
@@ -140,7 +140,7 @@ class Analyzer(Protocol):
 | 里程碑 | 任务清单 | 验收标准 | 工期 |
 |--------|----------|----------|------|
 | **M0 工程骨架** ✅ | 脚手架、配置、DB、健康检查、前后端联通 | 页面显示"系统在线" | 已完成 |
-| **M1 基础管理** | User 认证(JWT)、Field/Crop/Planting/Device 模型+CRUD、前端管理页(表格+表单) | Web 创建地块/作物/种植记录 | 3–4 天 |
+| **M1 基础管理** | 认证砍除（get_current_user 插槽）、Field/Crop/Planting/Device 模型+CRUD、Alembic 迁移、前端管理页(Router+Pinia+Element Plus) | Web 创建地块/作物/种植记录 | 2–3 天 |
 | **M2 数据接入** | Patrol/CapturePoint/WeatherSample 模型、巡检包上传 API、照片存储、查询接口(分页/bbox) | curl 上传巡检包→查得回全部数据 | 2–3 天 |
 | **M3 分析管线** | Analyzer 接口+占位实现、逐点分析任务、Analysis 写入、结果查询 | 上传照片→每点自动出评估 | 2–3 天 |
 | **M4 建议引擎** | Rule 表+YAML 种子规则(先1种作物)、建议生成与状态管理 | 巡田后出带溯源的建议 | 2 天 |
@@ -178,9 +178,10 @@ M0 ✅ ── M1(3-4d) ── M2(2-3d) ── M3(2-3d) ── M4(2d) ── M5(2
 
 ## 14. 当前状态与下一步
 
-- M0 ✅：后端(8000)/前端(5173)运行中，health 接口 2 tests 通过，git 已初始化
-- 下一步：M1 基础管理（User 认证 + 地块/作物/种植记录 CRUD + 前端管理页）
-- 待定：首批作物种类（建议小麦或蔬菜二选一）；天气数据是否接气象局 API 补充
+- M0 ✅：后端(8000)/前端(5173)运行中，health 接口测试通过，git 已初始化
+- 开发基线已定稿（2026-08）：几何存浮点+GeoJSON、Element Plus、首批作物小麦、砍除认证留插槽——详见 docs/05「开发基线定稿」节
+- 下一步：M1 基础管理（范围已调整：无认证 CRUD + Alembic + Element Plus 管理页）
+- 待定：天气数据是否接气象局 API 补充；预算档位/T1 主控/T2 定距（硬件线，不阻塞软件）
 
 ---
 
@@ -205,3 +206,21 @@ M0=骨架；M1=2.1+3.1；M2=2.2；M3=2.3；M4=2.4；M5=5.1；M6=3.2–3.4；M7=�
 
 ### 工作量占比（2人+AI）
 模块一 25%（纯人工动手，AI 无法替代）；模块二+三 40%（AI 可扛大头）；模块四 20%；模块五 15%。
+
+---
+
+## 16. 开发路径：三线并行 + 一次会师（v1.0，2026-08）
+
+```
+线1 软件平台线（成员B + AI 主攻）   零硬件依赖，模拟器驱动
+     M1→M2→M3→M4→M5→M6  约 3 周，全程可演示
+线2 硬件小车线（成员A 主攻）
+     嵌入式学习(8–9月) → 装车(10月) → 联调(10–11月)
+线3 AI识别线（两人协作）
+     数据准备(9月) → YOLOv8n 训练(10月) → 推理接入平台(11月)
+会师点：2026.10–11 小车真数据经巡检包协议入平台（平台零改动）
+之后：11月 采样密度实验 → 11–12月 专利/软著/论文 → 2027.01–02 比赛材料
+```
+
+开发原则：①软件先行硬件后接 ②接口抽象可替换 ③数据驱动开发 ④小步快跑每步可演示。
+开工前待拍板：预算档位（500/1500/3000）、T1 主控、T2 定距方案、首批作物种类。
