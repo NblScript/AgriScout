@@ -34,6 +34,18 @@ const router = createRouter({
       component: () => import('../views/DevicesView.vue'),
       meta: { title: '设备管理', icon: 'Cpu' },
     },
+    {
+      path: '/patrols',
+      name: 'patrols',
+      component: () => import('../views/PatrolsView.vue'),
+      meta: { title: '巡检任务', icon: 'VideoCamera' },
+    },
+    {
+      path: '/patrols/:id',
+      name: 'patrol-detail',
+      component: () => import('../views/PatrolDetailView.vue'),
+      meta: { title: '巡检回放' },
+    },
     { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
   ],
 })

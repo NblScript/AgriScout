@@ -83,3 +83,129 @@ export const PLANTING_STATUS_LABELS: Record<PlantingStatus, string> = {
   harvested: '已收获',
   archived: '已归档',
 }
+
+/* ================= M6 可视化：巡检/采样点/建议 ================= */
+
+export interface Page<T> {
+  items: T[]
+  total: number
+  skip: number
+  limit: number
+}
+
+export interface WeatherSample {
+  temp_c: number | null
+  humidity_pct: number | null
+  light_lux: number | null
+  wind_mps: number | null
+  rain_mm: number | null
+  soil_temp_c: number | null
+  soil_moisture_pct: number | null
+}
+
+export interface DiseaseDetection {
+  type?: string
+  label?: string
+  confidence?: number
+  [k: string]: unknown
+}
+
+export interface PointAnalysis {
+  id: number
+  capture_point_id: number
+  analyzer_version: string
+  growth_stage: { name?: string; [k: string]: unknown } | null
+  vigor_level: number | null
+  ndvi: number | null
+  disease_detections: DiseaseDetection[] | null
+  risk_score: number | null
+  detail: Record<string, unknown> | null
+  analyzed_at: string
+}
+
+export interface CapturePointFull {
+  id: number
+  patrol_id: number
+  seq: number
+  distance_m: number
+  lng: number
+  lat: number
+  captured_at: string
+  photo_url: string | null
+  weather: WeatherSample | null
+  analysis: PointAnalysis | null
+}
+
+export interface Patrol {
+  id: number
+  field_id: number
+  field_name: string | null
+  planting_id: number | null
+  device_id: number | null
+  device_code: string | null
+  started_at: string
+  ended_at: string | null
+  status: string
+  analysis_status: 'pending' | 'running' | 'done' | 'error'
+}
+
+export interface PatrolDetail extends Patrol {
+  track: { type: string; coordinates: number[][] } | null
+  point_count: number
+  notes: string | null
+}
+
+export interface RuleSnapshot {
+  rule_key: string
+  tier: string
+  priority: string
+  condition: Record<string, unknown>
+  action: string
+  params: Record<string, unknown> | null
+  source: string | null
+  version: number
+}
+
+export type AdviceStatus = 'suggested' | 'accepted' | 'rejected'
+
+export interface Advice {
+  id: number
+  patrol_id: number
+  capture_point_id: number | null
+  rule_id: number | null
+  rule_key: string
+  rule_snapshot: RuleSnapshot
+  content: string
+  priority: string
+  status: AdviceStatus
+  created_at: string
+}
+
+export interface AnalysisSummary {
+  patrol_id: number
+  analysis_status: string
+  total_points: number
+  analyzed_points: number
+  analyzer_version: string | null
+  vigor_distribution: Record<string, number>
+  avg_ndvi: number | null
+  avg_risk_score: number | null
+  stage_histogram: Record<string, number>
+  stress_flagged_points: number
+}
+
+/** 长势等级 → 展示色（1 差 → 5 旺） */
+export const VIGOR_COLORS: Record<number, string> = {
+  1: '#d32f2f',
+  2: '#ef6c00',
+  3: '#f9a825',
+  4: '#7cb342',
+  5: '#2e7d32',
+}
+export const NO_ANALYSIS_COLOR = '#9e9e9e'
+
+export const ADVICE_STATUS_LABELS: Record<AdviceStatus, string> = {
+  suggested: '待处理',
+  accepted: '已采纳',
+  rejected: '已驳回',
+}

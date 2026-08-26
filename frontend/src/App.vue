@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
-import { Calendar, Cherry, Cpu, Fold, Expand, MapLocation, Odometer } from '@element-plus/icons-vue'
+import { Calendar, Cherry, Cpu, Fold, Expand, MapLocation, Odometer, VideoCamera } from '@element-plus/icons-vue'
 import { useUiStore } from './stores/ui'
 
 const ui = useUiStore()
@@ -35,6 +35,9 @@ const route = useRoute()
         </el-menu-item>
         <el-menu-item index="/devices">
           <el-icon><Cpu /></el-icon><template #title>设备管理</template>
+        </el-menu-item>
+        <el-menu-item index="/patrols">
+          <el-icon><VideoCamera /></el-icon><template #title>巡检任务</template>
         </el-menu-item>
       </el-menu>
     </el-aside>

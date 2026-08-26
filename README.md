@@ -3,10 +3,10 @@
 农作物全生命周期管理系统：田间巡检小车每 0.5 米拍照 + 采集天气数据，
 平台自动判断作物生长情况并给出农事建议。
 
-## 当前状态：M5 模拟器 ✅
+## 当前状态：M6 可视化 ✅ —— 软件线 M0–M6 全部完成
 
 - `backend/` — Python FastAPI 后端（基础管理 + 数据接入 + 分析管线 + 规则建议引擎，Alembic 迁移）
-- `frontend/` — Vue 3 + TypeScript + Element Plus 前端（系统状态页 + 四个管理页）
+- `frontend/` — Vue 3 + TypeScript + Element Plus + Leaflet（管理页 + 巡检任务列表 + 地图回放/时间轴/建议面板）
 - `simulator/` — 独立虚拟巡田模拟器（一键：建档→S形采样→合成照片→上传→分析→建议闭环报告）
 - `docs/` — 设计文档（`01` 调研笔记 / `04` 主计划 / `05` 讨论决策日志 / `06` 嵌入式学习路线）
 - 架构基线见 `docs/05-discussion-decisions.md`「开发基线定稿」节

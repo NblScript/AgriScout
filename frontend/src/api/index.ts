@@ -1,6 +1,18 @@
 /** 资源客户端：每个后端资源一组类型化方法。 */
 import { request } from './http'
-import type { Crop, Device, Field, Planting } from '../types'
+import type {
+  Advice,
+  AdviceStatus,
+  AnalysisSummary,
+  CapturePointFull,
+  Crop,
+  Device,
+  Field,
+  Page,
+  Patrol,
+  PatrolDetail,
+  Planting,
+} from '../types'
 
 export interface FieldCreatePayload {
   name: string
@@ -44,6 +56,7 @@ export type PlantingUpdatePayload = Partial<
 
 export const fieldsApi = {
   list: () => request<Field[]>('/fields'),
+  get: (id: number) => request<Field>(`/fields/${id}`),
   create: (payload: FieldCreatePayload) =>
     request<Field>('/fields', { method: 'POST', body: payload }),
   update: (id: number, payload: FieldUpdatePayload) =>
@@ -83,4 +96,49 @@ export const plantingsApi = {
   update: (id: number, payload: PlantingUpdatePayload) =>
     request<Planting>(`/plantings/${id}`, { method: 'PATCH', body: payload }),
   remove: (id: number) => request<void>(`/plantings/${id}`, { method: 'DELETE' }),
+}
+
+/* ---------- 巡检 / 采样点 / 建议（M6 可视化） ---------- */
+
+export const patrolsApi = {
+  list: (params: { field_id?: number; status?: string; analysis_status?: string } = {}) => {
+    const qs = new URLSearchParams()
+    if (params.field_id != null) qs.set('field_id', String(params.field_id))
+    if (params.status) qs.set('status', params.status)
+    if (params.analysis_status) qs.set('analysis_status', params.analysis_status)
+    const q = qs.toString()
+    return request<Page<Patrol>>(`/patrols${q ? `?${q}` : ''}`)
+  },
+  get: (id: number) => request<PatrolDetail>(`/patrols/${id}`),
+  summary: (id: number) => request<AnalysisSummary>(`/patrols/${id}/analysis-summary`),
+  analyze: (id: number) =>
+    request<{ status: string; patrol_id: number }>(`/patrols/${id}/analyze`, { method: 'POST' }),
+}
+
+export const capturePointsApi = {
+  listByPatrol: (patrolId: number) =>
+    request<Page<CapturePointFull>>(
+      `/capture-points?patrol_id=${patrolId}&limit=2000`,
+    ),
+}
+
+export const advicesApi = {
+  list: (
+    patrolId: number,
+    params: { status?: string; capture_point_id?: number } = {},
+  ) => {
+    const qs = new URLSearchParams()
+    if (params.status) qs.set('status', params.status)
+    if (params.capture_point_id != null)
+      qs.set('capture_point_id', String(params.capture_point_id))
+    qs.set('limit', '500')
+    return request<Page<Advice>>(`/patrols/${patrolId}/advices?${qs.toString()}`)
+  },
+  setStatus: (adviceId: number, status: AdviceStatus) =>
+    request<Advice>(`/advices/${adviceId}`, { method: 'PATCH', body: { status } }),
+  generate: (patrolId: number) =>
+    request<{ created: number; skipped_decided: number }>(
+      `/patrols/${patrolId}/advices/generate`,
+      { method: 'POST' },
+    ),
 }
