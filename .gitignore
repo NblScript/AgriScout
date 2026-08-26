@@ -25,3 +25,6 @@ frontend/dist/
 .idea/
 .vscode/
 .DS_Store
+
+# 本地照片存储（运行时产物）
+backend/media/

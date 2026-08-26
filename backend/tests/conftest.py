@@ -1,4 +1,6 @@
 """CRUD 接口测试夹具：内存 SQLite + 依赖覆盖，互不污染。"""
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -7,10 +9,17 @@ from sqlalchemy.pool import StaticPool
 
 
 @pytest.fixture()
-def client():
+def media_dir(tmp_path) -> Path:
+    """测试用照片存储目录（随用例销毁）。"""
+    return tmp_path / "media"
+
+
+@pytest.fixture()
+def client(media_dir: Path):
     # 延迟导入：保持 test_health「先设环境变量再导入」的语义不被破坏
     from app.core.db import Base, get_db
     from app.main import app
+    from app.services.storage import LocalStorage, get_storage
 
     engine = create_engine(
         "sqlite://",  # 每个用例独立的内存库
@@ -28,5 +37,6 @@ def client():
             db.close()
 
     app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_storage] = lambda: LocalStorage(media_dir)
     yield TestClient(app)
     app.dependency_overrides.clear()

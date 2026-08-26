@@ -3,9 +3,9 @@
 农作物全生命周期管理系统：田间巡检小车每 0.5 米拍照 + 采集天气数据，
 平台自动判断作物生长情况并给出农事建议。
 
-## 当前状态：M1 基础管理 ✅
+## 当前状态：M2 数据接入 ✅
 
-- `backend/` — Python FastAPI 后端（健康检查 + 地块/作物/种植记录/设备 CRUD，Alembic 迁移）
+- `backend/` — Python FastAPI 后端（健康检查 + 基础管理 CRUD + 巡检包接入/查询，Alembic 迁移）
 - `frontend/` — Vue 3 + TypeScript + Element Plus 前端（系统状态页 + 四个管理页）
 - `docs/` — 设计文档（`01` 调研笔记 / `04` 主计划 / `05` 讨论决策日志 / `06` 嵌入式学习路线）
 - 架构基线见 `docs/05-discussion-decisions.md`「开发基线定稿」节
@@ -34,6 +34,15 @@ pnpm dev
 ### 测试
 ```bash
 cd backend && .venv/bin/python -m pytest
+```
+
+### 巡检包上传（M2 数据接入，采集端唯一入口）
+```bash
+curl -X POST http://localhost:8000/api/v1/ingest/patrol \
+  -H 'Content-Type: application/json' -d @patrol_package.json
+# patrol.photo 支持 base64 或 URL；单包单事务；照片按内容哈希存 backend/media/
+# 查询：GET /api/v1/patrols、/api/v1/patrols/{id}、
+#       /api/v1/capture-points?patrol_id=&bbox=minLng,minLat,maxLng,maxLat&limit=&skip=
 ```
 
 ### 生产数据库（可选）

@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     # 开发期默认 SQLite；生产切换 PostgreSQL(+PostGIS)
     database_url: str = "sqlite:///./agriscout.db"
 
+    # 照片本地存储目录（生产换对象存储只改 Storage 实现）
+    media_dir: str = "./media"
+
     # 逗号分隔的允许跨域来源
     cors_origins: str = "http://localhost:5173"
 
