@@ -3,10 +3,11 @@
 农作物全生命周期管理系统：田间巡检小车每 0.5 米拍照 + 采集天气数据，
 平台自动判断作物生长情况并给出农事建议。
 
-## 当前状态：M4 建议引擎 ✅
+## 当前状态：M5 模拟器 ✅
 
 - `backend/` — Python FastAPI 后端（基础管理 + 数据接入 + 分析管线 + 规则建议引擎，Alembic 迁移）
 - `frontend/` — Vue 3 + TypeScript + Element Plus 前端（系统状态页 + 四个管理页）
+- `simulator/` — 独立虚拟巡田模拟器（一键：建档→S形采样→合成照片→上传→分析→建议闭环报告）
 - `docs/` — 设计文档（`01` 调研笔记 / `04` 主计划 / `05` 讨论决策日志 / `06` 嵌入式学习路线）
 - 架构基线见 `docs/05-discussion-decisions.md`「开发基线定稿」节
 
@@ -30,6 +31,13 @@ pnpm install
 pnpm dev
 ```
 访问：http://localhost:5173
+
+### 一键虚拟巡田（M5 模拟器）
+```bash
+cd simulator && ../backend/.venv/bin/python run.py --scenario dry
+# 场景：healthy / dry / patchy_disease；自动建档→采样→上传→等待分析→打印建议报告
+# 协议对接合同（给小车端）：GET http://localhost:8000/api/v1/ingest/patrol-schema
+```
 
 ### 测试
 ```bash

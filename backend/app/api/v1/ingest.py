@@ -12,6 +12,12 @@ from app.services.storage import Storage, get_storage
 router = APIRouter(prefix="/ingest", tags=["ingest"])
 
 
+@router.get("/patrol-schema")
+def patrol_package_schema():
+    """导出巡检包协议 JSON Schema——采集端（真车/第三方）的对接合同。"""
+    return PatrolPackageIn.model_json_schema()
+
+
 @router.post("/patrol", response_model=IngestResultOut, status_code=201)
 def ingest_patrol(
     package: PatrolPackageIn,

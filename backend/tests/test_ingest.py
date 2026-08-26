@@ -178,3 +178,16 @@ def test_base64_data_uri_accepted(client):
     data_uri = f"data:image/png;base64,{TINY_PNG}"
     resp = _ingest(client, _package(field_id, device, points=1, photo=data_uri))
     assert resp.status_code == 201 and resp.json()["photos_saved"] == 1
+
+
+def test_patrol_schema_exported(client):
+    """协议 JSON Schema 可导出（供真车端/第三方对接）。"""
+    resp = client.get(f"{BASE}/ingest/patrol-schema")
+    assert resp.status_code == 200
+    schema = resp.json()
+    assert schema["title"] == "PatrolPackageIn"
+    assert set(schema["properties"]) == {"patrol", "capture_points"}
+    point_def = schema["$defs"]["CapturePointPayload"]
+    assert "photo" in point_def["properties"]
+    header_def = schema["$defs"]["PatrolHeaderPayload"]
+    assert {"field_id", "device", "started_at"} <= set(header_def["properties"])
