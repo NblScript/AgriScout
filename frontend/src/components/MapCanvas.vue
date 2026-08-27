@@ -26,10 +26,12 @@ let highlight: L.CircleMarker | null = null
 
 const TILES = {
   // 本地瓦片优先（tools/download_tiles.py 预下载演示区域），断网可用；
-  // 瓦片 404 时回退在线源，非缓存区域照常显示。暗色=同源瓦片 + CSS 滤镜（见样式）。
+  // 瓦片 404 时回退在线源。回退选 CARTO 而非 OSM 主站：OSM 对"应用类"流量
+  // 封锁激进（Access blocked 页），且批量预下载易连坐同 IP 浏览器请求。
   local: '/tiles/{z}/{x}/{y}.png',
-  remote: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-  attribution: '&copy; OpenStreetMap',
+  remote: 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+  remoteDark: 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+  attribution: '&copy; OpenStreetMap &copy; CARTO',
 }
 
 function themeColors() {
@@ -47,9 +49,10 @@ const LocalFirstTileLayer = L.TileLayer.extend({
     if (tile.dataset.fallback) return
     tile.dataset.fallback = '1'
     const coords = (tile as unknown as { _tileCoords: { x: number; y: number; z: number } })._tileCoords
-    tile.src = L.Util.template(TILES.remote, {
-      z: coords.z, x: coords.x, y: coords.y,
-    })
+    tile.src = L.Util.template(
+      props.theme === 'dark' ? TILES.remoteDark : TILES.remote,
+      { z: coords.z, x: coords.x, y: coords.y },
+    )
   },
 }) as unknown as new (url: string, remoteUrl: string, options?: L.TileLayerOptions) => L.TileLayer
 

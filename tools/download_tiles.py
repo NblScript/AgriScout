@@ -95,7 +95,7 @@ def main() -> None:
                 try:
                     target.write_bytes(fetch(tile_url(z, x, y)))
                     done += 1
-                    time.sleep(0.1)  # 礼貌限速
+                    time.sleep(0.5)  # 礼貌限速：0.1s 曾触发 OSM 反滥用封锁（Access blocked）
                 except Exception as e:
                     failed += 1
                     print(f"失败 z{z}/{x}/{y}: {e}")
