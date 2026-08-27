@@ -90,6 +90,12 @@ curl -X POST http://localhost:8000/api/v1/ingest/patrol \
 # 大屏：GET /api/v1/stats/overview（资源计数+建议分布+近5次巡检摘要，指挥大屏单请求数据源）
 ```
 
+### 离线地图瓦片（演示防断网）
+```bash
+python3 tools/download_tiles.py --lat 39.10 --lng 116.10   # 演示田周边，4.3MB
+# 前端已配置本地瓦片优先，未缓存区域自动回退在线源；暗色主题用 CSS 滤镜实现
+```
+
 ### 生产数据库（可选）
 ```bash
 docker compose up -d postgres

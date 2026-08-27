@@ -11,7 +11,7 @@ const props = defineProps<{
   track: { type: string; coordinates: number[][] } | null
   points: CapturePointFull[]
   selectedIndex: number | null
-  /** dark：暗色底图 + 发光轨迹（大屏/回放大屏化用）；默认 light 保持管理页观感 */
+  /** dark：暗色观感（同源瓦片+CSS 滤镜）+ 发光轨迹；默认 light 保持管理页观感 */
   theme?: 'light' | 'dark'
 }>()
 
@@ -19,22 +19,17 @@ const emit = defineEmits<{ (e: 'select', pointId: number): void }>()
 
 const container = ref<HTMLDivElement>()
 let map: L.Map | null = null
-let tileLayer: L.TileLayer | null = null
 let boundaryLayer: L.Polygon | null = null
 let trackLayer: L.LayerGroup | null = null
 let pointsLayer: L.LayerGroup | null = null
 let highlight: L.CircleMarker | null = null
 
 const TILES = {
-  light: {
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '&copy; OpenStreetMap',
-  },
-  dark: {
-    // 暗色底图（CARTO），离线化见独立任务
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; OpenStreetMap &copy; CARTO',
-  },
+  // 本地瓦片优先（tools/download_tiles.py 预下载演示区域），断网可用；
+  // 瓦片 404 时回退在线源，非缓存区域照常显示。暗色=同源瓦片 + CSS 滤镜（见样式）。
+  local: '/tiles/{z}/{x}/{y}.png',
+  remote: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+  attribution: '&copy; OpenStreetMap',
 }
 
 function themeColors() {
@@ -45,6 +40,19 @@ function themeColors() {
     track: dark ? '#38bdf8' : '#1565c0',
   }
 }
+
+/** 本地优先 + 在线回退：瓦片加载失败且未重试过时，换在线 URL 重取同一张。 */
+const LocalFirstTileLayer = L.TileLayer.extend({
+  onTileError(tile: HTMLImageElement) {
+    if (tile.dataset.fallback) return
+    tile.dataset.fallback = '1'
+    const coords = (tile as unknown as { _tileCoords: { x: number; y: number; z: number } })._tileCoords
+    tile.src = L.Util.template(TILES.remote, {
+      s: 'abc'[Math.abs(coords.x + coords.y) % 3],
+      z: coords.z, x: coords.x, y: coords.y, r: '',
+    })
+  },
+}) as unknown as new (url: string, remoteUrl: string, options?: L.TileLayerOptions) => L.TileLayer
 
 function pointColor(p: CapturePointFull): string {
   const v = p.analysis?.vigor_level
@@ -132,8 +140,9 @@ function renderHighlight() {
 onMounted(() => {
   if (!container.value) return
   map = L.map(container.value, { attributionControl: true })
-  const t = TILES[props.theme === 'dark' ? 'dark' : 'light']
-  tileLayer = L.tileLayer(t.url, { maxZoom: 19, attribution: t.attribution }).addTo(map)
+  new LocalFirstTileLayer(TILES.local, TILES.remote, {
+    maxZoom: 19, attribution: TILES.attribution,
+  }).addTo(map)
   renderBoundary()
   renderTrack()
   renderPoints()
@@ -141,12 +150,8 @@ onMounted(() => {
   fitAll()
 })
 
-// 主题切换：换底图并重绘配色相关图层
+// 主题切换：重绘配色相关图层（瓦片同源，暗色靠 CSS 滤镜，无需换底图）
 watch(() => props.theme, () => {
-  if (!map) return
-  tileLayer?.remove()
-  const t = TILES[props.theme === 'dark' ? 'dark' : 'light']
-  tileLayer = L.tileLayer(t.url, { maxZoom: 19, attribution: t.attribution }).addTo(map)
   renderBoundary()
   renderTrack()
 })
@@ -169,7 +174,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="container" class="map-canvas" />
+  <div ref="container" class="map-canvas" :class="{ 'theme-dark': theme === 'dark' }" />
 </template>
 
 <style scoped>
@@ -177,5 +182,12 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   min-height: 380px;
+}
+/* 暗色观感：同源瓦片反相+色相旋转，免第二套瓦片（离线演示同样生效） */
+.map-canvas.theme-dark :deep(.leaflet-tile) {
+  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.92);
+}
+.map-canvas.theme-dark :deep(.leaflet-container) {
+  background: #0d1a12;
 }
 </style>
