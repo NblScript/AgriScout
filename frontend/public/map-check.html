@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>地图最小验证页</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  html, body { margin: 0; height: 100%; }
+  #map { height: 100%; }
+  #info {
+    position: absolute; top: 8px; left: 8px; z-index: 1000;
+    background: rgba(255,255,255,.92); padding: 8px 12px;
+    border-radius: 6px; font: 13px/1.6 monospace;
+  }
+  #log { max-height: 30vh; overflow-y: auto; max-width: 46vw; white-space: pre-wrap; }
+  .err { color: #c62828; } .ok { color: #2e7d32; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="info">
+  <b>地图最小验证 · 只请求 localhost 本地瓦片</b><br>
+  版本 MINI-1 · <span id="count"></span><br>
+  <div id="log"></div>
+</div>
+<script>
+  const logEl = document.getElementById('log')
+  let loaded = 0, errors = 0
+  function log(msg, cls) {
+    const line = document.createElement('div')
+    if (cls) line.className = cls
+    line.textContent = msg
+    logEl.appendChild(line)
+    logEl.scrollTop = logEl.scrollHeight
+  }
+  function update() {
+    document.getElementById('count').textContent =
+      `瓦片 loaded=${loaded} error=${errors}`
+  }
+
+  const map = L.map('map', { attributionControl: true }).setView([39.1003, 116.1003], 15)
+
+  const layer = L.tileLayer('/maptiles/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '© OpenStreetMap contributors (local cache)',
+  })
+  layer.on('tileload', () => { loaded++; update() })
+  layer.on('tileerror', (e) => {
+    errors++; update()
+    log('ERR ' + (e.url ?? '(no url)'), 'err')
+  })
+  layer.addTo(map)
+
+  // 演示田标记
+  L.circleMarker([39.1003, 116.1003], { radius: 8, color: '#15803d', weight: 3 })
+    .bindTooltip('演示田中心 (39.1003, 116.1003)').addTo(map)
+
+  L.rectangle(
+    [[39.098, 116.097], [39.103, 116.104]],
+    { color: '#15803d', weight: 1, fillOpacity: 0.06 },
+  ).bindTooltip('缓存覆盖区（13-19 级）').addTo(map)
+
+  setTimeout(() => {
+    log('=== 10 秒小结 ===')
+    log(`loaded=${loaded} error=${errors}`)
+    log(errors === 0 ? '✓ 全部本地命中，地图链路健康' : '✗ 存在失败瓦片，看上方 ERR 行的 URL', errors === 0 ? 'ok' : 'err')
+  }, 10000)
+</script>
+</body>
+</html>

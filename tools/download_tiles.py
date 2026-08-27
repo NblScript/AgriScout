@@ -73,7 +73,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--lat", type=float, required=True)
     ap.add_argument("--lng", type=float, required=True)
-    ap.add_argument("--radius-m", type=float, default=1200)
+    ap.add_argument("--radius-m", type=float, default=2500,
+                    help="覆盖半径（默认 2.5km：z15 下约±7 行瓦片，保证全屏视口含边缘都在缓存内）")
     ap.add_argument("--min-z", type=int, default=13)
     ap.add_argument("--max-z", type=int, default=18)
     args = ap.parse_args()

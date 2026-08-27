@@ -21,6 +21,8 @@ function tiles404(): Plugin {
         if (req.url?.startsWith('/maptiles/') && req.url.endsWith('.png')) {
           const file = resolve(root, 'public', decodeURIComponent(req.url.split('?')[0]).slice(1))
           if (!existsSync(file)) {
+            // 命中日志：缺瓦片请求全记录（排查"视图跑出缓存区"的直接证据）
+            console.log(`[tiles-404] ${req.url} from ${req.socket.remoteAddress}`)
             res.statusCode = 404
             return res.end('tile not found')
           }
