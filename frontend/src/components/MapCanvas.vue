@@ -25,12 +25,10 @@ let pointsLayer: L.LayerGroup | null = null
 let highlight: L.CircleMarker | null = null
 
 const TILES = {
-  // 本地瓦片优先（tools/download_tiles.py 预下载演示区域），断网可用；
-  // 瓦片 404 时回退在线源。回退选 CARTO 而非 OSM 主站：OSM 对"应用类"流量
-  // 封锁激进（Access blocked 页），且批量预下载易连坐同 IP 浏览器请求。
-  local: '/tiles/{z}/{x}/{y}.png',
-  remote: 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-  remoteDark: 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+  // 瓦片统一走本地路径 /tiles/*：命中 public/tiles（预缓存，演示断网可用）；
+  // 未命中由 vite 中间件服务端代理 CARTO 取图（见 vite.config.ts tilesProxy）。
+  // 浏览器零回退逻辑、零外部瓦片域名——OSM 封锁页/断网灰图从机制上排除。
+  url: '/tiles/{z}/{x}/{y}.png',
   attribution: '&copy; OpenStreetMap &copy; CARTO',
 }
 
@@ -41,26 +39,6 @@ function themeColors() {
     boundaryFill: dark ? 0.08 : 0.06,
     track: dark ? '#38bdf8' : '#1565c0',
   }
-}
-
-/** 本地优先 + 在线回退：Leaflet 无内建逐瓦片回退，监听 tileerror 事件——
- *  仅对本地路径（/tiles/）失败的瓦片换 CARTO 同坐标重取一次。
- *  （勿用 onTileError 方法名：那是 OpenLayers 的接口，Leaflet 不调用。） */
-function addLocalFirstLayer(map: L.Map): L.TileLayer {
-  const layer = L.tileLayer(TILES.local, { maxZoom: 19, attribution: TILES.attribution })
-  layer.on('tileerror', (e: L.TileErrorEvent) => {
-    const tile = e.tile as HTMLImageElement
-    const url = (e as unknown as { url?: string }).url ?? ''
-    const match = /\/tiles\/(\d+)\/(\d+)\/(\d+)\.png$/.exec(url)
-    if (!match || tile.dataset.fallback) return
-    tile.dataset.fallback = '1'
-    tile.src = L.Util.template(
-      props.theme === 'dark' ? TILES.remoteDark : TILES.remote,
-      { z: Number(match[1]), x: Number(match[2]), y: Number(match[3]) },
-    )
-  })
-  layer.addTo(map)
-  return layer
 }
 
 function pointColor(p: CapturePointFull): string {
@@ -146,7 +124,7 @@ function renderHighlight() {
   }
 }
 
-const MAPCODE_VERSION = 'local-first-v3-20260827'
+const MAPCODE_VERSION = 'local-first-v4-20260827'
 
 function applyBoundsClamp() {
   // 视图钳制在缓存覆盖范围内：maxBounds=地块边界外扩 0.3（约±0.8km < 缓存半径1.2km），
@@ -164,7 +142,7 @@ onMounted(() => {
   // 版本标记：控制台确认实际运行的代码（排查 HMR 僵尸实例/浏览器缓存）
   console.info(`[MapCanvas] ${MAPCODE_VERSION}`)
   map = L.map(container.value, { attributionControl: true })
-  addLocalFirstLayer(map)
+  L.tileLayer(TILES.url, { maxZoom: 19, attribution: TILES.attribution }).addTo(map)
   renderBoundary()
   renderTrack()
   renderPoints()
