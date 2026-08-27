@@ -3,6 +3,9 @@
 农作物全生命周期管理系统：田间巡检小车每 0.5 米拍照 + 采集天气数据，
 平台自动判断作物生长情况并给出农事建议。
 
+> AI 代理协作入口：[AGENTS.md](AGENTS.md)（代理地图）· [ARCHITECTURE.md](ARCHITECTURE.md)（架构）·
+> docs/design-docs/decision-registry.md（决策注册表）· docs/exec-plans/（执行计划）。
+
 ## 当前状态：M6 可视化 ✅ + 标注回流闭环 ✅ —— 软件线 M0–M6 全部完成
 
 - `backend/` — Python FastAPI 后端（基础管理 + 数据接入 + 分析管线 + 规则建议引擎 + 人工标注回流，Alembic 迁移）
@@ -43,6 +46,25 @@ cd simulator && ../backend/.venv/bin/python run.py --scenario dry
 ### 测试
 ```bash
 cd backend && .venv/bin/python -m pytest
+```
+
+### YOLO 麦穗检测（M-AI 识别线 L1，公开数据集训练）
+```bash
+# 训练环境（独立于后端，含 torch/CUDA 约 5GB）
+cd ml && python3 -m venv --without-pip .venv
+python3 -m pip install --target .venv/lib/python3.14/site-packages -r requirements.txt
+
+# 数据 → 训练 → 导出（有 GPU 自动用 GPU；无 GPU 加 --max-images 1500 减量）
+.venv/bin/python data/prepare_gwd.py            # Global Wheat Head → YOLO 格式
+.venv/bin/python train.py --epochs 40           # 产物 runs/wheat-v1/weights/best.pt
+.venv/bin/python export_model.py                # → backend/models/wheat-yolo-v1.pt
+
+# 后端切换识别引擎（backend/.env）
+#   pip install -r requirements-ml.txt         # backend venv 装推理依赖
+#   ANALYZER_BACKEND=yolo
+#   YOLO_MODEL_PATH=./models/wheat-yolo-v1.pt
+# 切回颜色统计占位：ANALYZER_BACKEND=placeholder（默认，零依赖）
+# analyzer_version 记录引擎与模型版本，历史分析结果可溯源可复现
 ```
 
 ### 巡检包上传（M2 数据接入，采集端唯一入口）

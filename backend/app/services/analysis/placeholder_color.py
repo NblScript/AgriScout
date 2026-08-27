@@ -4,20 +4,13 @@
 黄化/枯褐占比作为胁迫信号。无任何训练依赖，演示与联调够用，
 也是将来与 YOLO 结果对比的基线（analyzer_version 锁定可复现）。
 """
-import io
-
-from PIL import Image
-
 from app.services.analysis.base import (
     AnalysisResult,
     Analyzer,
     CaptureContext,
     calendar_growth_stage,
-    classify_pixel_hsv,
-    rgb_to_hsv_deg,
+    image_color_stats,
 )
-
-THUMBNAIL = (64, 64)  # 统计用分辨率，4096 像素纯 Python 循环毫秒级
 
 # vigor_level 分档阈值（green_ratio 下界），可调常量集中在此便于规则联动
 VIGOR_CUTS = ((0.45, 5), (0.35, 4), (0.25, 3), (0.15, 2))  # 其余为 1
@@ -29,23 +22,10 @@ class PlaceholderColorAnalyzer:
     version = "placeholder-color-v0"
 
     def analyze(self, image: bytes, context: CaptureContext) -> AnalysisResult:
-        img = Image.open(io.BytesIO(image)).convert("RGB")
-        img.thumbnail(THUMBNAIL)
-        # load() 返回 PixelAccess（getdata 自 Pillow 12 起弃用）
-        access = img.load()
-        width, height = img.size
-        pixels = [access[x, y] for y in range(height) for x in range(width)]
-        total = max(len(pixels), 1)
-
-        counts = {"vegetation": 0, "stress": 0, "other": 0}
-        lum_sum = 0
-        for r, g, b in pixels:
-            counts[classify_pixel_hsv(*rgb_to_hsv_deg(r, g, b))] += 1
-            lum_sum += 0.299 * r + 0.587 * g + 0.114 * b
-
-        green_ratio = counts["vegetation"] / total
-        stress_ratio = counts["stress"] / total
-        mean_luma = lum_sum / total
+        stats = image_color_stats(image)
+        green_ratio = stats["green_ratio"]
+        stress_ratio = stats["stress_ratio"]
+        mean_luma = stats["mean_luminance"]
 
         vigor_level = next(
             (level for cut, level in VIGOR_CUTS if green_ratio >= cut), 1,
@@ -71,11 +51,8 @@ class PlaceholderColorAnalyzer:
             disease_detections=detections or None,
             risk_score=risk_score,
             detail={
-                "green_ratio": round(green_ratio, 4),
-                "stress_ratio": round(stress_ratio, 4),
-                "mean_luminance": round(mean_luma, 1),
+                **stats,
                 "ndvi_is_proxy": True,
-                "low_light": mean_luma < 30,
-                "sample_pixels": total,
+                "low_light": stats["low_light"],
             },
         )

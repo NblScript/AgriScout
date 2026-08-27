@@ -1,0 +1,2 @@
+# 可选识别依赖：仅 ANALYZER_BACKEND=yolo 时需要（约 2GB，含 torch）
+ultralytics>=8.3

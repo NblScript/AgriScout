@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     # 逗号分隔的允许跨域来源
     cors_origins: str = "http://localhost:5173"
 
+    # 识别引擎：placeholder 颜色统计 | yolo 麦穗检测（需 requirements-ml.txt + 模型文件）
+    analyzer_backend: str = "placeholder"
+    yolo_model_path: str = "./models/wheat-yolo-v1.pt"
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

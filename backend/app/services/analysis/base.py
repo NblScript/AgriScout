@@ -76,7 +76,7 @@ def calendar_growth_stage(context: CaptureContext) -> dict[str, Any] | None:
     }
 
 
-# ---------- 颜色分类工具（占位实现共用）----------
+# ---------- 颜色分类工具（各 analyzer 共用）----------
 
 
 def rgb_to_hsv_deg(r: int, g: int, b: int) -> tuple[float, float, float]:
@@ -97,3 +97,41 @@ def classify_pixel_hsv(h: float, s: float, v: float) -> str:
     if 15 <= h <= 65 and s >= 0.25 and v >= 0.2:  # 黄化/枯黄/褐色斑
         return "stress"
     return "other"
+
+
+def image_color_stats(image: bytes, sample_size: int = 64) -> dict[str, Any]:
+    """抽样统计全图颜色构成：绿色覆盖率/胁迫色比率/平均亮度。
+
+    检测模型（YOLO）与占位实现共用的底座信号；抽样 64x64 纯 Python 循环，
+    单张毫秒级，后台逐点分析可承受。
+    """
+    import io as _io
+
+    from PIL import Image
+
+    img = Image.open(_io.BytesIO(image)).convert("RGB")
+    img.thumbnail((sample_size, sample_size))
+    # load() 返回 PixelAccess（getdata 自 Pillow 12 起弃用）
+    access = img.load()
+    width, height = img.size
+    pixels = [access[x, y] for y in range(height) for x in range(width)]
+
+    vegetation = stress = other = luminance_sum = 0
+    for r, g, b in pixels:
+        kind = classify_pixel_hsv(*rgb_to_hsv_deg(r, g, b))
+        if kind == "vegetation":
+            vegetation += 1
+        elif kind == "stress":
+            stress += 1
+        else:
+            other += 1
+        luminance_sum += 0.299 * r + 0.587 * g + 0.114 * b
+
+    total = len(pixels) or 1
+    return {
+        "green_ratio": vegetation / total,
+        "stress_ratio": stress / total,
+        "mean_luminance": round(luminance_sum / total, 1),
+        "low_light": luminance_sum / total < 30,
+        "sample_pixels": total,
+    }
