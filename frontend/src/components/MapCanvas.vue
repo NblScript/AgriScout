@@ -25,10 +25,11 @@ let pointsLayer: L.LayerGroup | null = null
 let highlight: L.CircleMarker | null = null
 
 const TILES = {
-  // 瓦片只有本地源 /tiles/*（tools/download_tiles.py 预缓存 13-19 级）。
-  // 无在线回退：CARTO 无 key 返回错误占位图、OSM 封锁应用流量——均不可靠；
-  // 演示视图由 applyBoundsClamp 钳制在缓存区内，本地恒命中。
-  url: '/tiles/{z}/{x}/{y}.png',
+  // 瓦片只有本地源 /maptiles/*（tools/download_tiles.py 预缓存 13-19 级）。
+  // 路径曾用 /tiles/*：该 URL 空间在浏览器磁盘缓存里已被历代错误响应毒化
+  // （SPA fallback 的 index.html / CARTO 无 key 错误图 max-age=86400），
+  // 换路径=换缓存键，毒条目全部失效。无在线回退，视图由 clamp 钳制在缓存区。
+  url: '/maptiles/{z}/{x}/{y}.png',
   attribution: '&copy; OpenStreetMap contributors',
 }
 
@@ -48,9 +49,14 @@ function pointColor(p: CapturePointFull): string {
 
 function fitAll() {
   if (!map) return
-  const latlngs: L.LatLngExpression[] = []
+  // 只按地块边界取景：轨迹/点理论上都在边界内；脏测试数据（如经度 10 的
+  // 历史点位）会把 fitBounds 拖到半个亚洲导致视图跑出缓存区
   const ring = props.boundary?.coordinates?.[0]
-  if (ring?.length) latlngs.push(...ring.map(([lng, lat]) => [lat, lng] as L.LatLngExpression))
+  if (ring?.length) {
+    map.fitBounds(L.latLngBounds(ring.map(([lng, lat]) => [lat, lng] as L.LatLngExpression)).pad(0.15))
+    return
+  }
+  const latlngs: L.LatLngExpression[] = []
   const coords = props.track?.coordinates
   if (coords?.length) latlngs.push(...coords.map(([lng, lat]) => [lat, lng] as L.LatLngExpression))
   props.points.forEach((p) => latlngs.push([p.lat, p.lng]))
@@ -124,7 +130,7 @@ function renderHighlight() {
   }
 }
 
-const MAPCODE_VERSION = 'MV5-local-only-20260827'
+const MAPCODE_VERSION = 'MV6-maptiles-20260827'
 
 function applyBoundsClamp() {
   // 视图钳制在缓存覆盖范围内：maxBounds=地块边界外扩 0.3（约±0.8km < 缓存半径1.2km），
@@ -167,8 +173,11 @@ watch(() => props.selectedIndex, renderHighlight)
 
 // 数据整体替换后重新取景
 watch(() => [props.boundary, props.track, props.points], () => {
-  // 延迟到下一帧，等图层渲染完成
-  requestAnimationFrame(fitAll)
+  // 延迟到下一帧，等图层渲染完成；先钳制再取景，脏数据拖不飞视图
+  requestAnimationFrame(() => {
+    applyBoundsClamp()
+    fitAll()
+  })
 })
 
 onBeforeUnmount(() => {

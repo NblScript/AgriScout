@@ -23,7 +23,7 @@ import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-OUT = REPO / "frontend" / "public" / "tiles"
+OUT = REPO / "frontend" / "public" / "maptiles"
 TILE_HOST = "tile.openstreetmap.org"  # 唯一允许的下载主机（白名单）
 MAX_Z = 19
 UA = "AgriScout-offline-tiles/1.0 (competition demo)"

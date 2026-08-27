@@ -18,7 +18,7 @@ function tiles404(): Plugin {
     name: 'tiles-404',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        if (req.url?.startsWith('/tiles/') && req.url.endsWith('.png')) {
+        if (req.url?.startsWith('/maptiles/') && req.url.endsWith('.png')) {
           const file = resolve(root, 'public', decodeURIComponent(req.url.split('?')[0]).slice(1))
           if (!existsSync(file)) {
             res.statusCode = 404
