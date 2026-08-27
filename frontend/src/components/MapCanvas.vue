@@ -146,8 +146,23 @@ function renderHighlight() {
   }
 }
 
+const MAPCODE_VERSION = 'local-first-v3-20260827'
+
+function applyBoundsClamp() {
+  // 视图钳制在缓存覆盖范围内：maxBounds=地块边界外扩 0.3（约±0.8km < 缓存半径1.2km），
+  // minZoom=13（缓存最低级）。钳制后演示视图内本地瓦片恒命中，物理上不依赖外网。
+  if (!map) return
+  const ring = props.boundary?.coordinates?.[0]
+  if (!ring?.length) return
+  const bounds = L.latLngBounds(ring.map(([lng, lat]) => [lat, lng] as L.LatLngExpression))
+  map.setMaxBounds(bounds.pad(0.3))
+  map.setMinZoom(13)
+}
+
 onMounted(() => {
   if (!container.value) return
+  // 版本标记：控制台确认实际运行的代码（排查 HMR 僵尸实例/浏览器缓存）
+  console.info(`[MapCanvas] ${MAPCODE_VERSION}`)
   map = L.map(container.value, { attributionControl: true })
   addLocalFirstLayer(map)
   renderBoundary()
@@ -155,6 +170,7 @@ onMounted(() => {
   renderPoints()
   renderHighlight()
   fitAll()
+  applyBoundsClamp()
 })
 
 // 主题切换：重绘配色相关图层（瓦片同源，暗色靠 CSS 滤镜，无需换底图）
@@ -163,7 +179,10 @@ watch(() => props.theme, () => {
   renderTrack()
 })
 
-watch(() => props.boundary, renderBoundary)
+watch(() => props.boundary, () => {
+  renderBoundary()
+  applyBoundsClamp()
+})
 watch(() => props.track, renderTrack)
 watch(() => props.points, renderPoints)
 watch(() => props.selectedIndex, renderHighlight)
