@@ -96,6 +96,17 @@ python3 tools/download_tiles.py --lat 39.10 --lng 116.10   # 演示田周边，4
 # 前端已配置本地瓦片优先，未缓存区域自动回退在线源；暗色主题用 CSS 滤镜实现
 ```
 
+### AI 农事报告（建议线 L1：规则兜底 + LLM 解释层）
+```bash
+# backend/.env 配置任一 OpenAI 兼容端点（智谱/DeepSeek/通义等）：
+#   LLM_API_BASE=https://open.bigmodel.cn/api/paas/v4
+#   LLM_API_KEY=你的key
+#   LLM_MODEL=glm-4-flash
+# 巡检分析完成后自动生成；手动：POST /api/v1/patrols/{id}/report/generate
+#   查询：GET /api/v1/patrols/{id}/report（前端回放页"AI 农事报告"面板）
+# 未配置则功能静默关闭，主链路不受影响；报告冻结 model/prompt/输入摘要可溯源
+```
+
 ### 生产数据库（可选）
 ```bash
 docker compose up -d postgres

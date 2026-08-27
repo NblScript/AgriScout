@@ -7,7 +7,7 @@ import { ArrowLeft, CaretBottom, CaretTop, Refresh, VideoPause, VideoPlay } from
 import type { EChartsOption } from 'echarts'
 import MapCanvas from '../components/MapCanvas.vue'
 import EChart from '../components/EChart.vue'
-import { advicesApi, annotationsApi, capturePointsApi, fieldsApi, patrolsApi } from '../api'
+import { advicesApi, annotationsApi, capturePointsApi, fieldsApi, patrolsApi, reportsApi } from '../api'
 import {
   ADVICE_STATUS_LABELS,
   ANNOTATION_LABELS,
@@ -21,6 +21,7 @@ import {
   type AnnotationSummary,
   type CapturePointFull,
   type PatrolDetail,
+  type PatrolReport,
 } from '../types'
 
 const route = useRoute()
@@ -82,7 +83,7 @@ async function loadAll() {
     patrol.value = await patrolsApi.get(patrolId)
     const page = await capturePointsApi.listByPatrol(patrolId)
     points.value = page.items
-    await Promise.all([loadAdvices(), loadSummary(), loadFieldBoundary(), loadAnnSummary()])
+    await Promise.all([loadAdvices(), loadSummary(), loadFieldBoundary(), loadAnnSummary(), loadReport()])
     currentIndex.value = points.value.length ? Math.min(currentIndex.value, points.value.length - 1) : 0
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : String(e))
@@ -217,6 +218,43 @@ async function removeAnnotation(ann: Annotation) {
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : String(e))
   }
+}
+
+/* ---------- 巡检 AI 农事报告（建议线 L1） ---------- */
+const report = ref<PatrolReport | null>(null)
+const reportLoading = ref(false)
+const reportGenerating = ref(false)
+
+async function loadReport() {
+  try {
+    report.value = await reportsApi.get(patrolId)
+  } catch { /* 404 = 尚未生成，非错误 */ }
+}
+
+async function generateReport() {
+  reportGenerating.value = true
+  try {
+    await reportsApi.generate(patrolId)
+    await loadReport()
+    ElMessage.success('AI 报告已生成')
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e))
+  } finally {
+    reportGenerating.value = false
+  }
+}
+
+/** 轻量 markdown 渲染：转义后支持 ## 标题 / - 列表 / **粗体**（够报告用，不引库） */
+function mdToHtml(src: string): string {
+  const esc = src.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const lines = esc.split('\n').map((line) => {
+    const bold = line.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    if (bold.startsWith('## ')) return `<h4>${bold.slice(3)}</h4>`
+    if (bold.startsWith('# ')) return `<h4>${bold.slice(2)}</h4>`
+    if (/^[-*] /.test(bold)) return `<li>${bold.slice(2)}</li>`
+    return bold.trim() ? `<p>${bold}</p>` : ''
+  })
+  return lines.join('\n')
 }
 
 /* ---------- 展示辅助 ---------- */
@@ -439,6 +477,28 @@ const weatherOption = computed<EChartsOption>(() => {
       </el-col>
     </el-row>
 
+    <!-- AI 农事报告 -->
+    <div class="panel report-panel">
+      <div class="adv-head">
+        <h4>AI 农事报告</h4>
+        <div class="report-meta" v-if="report">
+          <span class="dim">{{ report.model }} · prompt {{ report.prompt_version }}
+            · {{ new Date(report.updated_at).toLocaleString('zh-CN') }}</span>
+          <el-button size="small" :loading="reportGenerating" @click="generateReport">重新生成</el-button>
+        </div>
+        <el-button
+          v-else size="small" type="primary" plain
+          :loading="reportGenerating" @click="generateReport"
+        >
+          生成 AI 报告
+        </el-button>
+      </div>
+      <div v-if="report" class="report-body" v-html="mdToHtml(report.content)" />
+      <p v-else class="dim">
+        尚未生成——分析完成后可由 LLM 基于规则命中结果自动撰写（需在 backend/.env 配置 LLM_API_BASE/KEY/MODEL）。
+      </p>
+    </div>
+
     <!-- 建议面板 -->
     <div class="panel advices-panel">
       <div class="adv-head">
@@ -571,6 +631,12 @@ const weatherOption = computed<EChartsOption>(() => {
 .ann-form { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 
 .advices-panel { margin-top: 12px; }
+.report-panel { margin-top: 12px; }
+.report-meta { display: flex; align-items: center; gap: 10px; }
+.report-body { font-size: 13px; line-height: 1.7; }
+.report-body :deep(h4) { margin: 10px 0 4px; color: #1f2d1f; }
+.report-body :deep(p) { margin: 4px 0; }
+.report-body :deep(li) { margin: 2px 0 2px 18px; }
 .adv-head {
   display: flex;
   justify-content: space-between;

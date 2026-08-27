@@ -246,6 +246,19 @@ export const ADVICE_STATUS_LABELS: Record<AdviceStatus, string> = {
   rejected: '已驳回',
 }
 
+/* ================= 建议线 L1：巡检 AI 农事报告 ================= */
+
+export interface PatrolReport {
+  id: number
+  patrol_id: number
+  content: string
+  model: string
+  prompt_version: string
+  input_digest: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
 /* ================= 指挥大屏：平台聚合统计 ================= */
 
 export interface RecentPatrolStat {

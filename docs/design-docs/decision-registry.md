@@ -49,6 +49,18 @@
   `Storage` 协议抽象隔离，生产换对象存储只改实现类。
 - **落点**：`backend/app/services/storage.py`、`backend/media/`（gitignore）。
 
+### D7 · LLM 建议线接入（2026-08-27）
+- **问题**：建议线 L1（主计划 §8.2：规则兜底 + LLM 解释层）如何接入而不破坏可溯源与红线。
+- **选项权衡**：
+  - 官方 SDK（zhipuai/openai 包）：功能全，但多一个重依赖，且绑定单一厂商 ❌
+  - OpenAI 兼容 /chat/completions 直连（httpx 已有依赖）：智谱/DeepSeek/通义全兼容，base_url+key+model 全配置化 ✅
+  - RAG 向量库：初期结构化数据量小，直接 JSON 上下文塞 prompt 即可，向量库是过度设计（远期语料大了再说）❌
+- **结论**：httpx 直连；新表 `patrol_reports`（一巡检一份 upsert，model/prompt_version/input_digest
+  冻结溯源）；prompt 模板文件化（`app/services/llm_prompts/report_vN.md`，版本=文件名）；
+  LLM 不写规则表（规则起草属规则线 L1，另立项）；生成失败只记日志不影响分析-建议主链路；
+  测试强制清空 LLM 配置 + monkeypatch `_chat`，永不外呼。
+- **落点**：`services/llm_report.py`、`api/v1/reports.py`、迁移 0006。
+
 ## B 系列：开发基线（2026-08 定稿，全文见 docs/05「开发基线定稿」）
 
 | 编号 | 决策 | 一句话 |
@@ -72,3 +84,4 @@
 | 日期 | 编号 | 变更 |
 |---|---|---|
 | 2026-08 | D1–D6 | 原定义随 docs 清理佚失；从 git 考古补回 D2/D3/D5/D6，D1/D4 标记空闲 |
+| 2026-08-27 | D7 | 新增：LLM 建议线接入决策（OpenAI 兼容直连 + patrol_reports 溯源设计） |

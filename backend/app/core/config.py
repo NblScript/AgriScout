@@ -24,6 +24,15 @@ class Settings(BaseSettings):
     analyzer_backend: str = "placeholder"
     yolo_model_path: str = "./models/wheat-yolo-v1.pt"
 
+    # LLM 建议线（OpenAI 兼容 /chat/completions，智谱/DeepSeek/通义等均可；留空=功能关闭）
+    llm_api_base: str = ""
+    llm_api_key: str = ""
+    llm_model: str = ""
+
+    @property
+    def llm_enabled(self) -> bool:
+        return bool(self.llm_api_base and self.llm_api_key and self.llm_model)
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

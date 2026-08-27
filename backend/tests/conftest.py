@@ -5,6 +5,10 @@ from pathlib import Path
 # 测试恒用占位引擎：本地 .env 的 ANALYZER_BACKEND=yolo 不得泄漏进测试
 # （环境变量优先级高于 .env 文件；须在导入 app 前设置）
 os.environ["ANALYZER_BACKEND"] = "placeholder"
+# 同理：LLM 配置清空——测试不外呼真实 LLM（报告服务走 monkeypatch _chat）
+os.environ["LLM_API_BASE"] = ""
+os.environ["LLM_API_KEY"] = ""
+os.environ["LLM_MODEL"] = ""
 
 import pytest
 from fastapi.testclient import TestClient

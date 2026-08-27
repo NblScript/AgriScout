@@ -8,6 +8,7 @@ from app.models.crop import Crop
 from app.models.device import Device
 from app.models.field import Field
 from app.models.patrol import Patrol
+from app.models.patrol_report import PatrolReport
 from app.models.planting import Planting
 from app.models.rule import Rule
 from app.models.weather import WeatherSample
@@ -22,6 +23,7 @@ __all__ = [
     "Device",
     "Field",
     "Patrol",
+    "PatrolReport",
     "Planting",
     "Rule",
     "WeatherSample",

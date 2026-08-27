@@ -12,6 +12,7 @@ from app.api.v1 import (
     ingest,
     patrols,
     plantings,
+    reports,
     rules,
     stats,
 )
@@ -30,3 +31,4 @@ api_router.include_router(rules.router)
 api_router.include_router(advices.router)
 api_router.include_router(annotations.router)
 api_router.include_router(stats.router)
+api_router.include_router(reports.router)

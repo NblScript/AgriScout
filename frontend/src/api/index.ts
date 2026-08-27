@@ -15,6 +15,7 @@ import type {
   Patrol,
   PatrolDetail,
   Planting,
+  PatrolReport,
   StatsOverview,
 } from '../types'
 
@@ -171,6 +172,17 @@ export const annotationsApi = {  /** 同点同标签为更新（返回 200），
   ) => request<Annotation>(`/annotations/${annotationId}`, { method: 'PATCH', body: payload }),
   remove: (annotationId: number) =>
     request<void>(`/annotations/${annotationId}`, { method: 'DELETE' }),
+}
+
+/* ---------- 建议线 L1：巡检 AI 农事报告 ---------- */
+
+export const reportsApi = {
+  get: (patrolId: number) => request<PatrolReport>(`/patrols/${patrolId}/report`),
+  generate: (patrolId: number) =>
+    request<{ patrol_id: number; report_id: number; model: string; prompt_version: string }>(
+      `/patrols/${patrolId}/report/generate`,
+      { method: 'POST' },
+    ),
 }
 
 /* ---------- 指挥大屏（平台聚合统计） ---------- */

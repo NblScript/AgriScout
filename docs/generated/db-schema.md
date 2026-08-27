@@ -203,3 +203,20 @@
 索引 `ix_annotations_capture_point_id`：(capture_point_id)
 
 索引 `ix_annotations_patrol_id`：(patrol_id)
+
+## 其他
+
+### patrol_reports
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | Integer | PK | — |
+| patrol_id | Integer | FK→patrols.id、NOT NULL | — |
+| content | Text | NOT NULL | — |
+| model | String(80) | NOT NULL | — |
+| prompt_version | String(20) | NOT NULL | — |
+| input_digest | JSON | NOT NULL | — |
+| created_at | DateTime | NOT NULL、default=now() | — |
+| updated_at | DateTime | NOT NULL、default=now() | — |
+
+索引 `ix_patrol_reports_patrol_id`：(patrol_id)
