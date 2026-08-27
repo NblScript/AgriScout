@@ -43,18 +43,25 @@ function themeColors() {
   }
 }
 
-/** 本地优先 + 在线回退：瓦片加载失败且未重试过时，换在线 URL 重取同一张。 */
-const LocalFirstTileLayer = L.TileLayer.extend({
-  onTileError(tile: HTMLImageElement) {
-    if (tile.dataset.fallback) return
+/** 本地优先 + 在线回退：Leaflet 无内建逐瓦片回退，监听 tileerror 事件——
+ *  仅对本地路径（/tiles/）失败的瓦片换 CARTO 同坐标重取一次。
+ *  （勿用 onTileError 方法名：那是 OpenLayers 的接口，Leaflet 不调用。） */
+function addLocalFirstLayer(map: L.Map): L.TileLayer {
+  const layer = L.tileLayer(TILES.local, { maxZoom: 19, attribution: TILES.attribution })
+  layer.on('tileerror', (e: L.TileErrorEvent) => {
+    const tile = e.tile as HTMLImageElement
+    const url = (e as unknown as { url?: string }).url ?? ''
+    const match = /\/tiles\/(\d+)\/(\d+)\/(\d+)\.png$/.exec(url)
+    if (!match || tile.dataset.fallback) return
     tile.dataset.fallback = '1'
-    const coords = (tile as unknown as { _tileCoords: { x: number; y: number; z: number } })._tileCoords
     tile.src = L.Util.template(
       props.theme === 'dark' ? TILES.remoteDark : TILES.remote,
-      { z: coords.z, x: coords.x, y: coords.y },
+      { z: Number(match[1]), x: Number(match[2]), y: Number(match[3]) },
     )
-  },
-}) as unknown as new (url: string, remoteUrl: string, options?: L.TileLayerOptions) => L.TileLayer
+  })
+  layer.addTo(map)
+  return layer
+}
 
 function pointColor(p: CapturePointFull): string {
   const v = p.analysis?.vigor_level
@@ -142,9 +149,7 @@ function renderHighlight() {
 onMounted(() => {
   if (!container.value) return
   map = L.map(container.value, { attributionControl: true })
-  new LocalFirstTileLayer(TILES.local, TILES.remote, {
-    maxZoom: 19, attribution: TILES.attribution,
-  }).addTo(map)
+  addLocalFirstLayer(map)
   renderBoundary()
   renderTrack()
   renderPoints()
