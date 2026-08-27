@@ -8,7 +8,7 @@ const router = createRouter({
       path: '/screen',
       name: 'screen',
       component: () => import('../views/BigScreenView.vue'),
-      meta: { title: '指挥大屏', bare: true },
+      meta: { title: '数据总览', bare: true },
     },
     {
       path: '/dashboard',

@@ -1,0 +1,25 @@
+/* 品牌主题：沉稳农业绿。覆盖 Element Plus 主色，全站统一。 */
+:root {
+  /* #15803d (green-700) 按_Element_公式与黑/白混色得到 */
+  --el-color-primary: #15803d;
+  --el-color-primary-light-3: #5ba677;
+  --el-color-primary-light-5: #8abf9e;
+  --el-color-primary-light-7: #b9d9c5;
+  --el-color-primary-light-8: #d0e6d8;
+  --el-color-primary-light-9: #e8f2ec;
+  --el-color-primary-dark-2: #116631;
+
+  /* 语义色统一用 600/700 重量，避免高饱和荧光感 */
+  --el-color-danger: #dc2626;
+  --el-color-warning: #d97706;
+  --el-color-success: #16a34a;
+
+  /* 中性面板描边：绿灰而非纯灰，呼应农业 */
+  --el-border-color-extra-light: #f0f4f0;
+}
+
+/* 数字统一等宽对齐（工具感来自对齐，不来自发光） */
+.num,
+.kpi-value {
+  font-variant-numeric: tabular-nums;
+}

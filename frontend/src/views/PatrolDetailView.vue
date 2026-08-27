@@ -1,13 +1,11 @@
 <script setup lang="ts">
-/** 巡检回放（大屏化深色皮肤）：地图回放 + 时间轴 + 人工复核 + 建议面板。
- *  功能与亮色版一致，仅视觉升级；复核数据回流闭环（M6+）。 */
+/** 巡检回放：地图回放 + 时间轴 + 人工复核 + 建议面板。亮色专业工具风。 */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, CaretBottom, CaretTop, Refresh, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 import type { EChartsOption } from 'echarts'
 import MapCanvas from '../components/MapCanvas.vue'
-import ScreenPanel from '../components/ScreenPanel.vue'
 import EChart from '../components/EChart.vue'
 import { advicesApi, annotationsApi, capturePointsApi, fieldsApi, patrolsApi } from '../api'
 import {
@@ -233,11 +231,11 @@ const stageName = computed(() =>
   (currentPoint.value?.analysis?.growth_stage?.name as string | undefined) ?? null,
 )
 
-/* ---------- 沿线天气曲线（ECharts 替代六宫格） ---------- */
+/* ---------- 沿线天气曲线 ---------- */
 const AXIS = {
-  axisLine: { lineStyle: { color: 'rgba(74,222,128,0.25)' } },
-  axisLabel: { color: '#86a391', fontSize: 9 },
-  splitLine: { lineStyle: { color: 'rgba(74,222,128,0.08)' } },
+  axisLine: { lineStyle: { color: '#d7dfd8' } },
+  axisLabel: { color: '#7a8a7e', fontSize: 9 },
+  splitLine: { lineStyle: { color: '#edf1ed' } },
 }
 const weatherOption = computed<EChartsOption>(() => {
   const pts = points.value
@@ -245,7 +243,7 @@ const weatherOption = computed<EChartsOption>(() => {
     tooltip: { trigger: 'axis' },
     legend: {
       data: ['气温', '土湿'], top: 0, right: 0,
-      textStyle: { color: '#86a391', fontSize: 10 }, itemWidth: 12, itemHeight: 8,
+      textStyle: { color: '#7a8a7e', fontSize: 10 }, itemWidth: 12, itemHeight: 8,
     },
     grid: { left: 32, right: 34, top: 22, bottom: 18 },
     xAxis: {
@@ -259,21 +257,21 @@ const weatherOption = computed<EChartsOption>(() => {
     series: [
       {
         name: '气温', type: 'line', smooth: true, showSymbol: false, sampling: 'lttb',
-        lineStyle: { color: '#fbbf24', width: 1.5 },
-        areaStyle: { color: 'rgba(251,191,36,0.08)' },
+        lineStyle: { color: '#d97706', width: 1.5 },
+        areaStyle: { color: 'rgba(217,119,6,0.06)' },
         data: pts.map((p) => p.weather?.temp_c ?? null),
         markLine: currentIndex.value < pts.length
           ? {
               symbol: 'none', label: { show: false },
-              lineStyle: { color: '#4ade80', width: 1 },
+              lineStyle: { color: '#16a34a', width: 1 },
               data: [{ xAxis: currentIndex.value }],
             }
           : undefined,
       },
       {
         name: '土湿', type: 'line', smooth: true, showSymbol: false, yAxisIndex: 1, sampling: 'lttb',
-        lineStyle: { color: '#38bdf8', width: 1.5 },
-        areaStyle: { color: 'rgba(56,189,248,0.08)' },
+        lineStyle: { color: '#2563eb', width: 1.5 },
+        areaStyle: { color: 'rgba(37,99,235,0.06)' },
         data: pts.map((p) => p.weather?.soil_moisture_pct ?? null),
       },
     ],
@@ -282,7 +280,7 @@ const weatherOption = computed<EChartsOption>(() => {
 </script>
 
 <template>
-  <div v-loading="loading" class="patrol-screen">
+  <div v-loading="loading">
     <!-- 头部信息 -->
     <div class="head" v-if="patrol">
       <el-button :icon="ArrowLeft" circle @click="router.push('/patrols')" />
@@ -312,9 +310,9 @@ const weatherOption = computed<EChartsOption>(() => {
     <!-- 地图 + 详情卡 -->
     <el-row :gutter="12">
       <el-col :span="15">
-        <ScreenPanel title="巡检轨迹回放" subtitle="PATROL MAP" class="map-panel">
+        <div class="panel map-panel">
           <MapCanvas
-            theme="dark"
+            theme="light"
             :boundary="fieldBoundary"
             :track="patrol?.track ?? null"
             :points="points"
@@ -324,11 +322,11 @@ const weatherOption = computed<EChartsOption>(() => {
           <div class="legend">
             <span v-for="(c, lv) in VIGOR_COLORS" :key="lv" class="lg"><i :style="{ background: c }" />长势{{ lv }}</span>
             <span class="lg"><i style="background:#9e9e9e" />未分析</span>
-            <span class="lg"><i style="border:2px solid #ffd54f;background:transparent" />胁迫检出</span>
+            <span class="lg"><i style="border:2px solid #fbbf24;background:#fff" />胁迫检出</span>
           </div>
-        </ScreenPanel>
+        </div>
         <!-- 时间轴 -->
-        <div class="timeline">
+        <div class="panel timeline">
           <el-button size="small" :icon="CaretTop" :disabled="!points.length" @click="step(-1)" />
           <el-button
             size="small" type="primary"
@@ -353,7 +351,7 @@ const weatherOption = computed<EChartsOption>(() => {
 
       <!-- 选中点详情卡 -->
       <el-col :span="9">
-        <div class="detail-card">
+        <div class="panel detail-card">
           <template v-if="currentPoint">
             <h4>采样点 #{{ currentPoint.seq }}（里程 {{ currentPoint.distance_m }}m）</h4>
             <el-image
@@ -382,7 +380,7 @@ const weatherOption = computed<EChartsOption>(() => {
                 <el-progress
                   style="flex:1"
                   :percentage="pct(currentPoint.analysis.risk_score)"
-                  :color="pct(currentPoint.analysis.risk_score) > 60 ? '#f87171' : '#4ade80'"
+                  :color="pct(currentPoint.analysis.risk_score) > 60 ? '#dc2626' : '#16a34a'"
                   :stroke-width="10"
                 />
               </div>
@@ -442,7 +440,7 @@ const weatherOption = computed<EChartsOption>(() => {
     </el-row>
 
     <!-- 建议面板 -->
-    <div class="advices-panel">
+    <div class="panel advices-panel">
       <div class="adv-head">
         <h4>农事建议（可溯源）</h4>
         <el-radio-group v-model="adviceFilter" size="small">
@@ -501,38 +499,6 @@ const weatherOption = computed<EChartsOption>(() => {
 </template>
 
 <style scoped>
-/* ---------- 深色科技皮肤：Element 变量局部覆写 ---------- */
-.patrol-screen {
-  --el-bg-color: #0d1f14;
-  --el-bg-color-overlay: #12271a;
-  --el-bg-color-page: #07130c;
-  --el-fill-color-blank: #0d1f14;
-  --el-fill-color-light: #142b1c;
-  --el-fill-color-lighter: #10241a;
-  --el-fill-color: rgba(74, 222, 128, 0.08);
-  --el-text-color-primary: #d1fae5;
-  --el-text-color-regular: #b6cdbf;
-  --el-text-color-secondary: #86a391;
-  --el-text-color-placeholder: #5f7a6a;
-  --el-border-color: rgba(74, 222, 128, 0.25);
-  --el-border-color-light: rgba(74, 222, 128, 0.18);
-  --el-border-color-lighter: rgba(74, 222, 128, 0.12);
-  --el-color-primary: #4ade80;
-  --el-color-success: #4ade80;
-  --el-color-danger: #f87171;
-  --el-color-warning: #fbbf24;
-  --el-mask-color: rgba(5, 13, 8, 0.8);
-  min-height: calc(100vh - 84px);
-  color: #d1fae5;
-  background:
-    linear-gradient(rgba(74, 222, 128, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(74, 222, 128, 0.03) 1px, transparent 1px),
-    linear-gradient(180deg, #07130c, #050d08);
-  background-size: 44px 44px, 44px 44px, auto;
-  margin: -20px;
-  padding: 20px;
-}
-
 .head {
   display: flex;
   align-items: center;
@@ -540,16 +506,15 @@ const weatherOption = computed<EChartsOption>(() => {
   margin-bottom: 12px;
   flex-wrap: wrap;
 }
-.title {
-  letter-spacing: 1px;
-  background: linear-gradient(180deg, #eafff2, #4ade80);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-.meta { font-size: 12px; color: #86a391; }
+.title { margin-right: 4px; }
+.meta { font-size: 12px; color: #6b7a6b; }
 .actions { margin-left: auto; }
-
+.panel {
+  background: #fff;
+  border: 1px solid #e2e8e2;
+  border-radius: 10px;
+  padding: 12px;
+}
 .map-panel {
   position: relative;
   height: 430px;
@@ -560,11 +525,11 @@ const weatherOption = computed<EChartsOption>(() => {
   z-index: 500;
   bottom: 8px;
   left: 10px;
-  background: rgba(7, 19, 12, 0.85);
+  background: rgba(255, 255, 255, 0.92);
   padding: 4px 8px;
   border-radius: 6px;
   font-size: 11px;
-  color: #9ca3af;
+  color: #4a5d4e;
   display: flex;
   gap: 8px;
   align-items: center;
@@ -581,24 +546,11 @@ const weatherOption = computed<EChartsOption>(() => {
   display: flex;
   align-items: center;
   gap: 4px;
-  background: rgba(16, 38, 24, 0.6);
-  border: 1px solid rgba(74, 222, 128, 0.15);
-  border-radius: 8px;
-  padding: 8px 10px;
 }
-.tl-label { min-width: 84px; text-align: right; font-size: 12px; color: #86a391; }
-
-/* 详情卡 */
-.detail-card {
-  background: linear-gradient(160deg, rgba(16, 38, 24, 0.88), rgba(10, 24, 15, 0.92));
-  border: 1px solid rgba(74, 222, 128, 0.2);
-  border-radius: 8px;
-  padding: 12px;
-  max-height: 505px;
-  overflow: auto;
-}
-.detail-card h4 { margin-bottom: 10px; letter-spacing: 1px; }
-.detail-card h5 { font-size: 13px; margin-bottom: 8px; }
+.tl-label { min-width: 84px; text-align: right; font-size: 12px; color: #6b7a6b; }
+.detail-card { max-height: 505px; overflow: auto; }
+.detail-card h4 { margin-bottom: 10px; }
+.detail-card h5 { font-size: 13px; margin-bottom: 8px; color: #1f2d1f; }
 .photo {
   width: 100%;
   border-radius: 8px;
@@ -606,55 +558,29 @@ const weatherOption = computed<EChartsOption>(() => {
   max-height: 190px;
 }
 .kv-row { display: flex; align-items: center; gap: 10px; margin: 7px 0; }
-.kv-row > span { width: 68px; font-size: 13px; color: #86a391; }
+.kv-row > span { width: 68px; font-size: 13px; color: #6b7a6b; }
 .stress-box { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
-.dim { color: #5f7a6a; font-size: 13px; }
+.wx-chart h5 { margin-bottom: 4px; }
+.wx-echart { height: 150px; }
+.dim { color: #9aa79a; font-size: 13px; }
 .time { margin-top: 8px; }
 
 /* 复核区块 */
-.ann-box h5 { margin-bottom: 8px; font-size: 13px; }
+.ann-box h5 { margin-bottom: 8px; }
 .ann-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
 .ann-form { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 
-/* 天气曲线 */
-.wx-chart h5 { margin-bottom: 4px; }
-.wx-echart { height: 150px; }
-
-/* 建议面板 */
-.advices-panel {
-  margin-top: 12px;
-  background: linear-gradient(160deg, rgba(16, 38, 24, 0.88), rgba(10, 24, 15, 0.92));
-  border: 1px solid rgba(74, 222, 128, 0.2);
-  border-radius: 8px;
-  padding: 12px;
-}
+.advices-panel { margin-top: 12px; }
 .adv-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 10px;
 }
-.adv-head h4 { letter-spacing: 1px; }
 .rule-link {
   cursor: help;
-  border-bottom: 1px dashed rgba(74, 222, 128, 0.5);
+  border-bottom: 1px dashed #90a4ae;
   font-size: 12px;
-  color: #86efac;
+  color: #546e7a;
 }
-
-/* 暗色下的表格斑马纹/表头微调 */
-.advices-panel :deep(.el-table) {
-  --el-table-header-bg-color: #142b1c;
-  --el-table-tr-bg-color: transparent;
-  --el-table-row-hover-bg-color: rgba(74, 222, 128, 0.06);
-  background: transparent;
-}
-.advices-panel :deep(.el-table__empty-block) { background: transparent; }
-
-/* Leaflet 暗色控件 */
-.map-panel :deep(.leaflet-control-attribution) {
-  background: rgba(7, 19, 12, 0.7);
-  color: #5f7a6a;
-}
-.map-panel :deep(.leaflet-control-attribution a) { color: #6b8577; }
 </style>

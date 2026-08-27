@@ -31,7 +31,7 @@ pnpm install
 pnpm dev
 ```
 访问：http://localhost:5173
-指挥大屏（演示用，深色科技风）：http://localhost:5173/screen
+数据总览（演示用，亮色仪表盘）：http://localhost:5173/screen
 
 ### 一键虚拟巡田（M5 模拟器）
 ```bash

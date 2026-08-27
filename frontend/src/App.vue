@@ -14,8 +14,8 @@ const route = useRoute()
   <el-container v-else class="layout">
     <el-aside :width="ui.sidebarCollapsed ? '64px' : '200px'" class="aside">
       <div class="brand" title="AgriScout 农田巡检平台">
-        <span v-if="!ui.sidebarCollapsed">🌾 AgriScout</span>
-        <span v-else>🌾</span>
+        <span v-if="ui.sidebarCollapsed" class="brand-mark">Ag</span>
+        <template v-else><i class="brand-dot" /> AgriScout</template>
       </div>
       <el-menu
         router
@@ -25,7 +25,7 @@ const route = useRoute()
         collapse-transition
       >
         <el-menu-item index="/screen">
-          <el-icon><DataBoard /></el-icon><template #title>指挥大屏</template>
+          <el-icon><DataBoard /></el-icon><template #title>数据总览</template>
         </el-menu-item>
         <el-menu-item index="/dashboard">
           <el-icon><Odometer /></el-icon><template #title>系统状态</template>
@@ -75,9 +75,21 @@ const route = useRoute()
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   font-size: 18px;
   font-weight: 600;
-  color: #2e5d34;
+  color: #1f2d1f;
+}
+.brand-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--el-color-primary, #15803d);
+}
+.brand-mark {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--el-color-primary, #15803d);
 }
 .menu {
   border-right: none;
