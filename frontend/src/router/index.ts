@@ -5,12 +5,18 @@ const router = createRouter({
   routes: [
     { path: '/', redirect: '/dashboard' },
     {
+      path: '/screen',
+      name: 'screen',
+      component: () => import('../views/BigScreenView.vue'),
+      meta: { title: '指挥大屏', bare: true },
+    },
+    {
       path: '/dashboard',
       name: 'dashboard',
       component: () => import('../views/DashboardView.vue'),
       meta: { title: '系统状态', icon: 'Odometer' },
     },
-    {
+ {
       path: '/fields',
       name: 'fields',
       component: () => import('../views/FieldsView.vue'),

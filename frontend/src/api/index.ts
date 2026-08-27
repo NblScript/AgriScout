@@ -4,6 +4,9 @@ import type {
   Advice,
   AdviceStatus,
   AnalysisSummary,
+  Annotation,
+  AnnotationLabel,
+  AnnotationSummary,
   CapturePointFull,
   Crop,
   Device,
@@ -12,6 +15,7 @@ import type {
   Patrol,
   PatrolDetail,
   Planting,
+  StatsOverview,
 } from '../types'
 
 export interface FieldCreatePayload {
@@ -141,4 +145,36 @@ export const advicesApi = {
       `/patrols/${patrolId}/advices/generate`,
       { method: 'POST' },
     ),
+}
+
+/* ---------- 标注回流（M6+ 人工复核） ---------- */
+
+export interface AnnotationSubmitPayload {
+  label: AnnotationLabel
+  annotator_name: string
+  note?: string | null
+}
+
+export const annotationsApi = {  /** 同点同标签为更新（返回 200），否则新建（201） */
+  submit: (pointId: number, payload: AnnotationSubmitPayload) =>
+    request<Annotation>(`/capture-points/${pointId}/annotations`, {
+      method: 'POST',
+      body: payload,
+    }),
+  listByPoint: (pointId: number) =>
+    request<Annotation[]>(`/capture-points/${pointId}/annotations`),
+  summary: (patrolId: number) =>
+    request<AnnotationSummary>(`/patrols/${patrolId}/annotations/summary`),
+  update: (
+    annotationId: number,
+    payload: { label?: AnnotationLabel; annotator_name?: string; note?: string | null },
+  ) => request<Annotation>(`/annotations/${annotationId}`, { method: 'PATCH', body: payload }),
+  remove: (annotationId: number) =>
+    request<void>(`/annotations/${annotationId}`, { method: 'DELETE' }),
+}
+
+/* ---------- 指挥大屏（平台聚合统计） ---------- */
+
+export const statsApi = {
+  overview: () => request<StatsOverview>('/stats/overview'),
 }

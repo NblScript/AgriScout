@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.v1 import (
     advices,
+    annotations,
     capture_points,
     crops,
     devices,
@@ -12,6 +13,7 @@ from app.api.v1 import (
     patrols,
     plantings,
     rules,
+    stats,
 )
 from app.core.deps import get_current_user
 
@@ -26,3 +28,5 @@ api_router.include_router(capture_points.router)
 api_router.include_router(ingest.router)
 api_router.include_router(rules.router)
 api_router.include_router(advices.router)
+api_router.include_router(annotations.router)
+api_router.include_router(stats.router)

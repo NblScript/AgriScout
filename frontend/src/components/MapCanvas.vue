@@ -11,16 +11,40 @@ const props = defineProps<{
   track: { type: string; coordinates: number[][] } | null
   points: CapturePointFull[]
   selectedIndex: number | null
+  /** dark：暗色底图 + 发光轨迹（大屏/回放大屏化用）；默认 light 保持管理页观感 */
+  theme?: 'light' | 'dark'
 }>()
 
 const emit = defineEmits<{ (e: 'select', pointId: number): void }>()
 
 const container = ref<HTMLDivElement>()
 let map: L.Map | null = null
+let tileLayer: L.TileLayer | null = null
 let boundaryLayer: L.Polygon | null = null
-let trackLayer: L.Polyline | null = null
+let trackLayer: L.LayerGroup | null = null
 let pointsLayer: L.LayerGroup | null = null
 let highlight: L.CircleMarker | null = null
+
+const TILES = {
+  light: {
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; OpenStreetMap',
+  },
+  dark: {
+    // 暗色底图（CARTO），离线化见独立任务
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+  },
+}
+
+function themeColors() {
+  const dark = props.theme === 'dark'
+  return {
+    boundary: dark ? '#4ade80' : '#2e5d34',
+    boundaryFill: dark ? 0.08 : 0.06,
+    track: dark ? '#38bdf8' : '#1565c0',
+  }
+}
 
 function pointColor(p: CapturePointFull): string {
   const v = p.analysis?.vigor_level
@@ -30,8 +54,10 @@ function pointColor(p: CapturePointFull): string {
 function fitAll() {
   if (!map) return
   const latlngs: L.LatLngExpression[] = []
-  if (boundaryLayer) latlngs.push(...(boundaryLayer.getLatLngs()[0] as L.LatLng[]))
-  if (trackLayer) latlngs.push(...trackLayer.getLatLngs() as L.LatLng[])
+  const ring = props.boundary?.coordinates?.[0]
+  if (ring?.length) latlngs.push(...ring.map(([lng, lat]) => [lat, lng] as L.LatLngExpression))
+  const coords = props.track?.coordinates
+  if (coords?.length) latlngs.push(...coords.map(([lng, lat]) => [lat, lng] as L.LatLngExpression))
   props.points.forEach((p) => latlngs.push([p.lat, p.lng]))
   if (latlngs.length) map.fitBounds(L.latLngBounds(latlngs).pad(0.15))
 }
@@ -42,9 +68,10 @@ function renderBoundary() {
   boundaryLayer = null
   const ring = props.boundary?.coordinates?.[0]
   if (ring?.length) {
+    const c = themeColors()
     boundaryLayer = L.polygon(
       ring.map(([lng, lat]) => [lat, lng]),
-      { color: '#2e5d34', weight: 2, fillOpacity: 0.06 },
+      { color: c.boundary, weight: 2, fillOpacity: c.boundaryFill },
     ).addTo(map)
   }
 }
@@ -55,10 +82,19 @@ function renderTrack() {
   trackLayer = null
   const coords = props.track?.coordinates
   if (coords?.length) {
-    trackLayer = L.polyline(
-      coords.map(([lng, lat]) => [lat, lng]),
-      { color: '#1565c0', weight: 2.5, opacity: 0.75, dashArray: '6 4' },
-    ).addTo(map)
+    const latlngs = coords.map(([lng, lat]) => [lat, lng] as L.LatLngExpression)
+    trackLayer = L.layerGroup().addTo(map)
+    if (props.theme === 'dark') {
+      // 双层发光轨迹：底层宽半透明 + 上层亮线
+      L.polyline(latlngs, { color: '#38bdf8', weight: 7, opacity: 0.18 }).addTo(trackLayer)
+      L.polyline(latlngs, {
+        color: themeColors().track, weight: 2, opacity: 0.9, dashArray: '6 4',
+      }).addTo(trackLayer)
+    } else {
+      L.polyline(latlngs, {
+        color: themeColors().track, weight: 2.5, opacity: 0.75, dashArray: '6 4',
+      }).addTo(trackLayer)
+    }
   }
 }
 
@@ -96,15 +132,23 @@ function renderHighlight() {
 onMounted(() => {
   if (!container.value) return
   map = L.map(container.value, { attributionControl: true })
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap',
-  }).addTo(map)
+  const t = TILES[props.theme === 'dark' ? 'dark' : 'light']
+  tileLayer = L.tileLayer(t.url, { maxZoom: 19, attribution: t.attribution }).addTo(map)
   renderBoundary()
   renderTrack()
   renderPoints()
   renderHighlight()
   fitAll()
+})
+
+// 主题切换：换底图并重绘配色相关图层
+watch(() => props.theme, () => {
+  if (!map) return
+  tileLayer?.remove()
+  const t = TILES[props.theme === 'dark' ? 'dark' : 'light']
+  tileLayer = L.tileLayer(t.url, { maxZoom: 19, attribution: t.attribution }).addTo(map)
+  renderBoundary()
+  renderTrack()
 })
 
 watch(() => props.boundary, renderBoundary)

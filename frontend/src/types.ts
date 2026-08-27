@@ -194,6 +194,42 @@ export interface AnalysisSummary {
   stress_flagged_points: number
 }
 
+/* ================= M6+ 标注回流：人工复核 ================= */
+export type AnnotationLabel = 'normal' | 'dry_stress' | 'suspected_disease' | 'other'
+
+export interface Annotation {
+  id: number
+  patrol_id: number
+  capture_point_id: number
+  label: AnnotationLabel
+  annotator_name: string
+  bbox: number[] | null
+  note: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AnnotationSummary {
+  patrol_id: number
+  points_total: number
+  annotated_points: number
+  annotations_total: number
+}
+
+export const ANNOTATION_LABELS: Record<AnnotationLabel, string> = {
+  normal: '正常',
+  dry_stress: '干旱胁迫',
+  suspected_disease: '疑似病害',
+  other: '其他',
+}
+
+export const ANNOTATION_TAG_TYPES: Record<AnnotationLabel, string> = {
+  normal: 'success',
+  dry_stress: 'warning',
+  suspected_disease: 'danger',
+  other: 'info',
+}
+
 /** 长势等级 → 展示色（1 差 → 5 旺） */
 export const VIGOR_COLORS: Record<number, string> = {
   1: '#d32f2f',
@@ -208,4 +244,35 @@ export const ADVICE_STATUS_LABELS: Record<AdviceStatus, string> = {
   suggested: '待处理',
   accepted: '已采纳',
   rejected: '已驳回',
+}
+
+/* ================= 指挥大屏：平台聚合统计 ================= */
+
+export interface RecentPatrolStat {
+  patrol_id: number
+  field_name: string | null
+  started_at: string
+  point_count: number
+  analyzed_points: number
+  avg_ndvi: number | null
+  avg_risk_score: number | null
+  /** 键为长势等级 "1"-"5" */
+  vigor_distribution: Record<string, number>
+  stress_points: number
+}
+
+export interface StatsOverview {
+  fields: number
+  crops: number
+  plantings: number
+  devices: number
+  patrols: number
+  capture_points: number
+  analyzed_points: number
+  annotations: number
+  advices_total: number
+  advices_suggested: number
+  advices_accepted: number
+  advices_rejected: number
+  recent_patrols: RecentPatrolStat[]
 }

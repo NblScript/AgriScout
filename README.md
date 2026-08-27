@@ -3,10 +3,10 @@
 农作物全生命周期管理系统：田间巡检小车每 0.5 米拍照 + 采集天气数据，
 平台自动判断作物生长情况并给出农事建议。
 
-## 当前状态：M6 可视化 ✅ —— 软件线 M0–M6 全部完成
+## 当前状态：M6 可视化 ✅ + 标注回流闭环 ✅ —— 软件线 M0–M6 全部完成
 
-- `backend/` — Python FastAPI 后端（基础管理 + 数据接入 + 分析管线 + 规则建议引擎，Alembic 迁移）
-- `frontend/` — Vue 3 + TypeScript + Element Plus + Leaflet（管理页 + 巡检任务列表 + 地图回放/时间轴/建议面板）
+- `backend/` — Python FastAPI 后端（基础管理 + 数据接入 + 分析管线 + 规则建议引擎 + 人工标注回流，Alembic 迁移）
+- `frontend/` — Vue 3 + TypeScript + Element Plus + Leaflet（管理页 + 巡检任务列表 + 地图回放/时间轴/建议面板 + 人工复核标注）
 - `simulator/` — 独立虚拟巡田模拟器（一键：建档→S形采样→合成照片→上传→分析→建议闭环报告）
 - `docs/` — 设计文档（`01` 调研笔记 / `04` 主计划 / `05` 讨论决策日志 / `06` 嵌入式学习路线）
 - 架构基线见 `docs/05-discussion-decisions.md`「开发基线定稿」节
@@ -31,6 +31,7 @@ pnpm install
 pnpm dev
 ```
 访问：http://localhost:5173
+指挥大屏（演示用，深色科技风）：http://localhost:5173/screen
 
 ### 一键虚拟巡田（M5 模拟器）
 ```bash
@@ -57,6 +58,14 @@ curl -X POST http://localhost:8000/api/v1/ingest/patrol \
 #       GET /api/v1/patrols/{id}/advices、PATCH /api/v1/advices/{id}(采纳/驳回)
 # 规则：GET|POST|PATCH|DELETE /api/v1/rules（删除=软下线）；POST /api/v1/rules/sync-yaml
 #       或命令行同步：cd backend && .venv/bin/python -m app.tools.sync_rules
+# 标注回流（M6+ 人工复核，前端回放页可直接操作）：
+#   POST   /api/v1/capture-points/{id}/annotations        （同点同标签幂等 upsert）
+#   GET    /api/v1/capture-points/{id}/annotations
+#   GET    /api/v1/patrols/{id}/annotations[/summary]     （列表 / 进度汇总）
+#   PATCH|DELETE /api/v1/annotations/{id}                 （修正 / 撤回）
+#   GET    /api/v1/annotations/export?patrol_id=          （NDJSON 训练集导出，
+#                                                          含照片URL+人工标签+机器分析快照，供 YOLOv8n 消费）
+# 大屏：GET /api/v1/stats/overview（资源计数+建议分布+近5次巡检摘要，指挥大屏单请求数据源）
 ```
 
 ### 生产数据库（可选）

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
-import { Calendar, Cherry, Cpu, Fold, Expand, MapLocation, Odometer, VideoCamera } from '@element-plus/icons-vue'
+import { Calendar, Cherry, Cpu, DataBoard, Fold, Expand, MapLocation, Odometer, VideoCamera } from '@element-plus/icons-vue'
 import { useUiStore } from './stores/ui'
 
 const ui = useUiStore()
@@ -8,7 +8,10 @@ const route = useRoute()
 </script>
 
 <template>
-  <el-container class="layout">
+  <!-- bare 路由（指挥大屏）不走管理台布局，全屏直出 -->
+  <router-view v-if="route.meta.bare" />
+
+  <el-container v-else class="layout">
     <el-aside :width="ui.sidebarCollapsed ? '64px' : '200px'" class="aside">
       <div class="brand" title="AgriScout 农田巡检平台">
         <span v-if="!ui.sidebarCollapsed">🌾 AgriScout</span>
@@ -21,6 +24,9 @@ const route = useRoute()
         class="menu"
         collapse-transition
       >
+        <el-menu-item index="/screen">
+          <el-icon><DataBoard /></el-icon><template #title>指挥大屏</template>
+        </el-menu-item>
         <el-menu-item index="/dashboard">
           <el-icon><Odometer /></el-icon><template #title>系统状态</template>
         </el-menu-item>
