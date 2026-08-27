@@ -25,11 +25,11 @@ let pointsLayer: L.LayerGroup | null = null
 let highlight: L.CircleMarker | null = null
 
 const TILES = {
-  // 瓦片统一走本地路径 /tiles/*：命中 public/tiles（预缓存，演示断网可用）；
-  // 未命中由 vite 中间件服务端代理 CARTO 取图（见 vite.config.ts tilesProxy）。
-  // 浏览器零回退逻辑、零外部瓦片域名——OSM 封锁页/断网灰图从机制上排除。
+  // 瓦片只有本地源 /tiles/*（tools/download_tiles.py 预缓存 13-19 级）。
+  // 无在线回退：CARTO 无 key 返回错误占位图、OSM 封锁应用流量——均不可靠；
+  // 演示视图由 applyBoundsClamp 钳制在缓存区内，本地恒命中。
   url: '/tiles/{z}/{x}/{y}.png',
-  attribution: '&copy; OpenStreetMap &copy; CARTO',
+  attribution: '&copy; OpenStreetMap contributors',
 }
 
 function themeColors() {
@@ -124,7 +124,7 @@ function renderHighlight() {
   }
 }
 
-const MAPCODE_VERSION = 'local-first-v4-20260827'
+const MAPCODE_VERSION = 'MV5-local-only-20260827'
 
 function applyBoundsClamp() {
   // 视图钳制在缓存覆盖范围内：maxBounds=地块边界外扩 0.3（约±0.8km < 缓存半径1.2km），
@@ -178,7 +178,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="container" class="map-canvas" :class="{ 'theme-dark': theme === 'dark' }" />
+  <div ref="container" class="map-canvas" :class="{ 'theme-dark': theme === 'dark' }">
+    <span class="mv-badge" :title="MAPCODE_VERSION">{{ MAPCODE_VERSION.split('-')[0] }}</span>
+  </div>
 </template>
 
 <style scoped>
@@ -186,6 +188,20 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   min-height: 380px;
+}
+/* 运行版本徽标：截图可见，用于排查浏览器缓存/僵尸实例 */
+.mv-badge {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 600;
+  font-size: 9px;
+  font-family: monospace;
+  color: #9aa79a;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 1px 5px;
+  border-radius: 3px;
+  pointer-events: none;
 }
 /* 暗色观感：同源瓦片反相+色相旋转，免第二套瓦片（离线演示同样生效） */
 .map-canvas.theme-dark :deep(.leaflet-tile) {
