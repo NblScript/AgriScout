@@ -47,9 +47,9 @@
 | created_at | DateTime | NOT NULL、default=now() | — |
 | updated_at | DateTime | NOT NULL、default=now() | — |
 
-索引 `ix_plantings_field_id`：(field_id)
-
 索引 `ix_plantings_crop_id`：(crop_id)
+
+索引 `ix_plantings_field_id`：(field_id)
 
 ### devices
 
@@ -84,11 +84,11 @@
 | created_at | DateTime | NOT NULL、default=now() | — |
 | updated_at | DateTime | NOT NULL、default=now() | — |
 
+索引 `ix_patrols_device_id`：(device_id)
+
 索引 `ix_patrols_field_id`：(field_id)
 
 索引 `ix_patrols_planting_id`：(planting_id)
-
-索引 `ix_patrols_device_id`：(device_id)
 
 ### capture_points
 

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from ultralytics import YOLO
 
-ML_ROOT = Path(__file__).resolve().parent.parent
+ML_ROOT = Path(__file__).resolve().parent  # train.py 位于 ml/ 一级目录
 DATA_YAML = ML_ROOT / "data" / "gwd_yolo" / "data.yaml"
 
 

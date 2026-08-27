@@ -83,7 +83,7 @@ def render() -> str:
                     constraints.append(f"default={render_default(col.server_default)}")
                 lines.append(f"| {col.name} | {shown} | {'、'.join(constraints) or '—'} | {col.comment or '—'} |")
 
-            for idx in table.indexes:
+            for idx in sorted(table.indexes, key=lambda i: i.name):
                 cols = ", ".join(c.name for c in idx.columns)
                 lines.append("")
                 lines.append(f"索引 `{idx.name}`：({cols})" + ("（唯一）" if idx.unique else ""))

@@ -33,7 +33,11 @@ backend/media/
 .zcode/
 
 # ML 训练产物（数据集/运行日志/权重不入库，模型导出到 backend/models/ 也不入库）
-ml/data/
+ml/data/*
+!ml/data/prepare_gwd.py
 ml/runs/
 ml/.venv/
 *.pt
+
+# 安全扫描插件产物
+.mimosa/

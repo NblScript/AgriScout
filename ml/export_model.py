@@ -10,7 +10,7 @@ import re
 import shutil
 from pathlib import Path
 
-ML_ROOT = Path(__file__).resolve().parent.parent
+ML_ROOT = Path(__file__).resolve().parent  # export_model.py 位于 ml/ 一级目录
 REPO_ROOT = ML_ROOT.parent
 BACKEND_MODELS = REPO_ROOT / "backend" / "models"
 

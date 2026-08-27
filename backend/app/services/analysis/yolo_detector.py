@@ -57,9 +57,17 @@ class YoloAnalyzer:
         return self._model
 
     def _detect(self, image: bytes) -> list[dict[str, Any]]:
-        """推理：返回归一化检测 [{"bbox": [x,y,w,h]∈[0,1], "conf": float}]。"""
+        """推理：返回归一化检测 [{"bbox": [x,y,w,h]∈[0,1], "conf": float}]。
+
+        Analyzer 协议输入是 bytes，ultralytics 不直接收——转 PIL 再进 predict。
+        """
+        import io
+
+        from PIL import Image
+
         model = self._load()
-        results = model.predict(image, conf=CONF_THRESHOLD, verbose=False)
+        pil_image = Image.open(io.BytesIO(image)).convert("RGB")
+        results = model.predict(pil_image, conf=CONF_THRESHOLD, verbose=False)
         detections: list[dict[str, Any]] = []
         for r in results:
             if r.boxes is None:
