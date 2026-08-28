@@ -130,7 +130,7 @@ function renderHighlight() {
   }
 }
 
-const MAPCODE_VERSION = 'MV6-maptiles-20260827'
+const MAPCODE_VERSION = 'MV7-zoomclamp-20260828'
 
 function applyBoundsClamp() {
   // 视图钳制在缓存覆盖范围内：maxBounds=地块边界外扩 0.3（约±0.8km < 缓存半径1.2km），
@@ -147,8 +147,14 @@ onMounted(() => {
   if (!container.value) return
   // 版本标记：控制台确认实际运行的代码（排查 HMR 僵尸实例/浏览器缓存）
   console.info(`[MapCanvas] ${MAPCODE_VERSION}`)
-  map = L.map(container.value, { attributionControl: true })
-  L.tileLayer(TILES.url, { maxZoom: 19, attribution: TILES.attribution }).addTo(map)
+  map = L.map(container.value, {
+    attributionControl: true,
+    // 缩放范围与瓦片缓存严格对齐（缓存 13-19 级）：低于 13 级视口必然出缓存区，
+    // 与其显示灰块不如禁止缩出。minZoom 需在 map 创建参数里设置才生效。
+    minZoom: 13,
+    maxZoom: 19,
+  })
+  L.tileLayer(TILES.url, { minZoom: 13, maxZoom: 19, attribution: TILES.attribution }).addTo(map)
   renderBoundary()
   renderTrack()
   renderPoints()

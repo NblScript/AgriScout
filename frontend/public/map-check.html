@@ -39,10 +39,13 @@
       `瓦片 loaded=${loaded} error=${errors}`
   }
 
-  const map = L.map('map', { attributionControl: true }).setView([39.1003, 116.1003], 15)
+  const map = L.map('map', {
+    attributionControl: true,
+    minZoom: 13, maxZoom: 19, // 与瓦片缓存范围对齐：禁止缩出缓存区
+  }).setView([39.1003, 116.1003], 15)
 
   const layer = L.tileLayer('/maptiles/{z}/{x}/{y}.png', {
-    maxZoom: 19,
+    minZoom: 13, maxZoom: 19,
     attribution: '© OpenStreetMap contributors (local cache)',
   })
   layer.on('tileload', () => { loaded++; update() })
