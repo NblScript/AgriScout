@@ -25,12 +25,11 @@ let pointsLayer: L.LayerGroup | null = null
 let highlight: L.CircleMarker | null = null
 
 const TILES = {
-  // 瓦片只有本地源 /maptiles/*（tools/download_tiles.py 预缓存 13-19 级）。
-  // 路径曾用 /tiles/*：该 URL 空间在浏览器磁盘缓存里已被历代错误响应毒化
-  // （SPA fallback 的 index.html / CARTO 无 key 错误图 max-age=86400），
-  // 换路径=换缓存键，毒条目全部失效。无在线回退，视图由 clamp 钳制在缓存区。
-  url: '/maptiles/{z}/{x}/{y}.png',
-  attribution: '&copy; OpenStreetMap contributors',
+  // 底图唯一源 = 本地高德瓦片 /gdmaptiles/*（tools/download_tiles.py 预缓存 13-18 级）。
+  // 高德为 GCJ-02 坐标系：WGS84 轨迹叠加存在固有百米级偏移，演示以相对位置为主可接受。
+  // 无在线回退（历史：OSM 封锁/CARTO 要求 key 均不可靠）；视图被 minZoom+maxBounds 钳制。
+  url: '/gdmaptiles/{z}/{x}/{y}.png',
+  attribution: '&copy; 高德地图',
 }
 
 function themeColors() {
@@ -130,7 +129,7 @@ function renderHighlight() {
   }
 }
 
-const MAPCODE_VERSION = 'MV7-zoomclamp-20260828'
+const MAPCODE_VERSION = 'MV8-amap-20260828'
 
 function applyBoundsClamp() {
   // 视图钳制在缓存覆盖范围内：maxBounds=地块边界外扩 0.3（约±0.8km < 缓存半径1.2km），
@@ -149,12 +148,11 @@ onMounted(() => {
   console.info(`[MapCanvas] ${MAPCODE_VERSION}`)
   map = L.map(container.value, {
     attributionControl: true,
-    // 缩放范围与瓦片缓存严格对齐（缓存 13-19 级）：低于 13 级视口必然出缓存区，
-    // 与其显示灰块不如禁止缩出。minZoom 需在 map 创建参数里设置才生效。
+    // 缩放范围与高德瓦片缓存严格对齐（缓存 13-18 级）
     minZoom: 13,
-    maxZoom: 19,
+    maxZoom: 18,
   })
-  L.tileLayer(TILES.url, { minZoom: 13, maxZoom: 19, attribution: TILES.attribution }).addTo(map)
+  L.tileLayer(TILES.url, { minZoom: 13, maxZoom: 18, attribution: TILES.attribution }).addTo(map)
   renderBoundary()
   renderTrack()
   renderPoints()

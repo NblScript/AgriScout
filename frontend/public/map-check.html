@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>地图最小验证页</title>
+<title>地图最小验证 · 高德本地瓦片</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
@@ -20,8 +20,8 @@
 <body>
 <div id="map"></div>
 <div id="info">
-  <b>地图最小验证 · 只请求 localhost 本地瓦片</b><br>
-  版本 MINI-1 · <span id="count"></span><br>
+  <b>地图最小验证 · 高德本地瓦片（GCJ-02）</b><br>
+  版本 MINI-2 · <span id="count"></span><br>
   <div id="log"></div>
 </div>
 <script>
@@ -35,18 +35,18 @@
     logEl.scrollTop = logEl.scrollHeight
   }
   function update() {
-    document.getElementById('count').textContent =
-      `瓦片 loaded=${loaded} error=${errors}`
+    document.getElementById('count').textContent = `瓦片 loaded=${loaded} error=${errors}`
   }
 
+  // 高德瓦片是 GCJ-02：视角中心用 GCJ-02 坐标，与下载脚本的换算一致
+  const GCJ = [39.10536, 116.10597] // ≈ WGS84 39.1003,116.1003
   const map = L.map('map', {
-    attributionControl: true,
-    minZoom: 13, maxZoom: 19, // 与瓦片缓存范围对齐：禁止缩出缓存区
-  }).setView([39.1003, 116.1003], 15)
+    attributionControl: true, minZoom: 13, maxZoom: 18,
+  }).setView(GCJ, 15)
 
-  const layer = L.tileLayer('/maptiles/{z}/{x}/{y}.png', {
-    minZoom: 13, maxZoom: 19,
-    attribution: '© OpenStreetMap contributors (local cache)',
+  const layer = L.tileLayer('/gdmaptiles/{z}/{x}/{y}.png', {
+    minZoom: 13, maxZoom: 18,
+    attribution: '© 高德地图 (local cache)',
   })
   layer.on('tileload', () => { loaded++; update() })
   layer.on('tileerror', (e) => {
@@ -55,19 +55,13 @@
   })
   layer.addTo(map)
 
-  // 演示田标记
-  L.circleMarker([39.1003, 116.1003], { radius: 8, color: '#15803d', weight: 3 })
-    .bindTooltip('演示田中心 (39.1003, 116.1003)').addTo(map)
-
-  L.rectangle(
-    [[39.098, 116.097], [39.103, 116.104]],
-    { color: '#15803d', weight: 1, fillOpacity: 0.06 },
-  ).bindTooltip('缓存覆盖区（13-19 级）').addTo(map)
+  L.circleMarker(GCJ, { radius: 8, color: '#15803d', weight: 3 })
+    .bindTooltip('演示田中心（GCJ-02 视角）').addTo(map)
 
   setTimeout(() => {
     log('=== 10 秒小结 ===')
     log(`loaded=${loaded} error=${errors}`)
-    log(errors === 0 ? '✓ 全部本地命中，地图链路健康' : '✗ 存在失败瓦片，看上方 ERR 行的 URL', errors === 0 ? 'ok' : 'err')
+    log(errors === 0 ? '✓ 全部本地命中，高德底图链路健康' : '✗ 存在失败瓦片，看上方 ERR 行 URL', errors === 0 ? 'ok' : 'err')
   }, 10000)
 </script>
 </body>
