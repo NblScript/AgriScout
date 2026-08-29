@@ -49,6 +49,18 @@
   `Storage` 协议抽象隔离，生产换对象存储只改实现类。
 - **落点**：`backend/app/services/storage.py`、`backend/media/`（gitignore）。
 
+### D8 · Agent 核心化路线（2026-08-28）
+- **问题**：Agent（LLM）如何从"解释者"升级为系统核心，且不破坏可溯源与规则兜底根基。
+- **结论**：两期落地，权限递进、每期一道闸：
+  - **L2 诊断问答**（只读）：6 个 SELECT 工具箱 + function-calling 循环（≤5轮），
+    问答与工具调用链落 agent_conversations 表溯源；**只读不写**是绝对红线
+  - **L1 规则起草**（起草权）：燃料统计（采纳/驳回率+漏报信号）→ 起草修订案存
+    rule_revisions（status=draft）→ 影子运行（savepoint 内存重算新旧规则 diff，
+    不污染 advices）→ **人工批准才写规则表（version+1）**；驳回归档留痕
+  - L3（自主生效/无人审批）维持 docs/05 的「明确不做」
+- **落点**：services/agent_chat.py、agent_tools.py、rule_feedback.py、
+  agent_rule_draft.py、shadow_run.py、/rule-revisions 审批页、迁移 0007/0008。
+
 ### D7 · LLM 建议线接入（2026-08-27）
 - **问题**：建议线 L1（主计划 §8.2：规则兜底 + LLM 解释层）如何接入而不破坏可溯源与红线。
 - **选项权衡**：

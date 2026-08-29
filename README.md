@@ -107,6 +107,19 @@ python3 tools/download_tiles.py --lat 39.10 --lng 116.10   # 演示田周边，4
 # 未配置则功能静默关闭，主链路不受影响；报告冻结 model/prompt/输入摘要可溯源
 ```
 
+### AI Agent（建议线 L2 + 规则线 L1）
+```bash
+# 诊断问答（回放页「问一问」面板）：
+#   POST /api/v1/agent/chat {"question": "...", "patrol_id": 7}
+#   Agent 只读查询平台数据（function-calling ≤5轮），每问留痕可溯源
+# 规则进化（侧栏「规则修订审批」页）：
+#   GET  /api/v1/rule-feedback                    （规则健康度：采纳/驳回率+漏报信号）
+#   POST /api/v1/rule-revisions/generate          （Agent 起草修订案，仅起草）
+#   POST /api/v1/rule-revisions/{id}/shadow       （影子运行：新旧规则 diff）
+#   POST /api/v1/rule-revisions/{id}/approve|reject（人工批准才写入规则表 version+1）
+# 双红线：L2 只读不写；L1 起草权与生效权分离（影子+人工两道闸）
+```
+
 ### 生产数据库（可选）
 ```bash
 docker compose up -d postgres
