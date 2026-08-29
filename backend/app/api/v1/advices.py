@@ -1,7 +1,7 @@
 """Advice 建议：生成、巡检维度列表、状态管理（采纳/驳回）。"""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import case, func, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.api.deps import paged, patrol_or_404
 from app.core.db import get_db
@@ -42,11 +42,7 @@ def list_advices(
     db: Session = Depends(get_db),
 ):
     patrol_or_404(db, patrol_id)
-    stmt = (
-        select(Advice)
-        .options(selectinload(Advice.capture_point))
-        .where(Advice.patrol_id == patrol_id)
-    )
+    stmt = select(Advice).where(Advice.patrol_id == patrol_id)
     if status is not None:
         stmt = stmt.where(Advice.status == status)
     if capture_point_id is not None:

@@ -36,6 +36,20 @@ function tiles404(): Plugin {
 // 开发期把 /api 与 /media(照片) 代理到后端，避免跨域问题
 export default defineConfig({
   plugins: [vue(), tiles404()],
+  build: {
+    // element-plus 全量库单 chunk 必然超默认 500kB，属已知vendor体积（gzip 334kB），阈值调至 1.1MB
+    chunkSizeWarningLimit: 1100,
+    rollupOptions: {
+      output: {
+        // 大依赖分包：消 chunk>500kB 告警，且业务代码改动不失效图表/组件库缓存
+        manualChunks: {
+          echarts: ['echarts'],
+          'element-plus': ['element-plus'],
+          leaflet: ['leaflet'],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

@@ -1,16 +1,9 @@
 """健康检查接口测试。"""
-import os
-
 from fastapi.testclient import TestClient
 
 
-def test_health_ok(tmp_path, monkeypatch):
-    # 用临时 SQLite，避免污染开发库
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path}/test.db")
-
-    from app.main import app  # 环境变量就绪后再导入
-
-    client = TestClient(app)
+def test_health_ok(client):
+    """经 client 夹具（内存测试库 + 依赖覆盖）验证健康接口。"""
     resp = client.get("/api/v1/health")
     assert resp.status_code == 200
     data = resp.json()
@@ -19,8 +12,5 @@ def test_health_ok(tmp_path, monkeypatch):
     assert data["database"] == "ok"
 
 
-def test_root_docs_available():
-    from app.main import app
-
-    client = TestClient(app)
+def test_root_docs_available(client):
     assert client.get("/docs").status_code == 200

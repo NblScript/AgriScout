@@ -8,6 +8,7 @@ import type { EChartsOption } from 'echarts'
 import MapCanvas from '../components/MapCanvas.vue'
 import EChart from '../components/EChart.vue'
 import { advicesApi, agentApi, annotationsApi, capturePointsApi, fieldsApi, patrolsApi, reportsApi } from '../api'
+import { errMsg } from '../api/http'
 import {
   ADVICE_STATUS_LABELS,
   ANNOTATION_LABELS,
@@ -86,7 +87,7 @@ async function loadAll() {
     await Promise.all([loadAdvices(), loadSummary(), loadFieldBoundary(), loadAnnSummary(), loadReport()])
     currentIndex.value = points.value.length ? Math.min(currentIndex.value, points.value.length - 1) : 0
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   } finally {
     loading.value = false
   }
@@ -109,7 +110,7 @@ async function loadAdvices() {
   try {
     advices.value = (await advicesApi.list(patrolId)).items
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   }
 }
 
@@ -127,7 +128,7 @@ async function decide(advice: Advice, status: Exclude<AdviceStatus, 'suggested'>
     if (idx >= 0) advices.value[idx] = updated
     ElMessage.success(`建议已${ADVICE_STATUS_LABELS[status]}`)
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   }
 }
 
@@ -144,7 +145,7 @@ async function regenerateAdvices() {
     ElMessage.success(`已重算：新增 ${stats.created} 条（保护决策 ${stats.skipped_decided} 条）`)
     await loadAdvices()
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   }
 }
 
@@ -153,7 +154,7 @@ async function reanalyze() {
     await patrolsApi.analyze(patrolId)
     ElMessage.info('已调度后台重分析，完成后刷新页面查看新结果')
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   }
 }
 
@@ -216,7 +217,7 @@ async function submitAnnotation() {
     annNote.value = ''
     await loadAnnSummary()
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   } finally {
     annotating.value = false
   }
@@ -228,7 +229,7 @@ async function removeAnnotation(ann: Annotation) {
     annotations.value = annotations.value.filter((a) => a.id !== ann.id)
     await loadAnnSummary()
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   }
 }
 
@@ -250,7 +251,7 @@ async function generateReport() {
     await loadReport()
     ElMessage.success('AI 报告已生成')
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   } finally {
     reportGenerating.value = false
   }
@@ -294,7 +295,7 @@ async function askAgent() {
       model: r.model,
     })
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   } finally {
     chatLoading.value = false
   }

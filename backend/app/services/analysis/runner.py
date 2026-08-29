@@ -90,9 +90,13 @@ def run_patrol_analysis(
             db.commit()  # 逐点提交 → 进度可轮询
 
         patrol.analysis_status = "done"
-        patrol.notes = (
-            f"analyzed={analyzed} skipped_no_photo={skipped} analyzer={analyzer.version}"
-        ) if patrol.notes is None else patrol.notes
+        # 系统统计写入 notes 头部；重分析时替换（否则旧 analyzer 版本的统计滞留）。
+        # 用户手写过的 notes（非系统格式）不覆写，统计只进日志——不复用语义。
+        stats_note = f"analyzed={analyzed} skipped_no_photo={skipped} analyzer={analyzer.version}"
+        if patrol.notes is None or patrol.notes.startswith("analyzed="):
+            patrol.notes = stats_note
+        else:
+            logger.info("patrol %s stats (user notes kept): %s", patrol_id, stats_note)
         db.commit()
         logger.info(
             "patrol %s analyzed: %s points, %s skipped", patrol_id, analyzed, skipped,

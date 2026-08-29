@@ -8,6 +8,7 @@ import MapCanvas from '../components/MapCanvas.vue'
 import ScreenPanel from '../components/ScreenPanel.vue'
 import EChart from '../components/EChart.vue'
 import { advicesApi, capturePointsApi, fieldsApi, patrolsApi, statsApi } from '../api'
+import { errMsg } from '../api/http'
 import {
   VIGOR_COLORS,
   type Advice,
@@ -62,7 +63,7 @@ async function selectPatrol(id: number) {
     advices.value = adv.items
     fieldBoundary.value = (field?.boundary as typeof fieldBoundary.value) ?? null
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   } finally {
     switching.value = false
   }

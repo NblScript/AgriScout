@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { fieldsApi } from '../api'
+import { errMsg } from '../api/http'
 import type { Field } from '../types'
 
 const list = ref<Field[]>([])
@@ -14,7 +15,7 @@ async function load() {
   try {
     list.value = await fieldsApi.list()
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   } finally {
     loading.value = false
   }
@@ -104,7 +105,7 @@ async function submit() {
     dialogVisible.value = false
     await load()
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   } finally {
     submitting.value = false
   }
@@ -121,7 +122,7 @@ async function removeRow(row: Field) {
     ElMessage.success('已删除')
     await load()
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   }
 }
 

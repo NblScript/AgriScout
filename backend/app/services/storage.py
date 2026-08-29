@@ -18,6 +18,10 @@ class Storage(Protocol):
         """读回照片字节；非本地引用或文件缺失返回 None（调用方自行跳过）。"""
         ...
 
+    def delete(self, url: str) -> None:
+        """删除照片文件（落库失败时的孤儿清理用）；文件不存在则静默。"""
+        ...
+
 
 class LocalStorage:
     """本地目录存储：内容 SHA-256 寻址，天然去重（同图只存一份）。"""
@@ -50,6 +54,17 @@ class LocalStorage:
             return (self.root / name).read_bytes()
         except OSError:
             return None
+
+    def delete(self, url: str) -> None:
+        if not url or not url.startswith("/media/"):
+            return
+        name = url.removeprefix("/media/")
+        if not name or "/" in name or ".." in name:
+            return  # 防路径穿越
+        try:
+            (self.root / name).unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def get_storage() -> Storage:

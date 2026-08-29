@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { fieldsApi, patrolsApi } from '../api'
+import { errMsg } from '../api/http'
 import type { Field, Patrol } from '../types'
 
 const router = useRouter()
@@ -22,7 +23,7 @@ async function load() {
     })
     list.value = page.items
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   } finally {
     loading.value = false
   }

@@ -31,3 +31,8 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
   if (resp.status === 204) return undefined as T
   return (await resp.json()) as T
 }
+
+/** 统一错误文案提取：全站 ElMessage.error(errMsg(e)) 一处收口。 */
+export function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}

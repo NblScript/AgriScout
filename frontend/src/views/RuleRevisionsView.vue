@@ -3,6 +3,7 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ruleRevisionApi } from '../api'
+import { errMsg } from '../api/http'
 import type { RuleRevision } from '../types'
 
 const revisions = ref<RuleRevision[]>([])
@@ -27,7 +28,7 @@ async function load() {
   try {
     revisions.value = await ruleRevisionApi.list(statusFilter.value || undefined)
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   } finally {
     loading.value = false
   }
@@ -40,7 +41,7 @@ async function generate() {
     ElMessage.success(`起草完成：${r.created} 条修订案`)
     await load()
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   } finally {
     generating.value = false
   }
@@ -56,7 +57,7 @@ async function shadow(rev: RuleRevision) {
       `影子完成：${sr?.added_total} 条新增 / ${sr?.removed_total} 条消失（${sr?.patrols_checked.length} 场巡检）`,
     )
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   } finally {
     setOp(rev.id, false)
   }
@@ -81,7 +82,7 @@ async function decide(rev: RuleRevision, action: 'approve' | 'reject') {
     Object.assign(rev, updated)
     ElMessage.success(isApprove ? `已生效（规则 v${updated.applied_version}）` : '已驳回归档')
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   } finally {
     setOp(rev.id, false)
   }

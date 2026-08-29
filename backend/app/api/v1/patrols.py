@@ -90,9 +90,7 @@ def reanalyze_patrol(
 def analysis_summary(patrol_id: int, db: Session = Depends(get_db)):
     patrol = patrol_or_404(db, patrol_id)
     analyses = db.scalars(
-        select(Analysis)
-        .options(selectinload(Analysis.capture_point))
-        .where(Analysis.patrol_id == patrol_id)
+        select(Analysis).where(Analysis.patrol_id == patrol_id)
     ).all()
 
     vigor_dist: dict[str, int] = {}

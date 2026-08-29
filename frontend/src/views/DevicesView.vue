@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import type { FormInstance, FormRules } from 'element-plus'
+import { ElMessage } from 'element-plus'
+import type { FormRules } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { devicesApi } from '../api'
+import { errMsg } from '../api/http'
+import { useCrudDialog } from '../composables/useCrudDialog'
 import {
   DEVICE_STATUS_LABELS,
   DEVICE_TYPE_LABELS,
@@ -20,7 +22,7 @@ async function load() {
   try {
     list.value = await devicesApi.list()
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   } finally {
     loading.value = false
   }
@@ -34,20 +36,15 @@ const STATUS_TAG: Record<DeviceStatus, 'info' | 'success' | 'warning' | 'danger'
   offline: 'danger',
 }
 
-/* ---------- 表单弹窗 ---------- */
-const dialogVisible = ref(false)
-const editingId = ref<number | null>(null)
-const submitting = ref(false)
-const formRef = ref<FormInstance>()
-
-const form = reactive({
-  code: '',
-  name: '',
-  type: 'rover' as DeviceType,
-  model: '',
-  status: 'idle' as DeviceStatus,
-  notes: '',
-})
+/* ---------- 表单弹窗（通用逻辑见 composables/useCrudDialog） ---------- */
+interface DeviceForm {
+  code: string
+  name: string
+  type: DeviceType
+  model: string
+  status: DeviceStatus
+  notes: string
+}
 
 const rules: FormRules = {
   code: [{ required: true, message: '请输入设备编号', trigger: 'blur' }],
@@ -55,72 +52,40 @@ const rules: FormRules = {
   type: [{ required: true, message: '请选择载体类型', trigger: 'change' }],
 }
 
-function openCreate() {
-  editingId.value = null
-  Object.assign(form, { code: '', name: '', type: 'rover', model: '', status: 'idle', notes: '' })
-  dialogVisible.value = true
-}
-
-function openEdit(row: Device) {
-  editingId.value = row.id
-  Object.assign(form, {
+const {
+  dialogVisible, editingId, submitting, formRef, form,
+  openCreate, openEdit, submit, removeRow,
+} = useCrudDialog<Device, DeviceForm>({
+  reload: load,
+  create: (p) => devicesApi.create(p as never),
+  update: (id, p) => devicesApi.update(id, p as never),
+  remove: (id) => devicesApi.remove(id),
+  emptyForm: () => ({ code: '', name: '', type: 'rover', model: '', status: 'idle', notes: '' }),
+  toForm: (row) => ({
     code: row.code,
     name: row.name,
     type: row.type,
     model: row.model ?? '',
     status: row.status,
     notes: row.notes ?? '',
-  })
-  dialogVisible.value = true
+  }),
+  entityName: '设备',
+})
+
+function buildPayload(f: DeviceForm, editing: boolean) {
+  const payload: Record<string, unknown> = {
+    name: f.name.trim(),
+    type: f.type,
+    model: f.model || null,
+    status: f.status,
+    notes: f.notes || null,
+  }
+  if (!editing) payload.code = f.code.trim()
+  return payload
 }
 
-async function submit() {
-  const valid = await formRef.value?.validate().catch(() => false)
-  if (!valid) return
-  submitting.value = true
-  try {
-    if (editingId.value == null) {
-      await devicesApi.create({
-        code: form.code.trim(),
-        name: form.name.trim(),
-        type: form.type,
-        model: form.model || null,
-        status: form.status,
-        notes: form.notes || null,
-      })
-      ElMessage.success('设备已创建')
-    } else {
-      await devicesApi.update(editingId.value, {
-        name: form.name.trim(),
-        type: form.type,
-        model: form.model || null,
-        status: form.status,
-        notes: form.notes || null,
-      })
-      ElMessage.success('设备已更新')
-    }
-    dialogVisible.value = false
-    await load()
-  } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
-  } finally {
-    submitting.value = false
-  }
-}
-
-async function removeRow(row: Device) {
-  try {
-    await ElMessageBox.confirm(`确认删除设备「${row.name}」？`, '删除确认', { type: 'warning' })
-  } catch {
-    return
-  }
-  try {
-    await devicesApi.remove(row.id)
-    ElMessage.success('已删除')
-    await load()
-  } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
-  }
+function onSubmit() {
+  submit(buildPayload)
 }
 </script>
 
@@ -150,7 +115,7 @@ async function removeRow(row: Device) {
     <el-table-column label="操作" width="150" fixed="right">
       <template #default="{ row }">
         <el-button size="small" @click="openEdit(row)">编辑</el-button>
-        <el-button size="small" type="danger" plain @click="removeRow(row)">删除</el-button>
+        <el-button size="small" type="danger" plain @click="removeRow(row, row.name)">删除</el-button>
       </template>
     </el-table-column>
   </el-table>
@@ -201,7 +166,7 @@ async function removeRow(row: Device) {
     </el-form>
     <template #footer>
       <el-button @click="dialogVisible = false">取消</el-button>
-      <el-button type="primary" :loading="submitting" @click="submit">保存</el-button>
+      <el-button type="primary" :loading="submitting" @click="onSubmit">保存</el-button>
     </template>
   </el-dialog>
 </template>

@@ -70,6 +70,8 @@ def ingest_patrol_package(db: Session, package: PatrolPackageIn, storage: Storag
 
     photos_saved = 0
     photos_referenced = 0
+    # 本次新落盘的照片 URL：落库失败时逐一清理，避免孤儿文件
+    saved_photo_urls: list[str] = []
     patrol = Patrol(
         field_id=field.id,
         planting_id=planting_id,
@@ -86,6 +88,8 @@ def ingest_patrol_package(db: Session, package: PatrolPackageIn, storage: Storag
 
     for cp in package.capture_points:
         photo_url, saved = _resolve_photo(cp, storage)
+        if saved and photo_url:
+            saved_photo_urls.append(photo_url)
         photos_saved += int(saved)
         photos_referenced += int(cp.photo is not None and not saved)
         point = CapturePoint(
@@ -105,6 +109,11 @@ def ingest_patrol_package(db: Session, package: PatrolPackageIn, storage: Storag
         db.commit()
     except IntegrityError as exc:
         db.rollback()
+        for url in saved_photo_urls:  # 单事务回滚了，落盘的照片须一并清理
+            try:
+                storage.delete(url)
+            except Exception:  # noqa: BLE001 清理失败不影响主错误抛出
+                logging.getLogger(__name__).warning("orphan photo cleanup failed: %s", url)
         raise ValueError("巡检包落库失败：约束冲突（检查 seq 是否重复）") from exc
 
     return IngestResultOut(

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { errMsg } from '../api/http'
 
 interface HealthInfo {
   status: string
@@ -21,7 +22,7 @@ async function fetchHealth() {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
     health.value = (await resp.json()) as HealthInfo
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    error.value = errMsg(e)
   } finally {
     loading.value = false
   }

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import type { FormInstance, FormRules } from 'element-plus'
+import { ElMessage } from 'element-plus'
+import type { FormRules } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { cropsApi, fieldsApi, plantingsApi } from '../api'
+import { errMsg } from '../api/http'
+import { useCrudDialog } from '../composables/useCrudDialog'
 import { PLANTING_STATUS_LABELS, type Crop, type Field, type Planting, type PlantingStatus } from '../types'
 
 const list = ref<Planting[]>([])
@@ -17,7 +19,7 @@ async function load() {
   try {
     list.value = await plantingsApi.list({ field_id: filterFieldId.value ?? undefined })
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   } finally {
     loading.value = false
   }
@@ -27,7 +29,7 @@ async function loadReferences() {
   try {
     ;[fields.value, crops.value] = await Promise.all([fieldsApi.list(), cropsApi.list()])
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    ElMessage.error(errMsg(e))
   }
 }
 
@@ -39,26 +41,48 @@ onMounted(() => {
 const fieldById = computed(() => new Map(fields.value.map((f) => [f.id, f])))
 const cropById = computed(() => new Map(crops.value.map((c) => [c.id, c])))
 
-/* ---------- 表单弹窗 ---------- */
-const dialogVisible = ref(false)
-const editingId = ref<number | null>(null)
-const submitting = ref(false)
-const formRef = ref<FormInstance>()
-
-const form = reactive({
-  field_id: null as number | null,
-  crop_id: null as number | null,
-  sowing_date: '',
-  expected_harvest_date: '' as string | null,
-  status: 'active' as PlantingStatus,
-  notes: '',
-})
+/* ---------- 表单弹窗（通用逻辑见 composables/useCrudDialog） ---------- */
+interface PlantingForm {
+  field_id: number | null
+  crop_id: number | null
+  sowing_date: string
+  expected_harvest_date: string | null
+  status: PlantingStatus
+  notes: string
+}
 
 const rules: FormRules = {
   field_id: [{ required: true, message: '请选择地块', trigger: 'change' }],
   crop_id: [{ required: true, message: '请选择作物', trigger: 'change' }],
   sowing_date: [{ required: true, message: '请选择播种日期', trigger: 'change' }],
 }
+
+const {
+  dialogVisible, editingId, submitting, formRef, form,
+  openCreate: _openCreate, openEdit, submit, removeRow: _removeRow,
+} = useCrudDialog<Planting, PlantingForm>({
+  reload: load,
+  create: (p) => plantingsApi.create(p as never),
+  update: (id, p) => plantingsApi.update(id, p as never),
+  remove: (id) => plantingsApi.remove(id),
+  emptyForm: () => ({
+    field_id: filterFieldId.value,
+    crop_id: null,
+    sowing_date: '',
+    expected_harvest_date: null,
+    status: 'active',
+    notes: '',
+  }),
+  toForm: (row) => ({
+    field_id: row.field_id,
+    crop_id: row.crop_id,
+    sowing_date: row.sowing_date,
+    expected_harvest_date: row.expected_harvest_date,
+    status: row.status,
+    notes: row.notes ?? '',
+  }),
+  entityName: '种植记录',
+})
 
 /** 选定作物+播种日期后，按生命周期天数自动推算预计收获日 */
 function autoFillHarvest() {
@@ -70,81 +94,31 @@ function autoFillHarvest() {
 }
 
 function openCreate() {
-  editingId.value = null
-  Object.assign(form, {
-    field_id: filterFieldId.value,
-    crop_id: null,
-    sowing_date: '',
-    expected_harvest_date: null,
-    status: 'active',
-    notes: '',
-  })
-  dialogVisible.value = true
+  _openCreate()
 }
 
-function openEdit(row: Planting) {
-  editingId.value = row.id
-  Object.assign(form, {
-    field_id: row.field_id,
-    crop_id: row.crop_id,
-    sowing_date: row.sowing_date,
-    expected_harvest_date: row.expected_harvest_date,
-    status: row.status,
-    notes: row.notes ?? '',
-  })
-  dialogVisible.value = true
-}
-
-async function submit() {
-  const valid = await formRef.value?.validate().catch(() => false)
-  if (!valid) return
-  submitting.value = true
-  try {
-    if (editingId.value == null) {
-      await plantingsApi.create({
-        field_id: form.field_id!,
-        crop_id: form.crop_id!,
-        sowing_date: form.sowing_date,
-        expected_harvest_date: form.expected_harvest_date || null,
-        status: form.status,
-        notes: form.notes || null,
-      })
-      ElMessage.success('种植记录已创建')
-    } else {
-      await plantingsApi.update(editingId.value, {
-        sowing_date: form.sowing_date,
-        expected_harvest_date: form.expected_harvest_date || null,
-        status: form.status,
-        notes: form.notes || null,
-      })
-      ElMessage.success('种植记录已更新')
-    }
-    dialogVisible.value = false
-    await load()
-  } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
-  } finally {
-    submitting.value = false
+function buildPayload(f: PlantingForm, editing: boolean) {
+  const payload: Record<string, unknown> = {
+    sowing_date: f.sowing_date,
+    expected_harvest_date: f.expected_harvest_date || null,
+    status: f.status,
+    notes: f.notes || null,
   }
+  if (!editing) {
+    payload.field_id = f.field_id!
+    payload.crop_id = f.crop_id!
+  }
+  return payload
 }
 
-async function removeRow(row: Planting) {
+function onSubmit() {
+  submit(buildPayload)
+}
+
+function removeRow(row: Planting) {
   const fname = row.field_name ?? fieldById.value.get(row.field_id)?.name ?? row.field_id
   const cname = row.crop_name ?? cropById.value.get(row.crop_id)?.name ?? row.crop_id
-  try {
-    await ElMessageBox.confirm(`确认删除「${fname} × ${cname}」的种植记录？`, '删除确认', {
-      type: 'warning',
-    })
-  } catch {
-    return
-  }
-  try {
-    await plantingsApi.remove(row.id)
-    ElMessage.success('已删除')
-    await load()
-  } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
-  }
+  _removeRow(row, `${fname} × ${cname}`)
 }
 </script>
 
@@ -247,7 +221,7 @@ async function removeRow(row: Planting) {
     </el-form>
     <template #footer>
       <el-button @click="dialogVisible = false">取消</el-button>
-      <el-button type="primary" :loading="submitting" @click="submit">保存</el-button>
+      <el-button type="primary" :loading="submitting" @click="onSubmit">保存</el-button>
     </template>
   </el-dialog>
 </template>
