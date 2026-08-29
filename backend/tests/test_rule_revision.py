@@ -39,6 +39,55 @@ def _enable_llm(monkeypatch):
     monkeypatch.setattr(type(get_settings()), "llm_enabled", property(lambda self: True))
 
 
+def test_shadow_run_does_not_mutate_rules(client, monkeypatch):
+    """P0 回归：影子运行绝不能改规则表/建议表（savepoint 击穿事故的守卫）。"""
+    field_id, patrol_id = _setup(client)
+    rules_before = {
+        r["rule_key"]: (r["version"], r["condition"], r["active"])
+        for r in client.get(f"{BASE}/rules").json()
+    }
+    advices_before = client.get(f"{BASE}/patrols/{patrol_id}/advices").json()["total"]
+
+    # 不走 LLM：手工造一条 modify 修订案（阈值改到不可能命中的 999）
+    from app.core.db import get_session_factory
+    from app.main import app
+    from app.models import RuleRevision
+
+    # 取 conftest 覆盖后的 TestSession（写测试内存库），不能用真实 SessionLocal
+    TestSessionFactory = app.dependency_overrides[get_session_factory]()
+    db = TestSessionFactory()
+    rev = RuleRevision(
+        rule_key="R-TEST-ROUTINE",
+        action="modify",
+        draft={"rule_key": "R-TEST-ROUTINE", "tier": "routine", "priority": "low",
+               "condition": {"stage": "不存在的生育期"}, "action": "影子实验文案", "source": "影子测试"},
+        reason="P0 回归测试",
+        model="fake", prompt_version="v1",
+    )
+    db.add(rev)
+    db.commit()
+    rev_id = rev.id
+    db.close()
+
+    shadow = client.post(f"{BASE}/rule-revisions/{rev_id}/shadow?sample_size=1")
+    assert shadow.status_code == 200, shadow.text
+
+    # 规则表逐字段不变
+    rules_after = {
+        r["rule_key"]: (r["version"], r["condition"], r["active"])
+        for r in client.get(f"{BASE}/rules").json()
+    }
+    assert rules_after == rules_before, "影子运行改写了规则表！"
+
+    # 建议表 suggested 总数不变（被影子重算过的痕迹检查）
+    advices_after = client.get(f"{BASE}/patrols/{patrol_id}/advices").json()["total"]
+    assert advices_after == advices_before
+
+    # 且 diff 报告正常产出（stage 不存在 → after 应为 0 命中）
+    sr = shadow.json()["shadow_result"]
+    assert sr["per_patrol"][0]["after"] == 0
+
+
 def _setup(client, with_advice_flow=True):
     field_id = client.post(
         f"{BASE}/fields",

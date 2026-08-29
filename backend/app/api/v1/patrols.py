@@ -3,6 +3,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.api.deps import patrol_or_404
 from app.core.db import get_db, get_session_factory
 from app.models import Analysis, CapturePoint
 from app.models.patrol import Patrol
@@ -41,7 +42,7 @@ def list_patrols(
     return Page(items=list(rows), total=total, skip=skip, limit=limit)
 
 
-def _get_patrol_or_404(db: Session, patrol_id: int) -> Patrol:
+def patrol_or_404(db: Session, patrol_id: int) -> Patrol:
     obj = db.scalars(
         select(Patrol)
         .options(
@@ -58,7 +59,7 @@ def _get_patrol_or_404(db: Session, patrol_id: int) -> Patrol:
 
 @router.get("/{patrol_id}", response_model=PatrolDetailOut)
 def get_patrol(patrol_id: int, db: Session = Depends(get_db)):
-    return _get_patrol_or_404(db, patrol_id)
+    return patrol_or_404(db, patrol_id)
 
 
 @router.post("/{patrol_id}/analyze", status_code=202)
@@ -71,7 +72,7 @@ def reanalyze_patrol(
     session_factory=Depends(get_session_factory),
 ):
     """手动重分析（升级 analyzer 或数据修复后使用）。立即返回 202，后台执行。"""
-    _get_patrol_or_404(db, patrol_id)  # 存在性校验
+    patrol_or_404(db, patrol_id)  # 存在性校验
     background_tasks.add_task(
         run_patrol_analysis, patrol_id, analyzer, storage, session_factory,
     )
@@ -80,7 +81,7 @@ def reanalyze_patrol(
 
 @router.get("/{patrol_id}/analysis-summary", response_model=PatrolAnalysisSummaryOut)
 def analysis_summary(patrol_id: int, db: Session = Depends(get_db)):
-    patrol = _get_patrol_or_404(db, patrol_id)
+    patrol = patrol_or_404(db, patrol_id)
     analyses = db.scalars(
         select(Analysis)
         .options(selectinload(Analysis.capture_point))

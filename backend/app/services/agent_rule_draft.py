@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models import Rule, RuleRevision
-from app.services.llm_report import PROMPTS_DIR, _chat
+from app.services.llm_report import _chat, latest_prompt
 from app.services.rule_feedback import collect_rule_feedback
 
 DRAFT_MAX_CHARS = 16000
@@ -38,8 +38,7 @@ def draft_rule_revisions(db: Session) -> dict:
     feedback = collect_rule_feedback(db)
     current = _current_rules_yaml_like(db)
 
-    prompt_path = sorted(PROMPTS_DIR.glob("rule_draft_v*.md"))[-1]
-    system = prompt_path.read_text(encoding="utf-8")
+    prompt_path, system = latest_prompt("rule_draft")
     user = json.dumps({
         "feedback": feedback,
         "current_rules": current,

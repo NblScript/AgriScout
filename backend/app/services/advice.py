@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import Advice, Analysis, CapturePoint, Patrol, Rule, WeatherSample
+from app.models import Advice, Analysis, CapturePoint, Patrol, Planting, Rule, WeatherSample
 from app.services.analysis.base import CaptureContext, calendar_growth_stage
 
 TOP_K_PER_POINT = 3
@@ -185,6 +185,59 @@ def freeze_snapshot(rule: Rule) -> dict[str, Any]:
         "source": rule.source,
         "version": rule.version,
     }
+
+
+def compute_advice_pairs(
+    db: Session,
+    patrol_id: int,
+    extra_rules: list[Rule] | None = None,
+    exclude_keys: set[str] | None = None,
+) -> set[tuple[int, str]]:
+    """纯计算：给定当前规则集，返回该巡检会产生的 (capture_point_id, rule_key) 集合。
+
+    只读零写入——影子运行（shadow_run.py）依赖此性质做新旧规则对比，
+    与 generate_advices_for_patrol 共享同一套加载与匹配逻辑。
+    extra_rules：内存中的临时规则（draft 视图）；exclude_keys：从现库规则中剔除的 key。
+    """
+    patrol = db.scalars(
+        select(Patrol)
+        .options(
+            selectinload(Patrol.planting).selectinload(Planting.crop),
+            selectinload(Patrol.capture_points)
+            .selectinload(CapturePoint.analysis),
+            selectinload(Patrol.capture_points).selectinload(CapturePoint.weather),
+        )
+        .where(Patrol.id == patrol_id)
+    ).first()
+    if patrol is None:
+        raise LookupError(f"巡检任务不存在：patrol_id={patrol_id}")
+
+    crop_id = patrol.planting.crop_id if patrol.planting else None
+    rules = [
+        r for r in db.scalars(select(Rule).where(Rule.active.is_(True))).all()
+        if r.crop_id is None or (crop_id is not None and r.crop_id == crop_id)
+    ]
+    if exclude_keys:
+        rules = [r for r in rules if r.rule_key not in exclude_keys]
+    if extra_rules:
+        rules = rules + [
+            r for r in extra_rules
+            if r.crop_id is None or (crop_id is not None and r.crop_id == crop_id)
+        ]
+
+    planting = patrol.planting
+    pairs: set[tuple[int, str]] = set()
+    for point in patrol.capture_points:
+        ctx = build_point_context(
+            point,
+            sowing_date=planting.sowing_date if planting else None,
+            crop_stages=list(planting.crop.stages) if planting and planting.crop else None,
+        )
+        for rule in rules:
+            ok, _bindings = evaluate(rule.condition or {}, ctx)
+            if ok:
+                pairs.add((point.id, rule.rule_key))
+    return pairs
 
 
 def generate_advices_for_patrol(db: Session, patrol_id: int) -> dict[str, int]:

@@ -3,7 +3,6 @@
 function-calling 循环 + 只读工具箱（agent_tools.py）。红线：只读不写——
 工具全为 SELECT 查询；每轮工具调用记录入 trace，问答与调用链落库可溯源。
 """
-import inspect
 import json
 import logging
 from pathlib import Path
@@ -12,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.services.agent_tools import safe_dispatch
-from app.services.llm_report import PROMPTS_DIR, _chat_messages
+from app.services.llm_report import _chat_messages, latest_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -107,8 +106,7 @@ def chat(db: Session, question: str, patrol_id: int | None = None) -> dict:
     if not settings.llm_enabled:
         raise ValueError("未配置 LLM：请在 backend/.env 设置 LLM_API_BASE / LLM_API_KEY / LLM_MODEL")
 
-    prompt_path = sorted(PROMPTS_DIR.glob("agent_v*.md"))[-1]
-    system = prompt_path.read_text(encoding="utf-8")
+    prompt_path, system = latest_prompt("agent")
 
     context_note = f"\n\n用户当前正在查看巡检 #{patrol_id}，可作为默认分析对象。" if patrol_id else ""
     messages: list[dict] = [

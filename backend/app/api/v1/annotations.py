@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.api.deps import paged, patrol_or_404
 from app.core.db import get_db
 from app.models import Analysis, Annotation, CapturePoint, Patrol
 from app.schemas.annotation import (
@@ -26,11 +27,6 @@ def _get_point_or_404(db: Session, point_id: int) -> CapturePoint:
     return point
 
 
-def _get_patrol_or_404(db: Session, patrol_id: int) -> Patrol:
-    patrol = db.get(Patrol, patrol_id)
-    if patrol is None:
-        raise HTTPException(status_code=404, detail="巡检任务不存在")
-    return patrol
 
 
 def _get_annotation_or_404(db: Session, annotation_id: int) -> Annotation:
@@ -51,12 +47,14 @@ def create_annotation(point_id: int, payload: AnnotationCreate, response: Respon
         )
     )
     if ann is None:
-        ann = Annotation(capture_point_id=point.id, patrol_id=point.patrol_id)
+        # label 即查询键，更新分支无需回写；仅创建分支需要赋值
+        ann = Annotation(
+            capture_point_id=point.id, patrol_id=point.patrol_id, label=payload.label,
+        )
         db.add(ann)
         created = True
     else:
         created = False
-    ann.label = payload.label
     ann.annotator_name = payload.annotator_name
     ann.note = payload.note
     db.commit()
@@ -81,7 +79,7 @@ def list_point_annotations(point_id: int, db: Session = Depends(get_db)):
 @router.get("/patrols/{patrol_id}/annotations/summary", response_model=PatrolAnnotationSummary)
 def patrol_annotation_summary(patrol_id: int, db: Session = Depends(get_db)):
     """回放页进度徽标：总点数 / 已复核点数（去重）/ 标注条数。"""
-    _get_patrol_or_404(db, patrol_id)
+    patrol_or_404(db, patrol_id)
     points_total = db.scalar(
         select(func.count()).select_from(CapturePoint).where(CapturePoint.patrol_id == patrol_id)
     ) or 0
@@ -109,20 +107,17 @@ def list_patrol_annotations(
     limit: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
-    _get_patrol_or_404(db, patrol_id)
+    patrol_or_404(db, patrol_id)
     stmt = select(Annotation).where(Annotation.patrol_id == patrol_id)
     if label is not None:
         stmt = stmt.where(Annotation.label == label)
     if capture_point_id is not None:
         stmt = stmt.where(Annotation.capture_point_id == capture_point_id)
 
-    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
-    rows = db.scalars(
-        stmt.order_by(Annotation.updated_at.desc(), Annotation.id.desc())
-        .offset(skip)
-        .limit(limit)
-    ).all()
-    return Page(items=list(rows), total=total, skip=skip, limit=limit)
+    return paged(
+        db, stmt, skip, limit,
+        order_by=[Annotation.updated_at.desc(), Annotation.id.desc()],
+    )
 
 
 @router.patch("/annotations/{annotation_id}", response_model=AnnotationOut)
@@ -165,7 +160,7 @@ def export_dataset(
     供 YOLOv8n 微调（识别线 L1）直接消费；bbox 字段为画框功能预留，当前恒为 null。
     """
     if patrol_id is not None:
-        _get_patrol_or_404(db, patrol_id)
+        patrol_or_404(db, patrol_id)
     stmt = (
         select(Annotation, CapturePoint, Analysis)
         .join(CapturePoint, Annotation.capture_point_id == CapturePoint.id)

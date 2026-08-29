@@ -107,20 +107,6 @@ def run_patrol_analysis(
         except Exception:  # noqa: BLE001 建议失败不影响分析结论，仅记录
             db.rollback()
             logger.exception("patrol %s advice generation failed", patrol_id)
-
-        # 建议线 L1：LLM 巡检报告（主计划 §8.2）。未配置 LLM 静默跳过；失败只记日志
-        try:
-            from app.core.config import get_settings
-            from app.services.llm_report import generate_report
-
-            if get_settings().llm_enabled:
-                report = generate_report(db, patrol.id)
-                logger.info(
-                    "patrol %s llm report generated (model=%s)", patrol_id, report.model,
-                )
-        except Exception:  # noqa: BLE001 报告失败不影响分析/建议结论
-            db.rollback()
-            logger.warning("patrol %s llm report generation failed", patrol_id, exc_info=True)
     except Exception:
         db.rollback()
         try:

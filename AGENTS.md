@@ -30,17 +30,18 @@ cd ml && .venv/bin/python export_model.py            # 产物 → backend/models
 
 | 路径 | 职责 |
 |---|---|
-| `backend/app/models/` | 12 张表，每实体一文件；`timestamps.py` 公共 mixin |
-| `backend/app/api/v1/` | 薄路由层：CRUD + ingest + 分析 + 建议 + 标注 + stats |
+| `backend/app/models/` | 14 张表，每实体一文件；`timestamps.py` 公共 mixin |
+| `backend/app/api/v1/` | 薄路由层：CRUD + ingest + 分析 + 建议 + 标注 + stats + 报告 + Agent + 规则修订；`deps.py` 公共 404/分页助手 |
 | `backend/app/services/analysis/` | Analyzer 协议（base.py）+ 占位颜色版 + YOLO 版 + 后台 runner |
-| `backend/app/services/advice.py` | 规则匹配引擎：三层规则（threshold/status/routine）× 六条件六算子 |
+| `backend/app/services/` | advice(规则引擎) / agent_chat+agent_tools(L2 诊断) / agent_rule_draft+rule_feedback+shadow_run+rule_revision(L1 起草生效) / llm_report(报告) / ingest / storage |
 | `backend/app/rules/wheat.yaml` | 规则种子库（单一事实源，经 sync_rules 同步入表） |
 | `backend/app/schemas/` | DTO + 巡检包协议 v1（对小车端的合同） |
-| `backend/migrations/versions/` | 手写 Alembic 迁移，`000N_主题` 命名 |
-| `frontend/src/views/` | 七管理页 + PatrolDetailView（回放/复核）+ BigScreenView（/screen 总览） |
+| `backend/migrations/versions/` | 手写 Alembic 迁移，`000N_主题` 命名（当前 0008） |
+| `frontend/src/views/` | 八管理页（含 RuleRevisionsView 审批）+ PatrolDetailView（回放/复核/问一问/报告）+ BigScreenView（/screen 总览） |
 | `frontend/src/components/` | MapCanvas（Leaflet 封装，theme=light/dark）、EChart、ScreenPanel |
 | `simulator/` | 独立虚拟巡田，只走 HTTP（禁止 import 后端内部） |
 | `ml/` | YOLO 训练环境（与后端运行时分离） |
+| `tools/` | download_tiles.py 离线瓦片下载（高德源） |
 
 ## 不可变红线（违反=返工）
 

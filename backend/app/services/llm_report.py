@@ -37,6 +37,15 @@ PROMPTS_DIR = Path(__file__).resolve().parent / "llm_prompts"
 CONTEXT_MAX_CHARS = 24000
 
 
+def latest_prompt(prefix: str) -> tuple[Path, str]:
+    """取 llm_prompts/ 下 {prefix}_vN.md 的最新版本；缺失抛 LookupError（路由→503）。"""
+    matches = sorted(PROMPTS_DIR.glob(f"{prefix}_v*.md"))
+    if not matches:
+        raise LookupError(f"缺少 prompt 模板：{prefix}_v*.md")
+    path = matches[-1]
+    return path, path.read_text(encoding="utf-8")
+
+
 def build_report_context(db: Session, patrol_id: int) -> dict:
     """巡检的结构化上下文：只给 LLM 平台内已有数据，不引外部知识。"""
     patrol = db.get(Patrol, patrol_id)
@@ -176,8 +185,7 @@ def generate_report(db: Session, patrol_id: int) -> PatrolReport:
         raise ValueError("未配置 LLM：请在 backend/.env 设置 LLM_API_BASE / LLM_API_KEY / LLM_MODEL")
 
     context = build_report_context(db, patrol_id)
-    prompt_path = sorted(PROMPTS_DIR.glob("report_v*.md"))[-1]
-    system = prompt_path.read_text(encoding="utf-8")
+    prompt_path, system = latest_prompt("report")
     content = _chat(system, json.dumps(context, ensure_ascii=False, default=str))
 
     report = db.query(PatrolReport).filter_by(patrol_id=patrol_id).one_or_none()

@@ -9,6 +9,7 @@ from app.schemas.rule import RuleOut
 from app.schemas.rule_revision import DraftGenerateOut, RevisionDecideIn, RevisionOut
 from app.services.agent_rule_draft import draft_rule_revisions
 from app.services.rule_feedback import collect_rule_feedback
+from app.services.rule_revision import apply_draft_to_rule
 from app.services.shadow_run import run_shadow
 
 router = APIRouter(tags=["rule-revisions"])
@@ -82,38 +83,11 @@ def approve_revision(revision_id: int, payload: RevisionDecideIn, db: Session = 
     if revision.shadow_result is None:
         raise HTTPException(status_code=422, detail="请先执行影子运行再批准")
 
-    rule = db.query(Rule).filter_by(rule_key=revision.rule_key).one_or_none()
-    draft = revision.draft
-    if revision.action == "deactivate":
-        if rule is None:
-            raise HTTPException(status_code=422, detail="目标规则不存在，无法停用")
-        rule.active = False
-        revision.applied_version = rule.version
-    elif revision.action == "add":
-        if rule is not None:
-            raise HTTPException(status_code=409, detail="规则已存在，不能以 add 方式批准")
-        rule = Rule(
-            rule_key=draft.get("rule_key", revision.rule_key),
-            tier=draft.get("tier", "threshold"),
-            condition=draft.get("condition", {}),
-            action=draft.get("action", ""),
-            params=draft.get("params"),
-            priority=draft.get("priority", "medium"),
-            active=True,
-            source=draft.get("source"),
-        )
-        db.add(rule)
-        db.flush()
-        revision.applied_version = rule.version
-    else:  # modify
-        if rule is None:
-            raise HTTPException(status_code=422, detail="目标规则不存在，无法修改")
-        for field in ("tier", "priority", "condition", "action", "params", "source"):
-            if field in draft:
-                setattr(rule, field, draft[field])
-        rule.version += 1
-        rule.active = True
-        revision.applied_version = rule.version
+    try:
+        revision.applied_version = apply_draft_to_rule(db, revision)
+    except ValueError as exc:
+        code = 409 if "已存在" in str(exc) else 422
+        raise HTTPException(status_code=code, detail=str(exc)) from exc
 
     revision.status = "approved"
     revision.decided_by = payload.decided_by

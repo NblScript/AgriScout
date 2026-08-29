@@ -2,6 +2,7 @@
 /** /screen 数据总览：亮色专业工具风。中央地图 + 左右图表，数据全部来自平台真实接口。 */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import type { EChartsOption } from 'echarts'
 import MapCanvas from '../components/MapCanvas.vue'
 import ScreenPanel from '../components/ScreenPanel.vue'
@@ -60,6 +61,8 @@ async function selectPatrol(id: number) {
     points.value = pts.items
     advices.value = adv.items
     fieldBoundary.value = (field?.boundary as typeof fieldBoundary.value) ?? null
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e))
   } finally {
     switching.value = false
   }

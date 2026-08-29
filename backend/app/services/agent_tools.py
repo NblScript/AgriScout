@@ -140,7 +140,13 @@ def tool_get_platform_stats(db: Session) -> dict:
     def _count(model) -> int:
         return db.query(model).count()
 
-    advice_rows = db.query(Advice.status, func_count()).group_by(Advice.status).all()
+    from sqlalchemy import func
+
+    advice_rows = (
+        db.query(Advice.status, func.count())
+        .group_by(Advice.status)
+        .all()
+    )
     latest = (
         db.query(Patrol)
         .order_by(Patrol.started_at.desc(), Patrol.id.desc())
@@ -155,38 +161,39 @@ def tool_get_platform_stats(db: Session) -> dict:
     }
 
 
-def func_count():
-    from sqlalchemy import func
-    return func.count()
-
-
 def safe_dispatch(db: Session, fn, arguments: dict[str, Any]) -> dict:
-    """工具分发：白名单函数 + 显式参数提取（type 校验），不做动态解包。
+    """工具分发：白名单函数 + 显式参数提取与类型校验，不做动态解包。
 
-    每个参数显式按名取出并做类型守卫，非法类型转 None/默认值，
-    无法注入任何非预期的 kwargs。
+    类型校验用 typing.get_args 正确处理 Optional[int] 等联合注解；
+    不匹配的参数丢弃（回落到函数默认值），无法注入非预期 kwargs。
     """
+    import inspect
+    import typing
+
+    allowed_types = (int, float, str, bool)  # isinstance 要求 tuple 而非 set
     args: dict[str, Any] = {}
     for key, value in arguments.items():
-        if isinstance(value, (int, float, str, bool)) or value is None:
+        if isinstance(value, allowed_types) or value is None:
             args[key] = value
-    import inspect
 
     sig = inspect.signature(fn)
-    kwargs = {}
+    kwargs: dict[str, Any] = {}
     for name, param in sig.parameters.items():
         if name == "db":
             continue
+        annotation = param.annotation
+        # Optional[int] 等联合注解 → 取非 None 的成员类型集合
+        union_args = typing.get_args(annotation)
+        member_types = {
+            a for a in union_args
+            if a is not type(None) and isinstance(a, type)
+        } if union_args else (
+            {annotation} if isinstance(annotation, type) else set()
+        )
         if name in args:
-            expected = param.annotation
             v = args[name]
-            if expected is int and not isinstance(v, int):
-                continue
-            if expected is float and not isinstance(v, (int, float)):
-                continue
-            if expected is str and not isinstance(v, str):
-                continue
-            kwargs[name] = v
+            if v is None or any(isinstance(v, t) for t in member_types):
+                kwargs[name] = v
         elif param.default is not inspect.Parameter.empty:
             kwargs[name] = param.default
     return fn(db, **kwargs)
