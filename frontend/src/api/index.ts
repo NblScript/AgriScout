@@ -174,6 +174,20 @@ export const annotationsApi = {  /** 同点同标签为更新（返回 200），
     request<void>(`/annotations/${annotationId}`, { method: 'DELETE' }),
 }
 
+/* ---------- 建议线 L2：诊断 Agent ---------- */
+
+export const agentApi = {
+  chat: (question: string, patrolId?: number) =>
+    request<import('../types').AgentChatResult>('/agent/chat', {
+      method: 'POST',
+      body: { question, patrol_id: patrolId ?? null },
+    }),
+  conversations: (patrolId?: number) =>
+    request<import('../types').AgentChatResult[]>(
+      `/agent/conversations${patrolId != null ? `?patrol_id=${patrolId}` : ''}`,
+    ),
+}
+
 /* ---------- 建议线 L1：巡检 AI 农事报告 ---------- */
 
 export const reportsApi = {

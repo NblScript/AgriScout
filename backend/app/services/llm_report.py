@@ -144,6 +144,27 @@ def _chat(system: str, user: str) -> str:
     return resp.json()["choices"][0]["message"]["content"]
 
 
+def _chat_messages(messages: list[dict], tools: list[dict] | None = None) -> dict:
+    """多轮 messages 变体（供 function-calling 使用），返回完整 message 对象。
+
+    L2 Agent 专用：调用方循环处理 message.tool_calls 并回填 role=tool 消息。
+    与 _chat 共享同一配置与超时；不截断（工具结果由调用方控制长度）。
+    """
+    settings = get_settings()
+    payload: dict = {"model": settings.llm_model, "messages": messages, "temperature": 0.3}
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
+    resp = httpx.post(
+        settings.llm_api_base.rstrip("/") + "/chat/completions",
+        headers={"Authorization": f"Bearer {settings.llm_api_key}"},
+        json=payload,
+        timeout=120,
+    )
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]
+
+
 def generate_report(db: Session, patrol_id: int) -> PatrolReport:
     """生成（或重生成）巡检报告：upsert by patrol_id。
 

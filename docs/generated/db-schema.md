@@ -206,6 +206,22 @@
 
 ## 其他
 
+### agent_conversations
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | Integer | PK | — |
+| patrol_id | Integer | FK→patrols.id | — |
+| question | Text | NOT NULL | — |
+| answer | Text | NOT NULL | — |
+| tool_calls_trace | JSON | NOT NULL | — |
+| model | String(80) | NOT NULL | — |
+| prompt_version | String(20) | NOT NULL | — |
+| created_at | DateTime | NOT NULL、default=now() | — |
+| updated_at | DateTime | NOT NULL、default=now() | — |
+
+索引 `ix_agent_conversations_patrol_id`：(patrol_id)
+
 ### patrol_reports
 
 | 字段 | 类型 | 约束 | 说明 |

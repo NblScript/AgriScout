@@ -246,6 +246,19 @@ export const ADVICE_STATUS_LABELS: Record<AdviceStatus, string> = {
   rejected: '已驳回',
 }
 
+/* ================= 建议线 L2：诊断 Agent ================= */
+
+export interface AgentChatResult {
+  id: number
+  patrol_id: number | null
+  question: string
+  answer: string
+  tool_calls_trace: { tool: string; arguments: Record<string, unknown> }[]
+  model: string
+  prompt_version: string
+  created_at: string
+}
+
 /* ================= 建议线 L1：巡检 AI 农事报告 ================= */
 
 export interface PatrolReport {

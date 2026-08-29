@@ -7,7 +7,7 @@ import { ArrowLeft, CaretBottom, CaretTop, Refresh, VideoPause, VideoPlay } from
 import type { EChartsOption } from 'echarts'
 import MapCanvas from '../components/MapCanvas.vue'
 import EChart from '../components/EChart.vue'
-import { advicesApi, annotationsApi, capturePointsApi, fieldsApi, patrolsApi, reportsApi } from '../api'
+import { advicesApi, agentApi, annotationsApi, capturePointsApi, fieldsApi, patrolsApi, reportsApi } from '../api'
 import {
   ADVICE_STATUS_LABELS,
   ANNOTATION_LABELS,
@@ -257,6 +257,37 @@ function mdToHtml(src: string): string {
   return lines.join('\n')
 }
 
+/* ---------- 诊断 Agent（建议线 L2） ---------- */
+interface ChatTurn {
+  question: string
+  answer: string
+  trace: { tool: string; arguments: Record<string, unknown> }[]
+  model?: string
+}
+const chatTurns = ref<ChatTurn[]>([])
+const chatInput = ref('')
+const chatLoading = ref(false)
+
+async function askAgent() {
+  const q = chatInput.value.trim()
+  if (!q || chatLoading.value) return
+  chatLoading.value = true
+  chatInput.value = ''
+  try {
+    const r = await agentApi.chat(q, patrolId)
+    chatTurns.value.push({
+      question: q,
+      answer: r.answer,
+      trace: r.tool_calls_trace,
+      model: r.model,
+    })
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e))
+  } finally {
+    chatLoading.value = false
+  }
+}
+
 /* ---------- 展示辅助 ---------- */
 function vigorStars(level: number | null): string {
   if (!level) return '—'
@@ -477,6 +508,36 @@ const weatherOption = computed<EChartsOption>(() => {
       </el-col>
     </el-row>
 
+    <!-- 诊断 Agent -->
+    <div class="panel agent-panel">
+      <div class="adv-head">
+        <h4>问一问 <span class="dim">（诊断 Agent · 只读查询平台数据）</span></h4>
+        <span class="dim" v-if="chatTurns.length">{{ chatTurns.length }} 轮</span>
+      </div>
+      <div class="chat-log" v-if="chatTurns.length">
+        <div v-for="(t, i) in chatTurns" :key="i" class="chat-turn">
+          <div class="chat-q">问：{{ t.question }}</div>
+          <div class="chat-a">{{ t.answer }}</div>
+          <el-collapse v-if="t.trace.length" class="chat-trace">
+            <el-collapse-item :title="'调用了 ' + t.trace.length + ' 次数据工具（点击展开溯源）'">
+              <div v-for="(c, j) in t.trace" :key="j" class="trace-line">
+                <code>{{ c.tool }}</code> {{ JSON.stringify(c.arguments) }}
+              </div>
+              <div class="dim">模型：{{ t.model }}</div>
+            </el-collapse-item>
+          </el-collapse>
+        </div>
+      </div>
+      <div class="chat-input-row">
+        <el-input
+          v-model="chatInput" placeholder="例如：这次巡检哪里风险最高？依据是什么？"
+          maxlength="500" :disabled="chatLoading"
+          @keyup.enter="askAgent"
+        />
+        <el-button type="primary" :loading="chatLoading" @click="askAgent">提问</el-button>
+      </div>
+    </div>
+
     <!-- AI 农事报告 -->
     <div class="panel report-panel">
       <div class="adv-head">
@@ -631,6 +692,16 @@ const weatherOption = computed<EChartsOption>(() => {
 .ann-form { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 
 .advices-panel { margin-top: 12px; }
+.agent-panel { margin-top: 12px; }
+.chat-log { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+.chat-turn { border-left: 3px solid #d7dfd8; padding-left: 10px; }
+.chat-q { font-size: 13px; color: #4a5d4e; }
+.chat-a { font-size: 13px; margin-top: 4px; line-height: 1.7; }
+.chat-trace { margin-top: 6px; }
+.chat-trace :deep(.el-collapse-item__header) { font-size: 12px; color: #7a8a7e; height: 30px; }
+.trace-line { font-size: 12px; color: #546e7a; margin: 2px 0; }
+.trace-line code { background: #f0f3f0; padding: 1px 5px; border-radius: 3px; }
+.chat-input-row { display: flex; gap: 8px; }
 .report-panel { margin-top: 12px; }
 .report-meta { display: flex; align-items: center; gap: 10px; }
 .report-body { font-size: 13px; line-height: 1.7; }

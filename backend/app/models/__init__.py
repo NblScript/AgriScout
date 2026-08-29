@@ -1,6 +1,7 @@
 """模型注册中心：import 即完成全部表映射（Alembic autogenerate 依赖此处完整）。"""
 from app.core.db import Base
 from app.models.advice import Advice
+from app.models.agent_conversation import AgentConversation
 from app.models.annotation import Annotation
 from app.models.analysis import Analysis
 from app.models.capture_point import CapturePoint
@@ -16,6 +17,7 @@ from app.models.weather import WeatherSample
 __all__ = [
     "Base",
     "Advice",
+    "AgentConversation",
     "Annotation",
     "Analysis",
     "CapturePoint",

@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.v1 import (
     advices,
+    agent,
     annotations,
     capture_points,
     crops,
@@ -32,3 +33,4 @@ api_router.include_router(advices.router)
 api_router.include_router(annotations.router)
 api_router.include_router(stats.router)
 api_router.include_router(reports.router)
+api_router.include_router(agent.router)
