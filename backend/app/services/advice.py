@@ -163,12 +163,16 @@ def render_action(
 ) -> str:
     """变量优先级：显式 params > 命中观测值 bindings > 上下文默认。
 
-    缺参保留占位符便于排查；stage 缺失时置空串避免渲染出 "None"。
+    缺参保留占位符便于排查；stage 缺失时置空串避免渲染出 "None"；
+    位置占位符 `{}` 会令 Formatter 抛 IndexError——返回原模板而非让生成 500。
     """
     variables = _KeepMissing(**{**bindings, **(params or {})})
     variables.setdefault("stage", ctx.stage_name or "")
     variables["seq"] = ctx.seq
-    return string.Formatter().vformat(template, (), variables)
+    try:
+        return string.Formatter().vformat(template, (), variables)
+    except (IndexError, ValueError):
+        return template
 
 
 # ---------- 快照与生成 ----------

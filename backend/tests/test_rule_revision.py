@@ -1,11 +1,9 @@
 """M-L1 规则起草 Agent 测试：燃料统计/起草解析/影子 diff/审批流转（monkeypatch _chat）。"""
-import base64
-import io
 
-from PIL import Image
 
 from app.core.config import get_settings
 from app.services import agent_rule_draft
+from conftest import png_b64
 
 BASE = "/api/v1"
 SOWING = "2026-08-01"
@@ -25,14 +23,7 @@ FAKE_DRAFTS = """```json
 ```"""
 
 
-def _png_b64(rgb: tuple[int, int, int]) -> str:
-    img = Image.new("RGB", (24, 24), rgb)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode()
-
-
-GREEN = _png_b64((40, 160, 60))
+GREEN = png_b64((40, 160, 60))
 
 
 def _enable_llm(monkeypatch):

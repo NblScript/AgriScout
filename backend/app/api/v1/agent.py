@@ -21,6 +21,8 @@ def agent_chat(payload: AgentChatIn, db: Session = Depends(get_db)):
         result = chat(db, payload.question, payload.patrol_id)
     except ValueError as exc:  # 未配置 LLM
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except LookupError as exc:  # prompt 模板缺失
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except httpx.HTTPError as exc:  # 上游 LLM 错误
         raise HTTPException(status_code=502, detail=f"LLM 上游错误：{exc}") from exc
 

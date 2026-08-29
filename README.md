@@ -92,8 +92,9 @@ curl -X POST http://localhost:8000/api/v1/ingest/patrol \
 
 ### 离线地图瓦片（演示防断网）
 ```bash
-python3 tools/download_tiles.py --lat 39.10 --lng 116.10   # 演示田周边，4.3MB
-# 前端已配置本地瓦片优先，未缓存区域自动回退在线源；暗色主题用 CSS 滤镜实现
+python3 tools/download_tiles.py --lat 39.1003 --lng 116.1003   # 高德源，含 GCJ-02 换算
+# 底图唯一源 = 本地高德瓦片 /gdmaptiles（13-18 级，约 10MB）；无在线回退，
+# 视图被 minZoom/maxBounds 钳制在缓存区内。更换演示田重跑脚本即可。
 ```
 
 ### AI 农事报告（建议线 L1：规则兜底 + LLM 解释层）

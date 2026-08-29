@@ -58,7 +58,7 @@ const route = useRoute()
           <el-icon v-else><Fold /></el-icon>
         </el-button>
         <h2 class="page-title">{{ route.meta.title }}</h2>
-        <span class="milestone">M1 · 基础管理</span>
+        <span class="milestone">M0–M6 软件线 ✅ · 识别/建议 L1+L2</span>
       </el-header>
       <el-main class="main"><router-view /></el-main>
     </el-container>

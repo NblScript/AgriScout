@@ -38,7 +38,10 @@ CONTEXT_MAX_CHARS = 24000
 
 
 def latest_prompt(prefix: str) -> tuple[Path, str]:
-    """取 llm_prompts/ 下 {prefix}_vN.md 的最新版本；缺失抛 LookupError（路由→503）。"""
+    """取 llm_prompts/ 下 {prefix}_vN.md 的最新版本；缺失抛 LookupError。
+
+    调用路由统一映射为 503（服务端配置/部署不完整，非客户端错误）。
+    """
     matches = sorted(PROMPTS_DIR.glob(f"{prefix}_v*.md"))
     if not matches:
         raise LookupError(f"缺少 prompt 模板：{prefix}_v*.md")

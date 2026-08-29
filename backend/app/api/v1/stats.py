@@ -12,10 +12,6 @@ router = APIRouter(tags=["stats"])
 RECENT_PATROL_COUNT = 5
 
 
-def _count(db: Session, stmt) -> int:
-    return db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
-
-
 @router.get("/stats/overview", response_model=StatsOverview)
 def stats_overview(db: Session = Depends(get_db)):
     analyzed_points = db.scalar(select(func.count()).select_from(Analysis)) or 0

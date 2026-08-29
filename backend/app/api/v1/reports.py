@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import patrol_or_404
 from app.core.db import get_db
-from app.models import Patrol, PatrolReport
+from app.models import PatrolReport
 from app.schemas.patrol_report import PatrolReportOut, ReportGenerateOut
 from app.services.llm_report import generate_report
 
@@ -35,8 +35,8 @@ def generate(patrol_id: int, db: Session = Depends(get_db)):
         report = generate_report(db, patrol_id)
     except ValueError as exc:  # 未配置 LLM
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except LookupError as exc:  # prompt 模板缺失（巡检存在性已在路由预检）
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except httpx.HTTPError as exc:  # 上游 LLM 网络/接口错误
         raise HTTPException(status_code=502, detail=f"LLM 上游错误：{exc}") from exc
     return {

@@ -1,4 +1,6 @@
 """CRUD 接口测试夹具：内存 SQLite + 依赖覆盖，互不污染。"""
+import base64
+import io
 import os
 from pathlib import Path
 
@@ -12,9 +14,18 @@ os.environ["LLM_MODEL"] = ""
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+
+
+def png_b64(rgb: tuple[int, int, int], size: int = 24) -> str:
+    """纯色 PNG → base64（测试合成照片的标准辅助，替代各文件重复定义）。"""
+    img = Image.new("RGB", (size, size), rgb)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
 
 
 @pytest.fixture()

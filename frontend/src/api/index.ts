@@ -166,10 +166,6 @@ export const annotationsApi = {  /** 同点同标签为更新（返回 200），
     request<Annotation[]>(`/capture-points/${pointId}/annotations`),
   summary: (patrolId: number) =>
     request<AnnotationSummary>(`/patrols/${patrolId}/annotations/summary`),
-  update: (
-    annotationId: number,
-    payload: { label?: AnnotationLabel; annotator_name?: string; note?: string | null },
-  ) => request<Annotation>(`/annotations/${annotationId}`, { method: 'PATCH', body: payload }),
   remove: (annotationId: number) =>
     request<void>(`/annotations/${annotationId}`, { method: 'DELETE' }),
 }
@@ -206,10 +202,6 @@ export const agentApi = {
       method: 'POST',
       body: { question, patrol_id: patrolId ?? null },
     }),
-  conversations: (patrolId?: number) =>
-    request<import('../types').AgentChatResult[]>(
-      `/agent/conversations${patrolId != null ? `?patrol_id=${patrolId}` : ''}`,
-    ),
 }
 
 /* ---------- 建议线 L1：巡检 AI 农事报告 ---------- */

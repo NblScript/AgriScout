@@ -65,8 +65,10 @@ def sync_rules(db: Session, directory: Path | None = None) -> dict:
             if existing is None:
                 db.add(Rule(**new_data))
                 stats["created"] += 1
-            elif _fingerprint(new_data) != _fingerprint(existing.__dict__):
-                # 先比对后修改：避免无变化写库，也保证不回滚掉本批次的待插入行
+            elif _fingerprint(new_data) != _fingerprint(
+                {f: getattr(existing, f) for f in new_data}
+            ):
+                # 显式 getattr 取值（__dict__ 在属性 expired/deferred 时会缺键导致误判变更）
                 for key, value in new_data.items():
                     setattr(existing, key, value)
                 existing.version += 1  # 内容变更 → 版本自增，进后续快照

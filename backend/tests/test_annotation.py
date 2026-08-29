@@ -1,23 +1,14 @@
 """M6+ 标注回流测试：复核落库/幂等 upsert/进度汇总/NDJSON 数据集导出。"""
-import base64
-import io
 import json
 
-from PIL import Image
+from conftest import png_b64
 
 BASE = "/api/v1"
 SOWING = "2026-08-01"
 
 
-def _png_b64(rgb: tuple[int, int, int]) -> str:
-    img = Image.new("RGB", (24, 24), rgb)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode()
-
-
-BROWN = _png_b64((120, 85, 50))  # 枯黄胁迫点
-GREEN = _png_b64((40, 160, 60))  # 正常植被点
+BROWN = png_b64((120, 85, 50))  # 枯黄胁迫点
+GREEN = png_b64((40, 160, 60))  # 正常植被点
 
 
 def _setup_and_upload(client):

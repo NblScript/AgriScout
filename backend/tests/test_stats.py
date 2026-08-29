@@ -1,22 +1,13 @@
 """大屏聚合统计 /stats/overview 测试：计数/建议分布/近几次巡检摘要。"""
-import base64
-import io
 
-from PIL import Image
+from conftest import png_b64
 
 BASE = "/api/v1"
 SOWING = "2026-08-01"
 
 
-def _png_b64(rgb: tuple[int, int, int]) -> str:
-    img = Image.new("RGB", (24, 24), rgb)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode()
-
-
-BROWN = _png_b64((120, 85, 50))
-GREEN = _png_b64((40, 160, 60))
+BROWN = png_b64((120, 85, 50))
+GREEN = png_b64((40, 160, 60))
 
 
 def _seed_and_upload(client):

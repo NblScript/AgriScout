@@ -3,14 +3,12 @@
 真实 LLM 调用经 monkeypatch _chat 替换；conftest 已强制清空 LLM 环境变量，
 保证 runner 主链路在本测试外恒走"未配置→静默跳过"路径。
 """
-import base64
-import io
 
 import pytest
-from PIL import Image
 
 from app.core.config import get_settings
 from app.services import llm_report
+from conftest import png_b64
 
 BASE = "/api/v1"
 SOWING = "2026-08-01"
@@ -22,14 +20,7 @@ FAKE_REPORT = (
 )
 
 
-def _png_b64(rgb: tuple[int, int, int]) -> str:
-    img = Image.new("RGB", (24, 24), rgb)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode()
-
-
-GREEN = _png_b64((40, 160, 60))
+GREEN = png_b64((40, 160, 60))
 
 
 def _setup_and_upload(client):

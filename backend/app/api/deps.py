@@ -7,8 +7,6 @@ from app.core.db import get_db
 from app.models import Patrol
 from app.schemas.common import Page
 
-TypeVarItem = None  # 占位：Python 泛型在运行时由 Page[T] 承担
-
 
 def patrol_or_404(db: Session, patrol_id: int) -> Patrol:
     patrol = db.get(Patrol, patrol_id)

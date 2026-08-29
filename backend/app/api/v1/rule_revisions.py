@@ -28,6 +28,8 @@ def generate_drafts(db: Session = Depends(get_db)):
         result = draft_rule_revisions(db)
     except ValueError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except LookupError as exc:  # prompt 模板缺失
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"LLM 上游错误：{exc}") from exc
     return {

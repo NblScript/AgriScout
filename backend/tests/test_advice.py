@@ -1,23 +1,14 @@
 """M4 建议引擎测试：规则CRUD/YAML同步/匹配生成/快照冻结/人工决策保护。"""
-import base64
-import io
 
-from PIL import Image
+from conftest import png_b64
 
 BASE = "/api/v1"
 # 生育期表：出苗15+分蘖30 → 第45-59天为拔节期；播种2026-08-01，拍摄2026-09-20=第50天
 SOWING = "2026-08-01"
 
 
-def _png_b64(rgb: tuple[int, int, int]) -> str:
-    img = Image.new("RGB", (24, 24), rgb)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode()
-
-
-BROWN = _png_b64((120, 85, 50))  # 枯黄胁迫 + 低长势
-GREEN = _png_b64((40, 160, 60))  # 茂密植被
+BROWN = png_b64((120, 85, 50))  # 枯黄胁迫 + 低长势
+GREEN = png_b64((40, 160, 60))  # 茂密植被
 
 
 def _setup(client):

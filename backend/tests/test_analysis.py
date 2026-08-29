@@ -3,25 +3,15 @@
 TestClient 的 BackgroundTasks 随请求周期同步执行，
 因此 post 返回后即可断言分析已完成。
 """
-import base64
-import io
 
-from PIL import Image
+from conftest import png_b64
 
 BASE = "/api/v1"
 
 
-def _png_b64(rgb: tuple[int, int, int], size: int = 24) -> str:
-    """生成纯色 PNG 的 base64（测试专用"合成农田照片"）。"""
-    img = Image.new("RGB", (size, size), rgb)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode()
-
-
-GREEN = _png_b64((40, 160, 60))     # 茂密植被 → vigor 高
-BROWN = _png_b64((120, 85, 50))     # 枯黄/裸土 → vigor 低 + 胁迫检出
-DARK = _png_b64((10, 10, 12))       # 过暗 → low_light 标记
+GREEN = png_b64((40, 160, 60))     # 茂密植被 → vigor 高
+BROWN = png_b64((120, 85, 50))     # 枯黄/裸土 → vigor 低 + 胁迫检出
+DARK = png_b64((10, 10, 12))       # 过暗 → low_light 标记
 
 
 def _setup(client):

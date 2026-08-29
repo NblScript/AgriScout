@@ -1,6 +1,7 @@
 """Planting 种植记录管理 CRUD（含 field_id/crop_id 过滤）。"""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.db import get_db
@@ -71,5 +72,12 @@ def delete_planting(planting_id: int, db: Session = Depends(get_db)):
     obj = db.get(Planting, planting_id)
     if obj is None:
         raise HTTPException(status_code=404, detail="种植记录不存在")
-    db.delete(obj)
-    db.commit()
+    try:
+        db.delete(obj)
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="该种植记录已有巡检任务引用，无法删除（可改为归档状态）",
+        ) from exc

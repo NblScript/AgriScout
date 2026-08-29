@@ -7,11 +7,11 @@ import { fileURLToPath } from 'node:url'
 const root = dirname(fileURLToPath(import.meta.url))
 
 /**
- * /tiles 缺失必须真实 404（默认 SPA fallback 会把 index.html 当 200 返回，
+ * /gdmaptiles 缺失必须真实 404（默认 SPA fallback 会把 index.html 当 200 返回，
  * 浏览器把 HTML 缓存成"瓦片"后地图出现灰块）。
- * 不做在线回退：CARTO 已要求 API key（无 key 返回错误占位图）、OSM 封锁应用流量，
- * 唯一可靠源是本地预缓存（tools/download_tiles.py，13-19 级）；演示视图由
- * MapCanvas 的 maxBounds 钳制在缓存区内。
+ * 不做在线回退：CARTO 已要求 API key、OSM 封锁应用流量，唯一可靠源是本地预缓存
+ * （tools/download_tiles.py，高德源 13-18 级）；演示视图由 MapCanvas 的
+ * maxBounds/minZoom 钳制在缓存区内。
  */
 function tiles404(): Plugin {
   return {

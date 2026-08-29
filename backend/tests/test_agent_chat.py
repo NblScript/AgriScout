@@ -1,24 +1,15 @@
 """M-L2 诊断 Agent 测试：工具执行/循环/溯源落库/降级路径（monkeypatch _chat_messages）。"""
-import base64
-import io
 
-from PIL import Image
 
 from app.core.config import get_settings
 from app.services import agent_chat
+from conftest import png_b64
 
 BASE = "/api/v1"
 SOWING = "2026-08-01"
 
 
-def _png_b64(rgb: tuple[int, int, int]) -> str:
-    img = Image.new("RGB", (24, 24), rgb)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode()
-
-
-GREEN = _png_b64((40, 160, 60))
+GREEN = png_b64((40, 160, 60))
 
 
 def _enable_llm(monkeypatch):
@@ -57,14 +48,8 @@ def test_chat_without_llm_config_returns_503(client):
 
 
 def test_tools_return_real_data(client):
-    """工具箱直接测：各只读工具返回结构正确的真实数据（不走 LLM）。"""
+    """工具数据通路验证：分析摘要可用（工具箱内部同源数据）。"""
     patrol_id = _setup_and_upload(client)
-
-    overview = agent_chat.tool_get_field_overview(
-        __import__("app.core.db", fromlist=["SessionLocal"]).SessionLocal()
-    ) if False else None  # 占位：工具测试走 TestClient 的 db 覆盖不便，改为 API 层验证
-
-    # 经真实链路验证工具数据通路：先看分析摘要可用（工具内部同源数据）
     summary = client.get(f"{BASE}/patrols/{patrol_id}/analysis-summary").json()
     assert summary["analyzed_points"] == 1
 

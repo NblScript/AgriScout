@@ -42,7 +42,8 @@ def list_patrols(
     return Page(items=list(rows), total=total, skip=skip, limit=limit)
 
 
-def patrol_or_404(db: Session, patrol_id: int) -> Patrol:
+def _patrol_detail_or_404(db: Session, patrol_id: int) -> Patrol:
+    """带关联预载的版本（PatrolDetailOut 需要 field/device/capture_points）。"""
     obj = db.scalars(
         select(Patrol)
         .options(
@@ -59,7 +60,7 @@ def patrol_or_404(db: Session, patrol_id: int) -> Patrol:
 
 @router.get("/{patrol_id}", response_model=PatrolDetailOut)
 def get_patrol(patrol_id: int, db: Session = Depends(get_db)):
-    return patrol_or_404(db, patrol_id)
+    return _patrol_detail_or_404(db, patrol_id)
 
 
 @router.post("/{patrol_id}/analyze", status_code=202)

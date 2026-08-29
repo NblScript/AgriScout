@@ -56,5 +56,12 @@ def delete_device(device_id: int, db: Session = Depends(get_db)):
     obj = db.get(Device, device_id)
     if obj is None:
         raise HTTPException(status_code=404, detail="设备不存在")
-    db.delete(obj)
-    db.commit()
+    try:
+        db.delete(obj)
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="该设备已有巡检记录引用，无法删除（可改为停用/维护状态）",
+        ) from exc

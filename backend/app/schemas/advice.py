@@ -24,7 +24,6 @@ class AdviceOut(BaseModel):
 
 class AdviceStatusUpdate(BaseModel):
     status: AdviceStatus
-    note: str | None = None
 
 
 class GenerateAdvicesOut(BaseModel):

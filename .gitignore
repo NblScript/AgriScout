@@ -14,7 +14,9 @@ frontend/dist/
 # 本地配置与数据
 .env
 *.db
+*.sqlite
 *.sqlite3
+*.log
 
 # 包管理器工作区缓存
 .pnpm-cache/

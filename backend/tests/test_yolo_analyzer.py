@@ -1,25 +1,19 @@
 """M-AI YOLO 分析器测试：检测映射逻辑（注入 fake 模型，无需 torch）。"""
 import base64
-import io
+from datetime import datetime
 
-from PIL import Image
+from conftest import png_b64
 
 from app.services.analysis.base import CaptureContext
 from app.services.analysis.yolo_detector import YoloAnalyzer
-from datetime import datetime
-
-BASE = "/api/v1"
 
 
-def _png_bytes(rgb: tuple[int, int, int], size: int = 64) -> bytes:
-    img = Image.new("RGB", (size, size), rgb)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
+def png_bytes(rgb: tuple[int, int, int]) -> bytes:
+    return base64.b64decode(png_b64(rgb))
 
 
-GREEN = _png_bytes((40, 160, 60))
-BROWN = _png_bytes((120, 85, 50))
+GREEN = png_bytes((40, 160, 60))
+BROWN = png_bytes((120, 85, 50))
 
 CTX = CaptureContext(captured_at=datetime(2026, 9, 20, 8, 0, 0), lng=10.0, lat=10.0)
 
