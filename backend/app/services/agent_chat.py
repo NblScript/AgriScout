@@ -121,7 +121,8 @@ def chat(db: Session, question: str, patrol_id: int | None = None) -> dict:
         if not tool_calls:
             break
         messages.append(message)  # assistant 的 tool_calls 消息原样回填
-        for call in tool_calls[:MAX_CALLS_PER_ROUND]:
+        executed_calls = tool_calls[:MAX_CALLS_PER_ROUND]
+        for call in executed_calls:
             name = call["function"]["name"]
             raw = call["function"].get("arguments") or "{}"
             try:
@@ -134,6 +135,14 @@ def chat(db: Session, question: str, patrol_id: int | None = None) -> dict:
                 "role": "tool",
                 "tool_call_id": call.get("id", ""),
                 "content": json.dumps(result, ensure_ascii=False, default=str)[:TOOL_RESULT_MAX_CHARS],
+            })
+        # 被截断的调用也必须补 tool 消息（否则 assistant 消息与 tool 消息
+        # 数量不配对，上游 API 返回 400）
+        for call in tool_calls[MAX_CALLS_PER_ROUND:]:
+            messages.append({
+                "role": "tool",
+                "tool_call_id": call.get("id", ""),
+                "content": json.dumps({"error": "单轮工具调用超出上限，未执行"}) ,
             })
 
     answer = message.get("content") or ""

@@ -38,7 +38,11 @@ def list_patrols(
 ):
     base = _apply_filters(select(Patrol), field_id, status, analysis_status)
     total = db.scalar(select(func.count()).select_from(base.subquery())) or 0
-    rows = db.scalars(base.order_by(Patrol.id.desc()).offset(skip).limit(limit)).all()
+    # field_name/device_code 是触发懒加载的 property：不预载则每行 2 次查询（2N+1）
+    rows = db.scalars(
+        base.options(selectinload(Patrol.field), selectinload(Patrol.device))
+        .order_by(Patrol.id.desc()).offset(skip).limit(limit)
+    ).all()
     return Page(items=list(rows), total=total, skip=skip, limit=limit)
 
 
@@ -73,7 +77,9 @@ def reanalyze_patrol(
     session_factory=Depends(get_session_factory),
 ):
     """手动重分析（升级 analyzer 或数据修复后使用）。立即返回 202，后台执行。"""
-    patrol_or_404(db, patrol_id)  # 存在性校验
+    patrol = patrol_or_404(db, patrol_id)
+    if patrol.analysis_status == "running":
+        raise HTTPException(status_code=409, detail="该巡检正在分析中，请等待完成后再重试")
     background_tasks.add_task(
         run_patrol_analysis, patrol_id, analyzer, storage, session_factory,
     )

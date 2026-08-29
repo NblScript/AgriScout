@@ -57,10 +57,16 @@ def _draft_rule_view(db: Session, revision: RuleRevision) -> list[Rule]:
 
     modify/add → 生成携带 draft 字段的临时 Rule 实例（transient，不 add）；
     deactivate → 返回空列表（该规则从规则集中消失）。
+    crop_id：modify 从现规则继承、add 取 draft 显式值——缺失即全局规则，
+    若丢此项，作物专属规则的影子 diff 会对其他作物的巡检虚报命中。
     """
     if revision.action == "deactivate":
         return []
     draft = revision.draft
+    crop_id = draft.get("crop_id")
+    if revision.action == "modify" and crop_id is None:
+        existing = db.query(Rule).filter_by(rule_key=revision.rule_key).one_or_none()
+        crop_id = existing.crop_id if existing else None
     rule = Rule(
         rule_key=draft.get("rule_key", revision.rule_key),
         tier=draft.get("tier", "threshold"),
@@ -71,5 +77,6 @@ def _draft_rule_view(db: Session, revision: RuleRevision) -> list[Rule]:
         active=True,
         version=1,
         source=draft.get("source"),
+        crop_id=crop_id,
     )
     return [rule]

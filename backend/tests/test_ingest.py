@@ -1,5 +1,4 @@
 """M2 数据接入测试：巡检包上传 → 查询回读全链路。"""
-import base64
 
 # 1x1 红色 PNG（真实图片字节，用于魔数判型与落盘验证）
 TINY_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="

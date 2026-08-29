@@ -1,6 +1,7 @@
 /** 资源客户端：每个后端资源一组类型化方法。 */
 import { request } from './http'
 import type {
+  AgentChatResult,
   Advice,
   AdviceStatus,
   AnalysisSummary,
@@ -16,6 +17,7 @@ import type {
   PatrolDetail,
   Planting,
   PatrolReport,
+  RuleRevision,
   StatsOverview,
 } from '../types'
 
@@ -174,7 +176,7 @@ export const annotationsApi = {  /** 同点同标签为更新（返回 200），
 
 export const ruleRevisionApi = {
   list: (status?: string) =>
-    request<import('../types').RuleRevision[]>(
+    request<RuleRevision[]>(
       `/rule-revisions${status ? `?status=${status}` : ''}`,
     ),
   generate: () =>
@@ -182,13 +184,13 @@ export const ruleRevisionApi = {
       method: 'POST',
     }),
   shadow: (id: number) =>
-    request<import('../types').RuleRevision>(`/rule-revisions/${id}/shadow`, { method: 'POST' }),
+    request<RuleRevision>(`/rule-revisions/${id}/shadow`, { method: 'POST' }),
   decide: (
     id: number,
     action: 'approve' | 'reject',
     payload: { decided_by: string; note?: string | null },
   ) =>
-    request<import('../types').RuleRevision>(`/rule-revisions/${id}/${action}`, {
+    request<RuleRevision>(`/rule-revisions/${id}/${action}`, {
       method: 'POST',
       body: payload,
     }),
@@ -198,7 +200,7 @@ export const ruleRevisionApi = {
 
 export const agentApi = {
   chat: (question: string, patrolId?: number) =>
-    request<import('../types').AgentChatResult>('/agent/chat', {
+    request<AgentChatResult>('/agent/chat', {
       method: 'POST',
       body: { question, patrol_id: patrolId ?? null },
     }),

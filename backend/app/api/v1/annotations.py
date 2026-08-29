@@ -4,6 +4,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import paged, patrol_or_404
@@ -57,7 +58,12 @@ def create_annotation(point_id: int, payload: AnnotationCreate, response: Respon
         created = False
     ann.annotator_name = payload.annotator_name
     ann.note = payload.note
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # 并发窗口：两个请求同时为同点同标签创建（查询时都未见对方）
+        db.rollback()
+        raise HTTPException(status_code=409, detail="该采样点刚被他人提交过同标签复核，请刷新后重试") from exc
     db.refresh(ann)
     if not created:
         response.status_code = 200

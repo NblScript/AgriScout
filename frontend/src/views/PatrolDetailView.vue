@@ -165,20 +165,30 @@ const annLabel = ref<AnnotationLabel>('normal')
 const annNote = ref('')
 const annotator = ref(localStorage.getItem(ANNOTATOR_KEY) ?? '')
 const annotating = ref(false)
+let annLoadToken = 0
 
 async function loadPointAnnotations() {
   annotations.value = []
   if (!currentPoint.value) return
+  // 竞态守卫：播放/快速拖动时旧点响应不得覆盖新点列表
+  const token = ++annLoadToken
   try {
-    annotations.value = await annotationsApi.listByPoint(currentPoint.value.id)
+    const rows = await annotationsApi.listByPoint(currentPoint.value.id)
+    if (token === annLoadToken) annotations.value = rows
   } catch { /* 非关键，不打断回放 */ }
+}
+
+let annDebounceTimer: ReturnType<typeof setTimeout> | null = null
+function scheduleLoadPointAnnotations() {
+  if (annDebounceTimer) clearTimeout(annDebounceTimer)
+  annDebounceTimer = setTimeout(loadPointAnnotations, 250)
 }
 
 async function loadAnnSummary() {
   try { annSummary.value = await annotationsApi.summary(patrolId) } catch { /* 非关键 */ }
 }
 
-watch(() => currentPoint.value?.id, loadPointAnnotations)
+watch(() => currentPoint.value?.id, scheduleLoadPointAnnotations)
 
 async function submitAnnotation() {
   const point = currentPoint.value
@@ -196,6 +206,8 @@ async function submitAnnotation() {
       annotator_name: name,
       note: annNote.value.trim() || null,
     })
+    // 竞态守卫：提交在途时已切点，结果归还原点的列表
+    if (currentPoint.value?.id !== point.id) return
     const existed = annotations.value.some((a) => a.id === saved.id)
     const idx = annotations.value.findIndex((a) => a.id === saved.id)
     if (idx >= 0) annotations.value[idx] = saved

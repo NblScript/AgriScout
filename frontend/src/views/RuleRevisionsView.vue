@@ -9,11 +9,23 @@ const revisions = ref<RuleRevision[]>([])
 const loading = ref(true)
 const generating = ref(false)
 const decidedBy = ref(localStorage.getItem('agriscout_annotator') ?? '')
+const statusFilter = ref<'' | 'draft' | 'approved' | 'rejected'>('')
+/** per-revision 操作锁：影子/审批进行中的按钮防重入 */
+const opLoading = ref<Record<number, boolean>>({})
+
+function setOp(id: number, busy: boolean) {
+  if (busy) opLoading.value = { ...opLoading.value, [id]: true }
+  else {
+    const next = { ...opLoading.value }
+    delete next[id]
+    opLoading.value = next
+  }
+}
 
 async function load() {
   loading.value = true
   try {
-    revisions.value = await ruleRevisionApi.list()
+    revisions.value = await ruleRevisionApi.list(statusFilter.value || undefined)
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : String(e))
   } finally {
@@ -35,6 +47,7 @@ async function generate() {
 }
 
 async function shadow(rev: RuleRevision) {
+  setOp(rev.id, true)
   try {
     const updated = await ruleRevisionApi.shadow(rev.id)
     Object.assign(rev, updated)
@@ -44,6 +57,8 @@ async function shadow(rev: RuleRevision) {
     )
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : String(e))
+  } finally {
+    setOp(rev.id, false)
   }
 }
 
@@ -58,6 +73,7 @@ async function decide(rev: RuleRevision, action: 'approve' | 'reject') {
       { type: isApprove ? 'warning' : 'info' },
     )
   } catch { return }
+  setOp(rev.id, true)
   try {
     const updated = await ruleRevisionApi.decide(rev.id, action, {
       decided_by: decidedBy.value.trim() || '未署名',
@@ -66,6 +82,8 @@ async function decide(rev: RuleRevision, action: 'approve' | 'reject') {
     ElMessage.success(isApprove ? `已生效（规则 v${updated.applied_version}）` : '已驳回归档')
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : String(e))
+  } finally {
+    setOp(rev.id, false)
   }
 }
 
@@ -82,6 +100,15 @@ onMounted(load)
         />
         <el-button type="primary" :loading="generating" @click="generate">触发起草</el-button>
       </div>
+    </div>
+
+    <div class="filter-row">
+      <el-radio-group v-model="statusFilter" size="small" @change="load">
+        <el-radio-button value="">全部</el-radio-button>
+        <el-radio-button value="draft">待审</el-radio-button>
+        <el-radio-button value="approved">已生效</el-radio-button>
+        <el-radio-button value="rejected">已驳回</el-radio-button>
+      </el-radio-group>
     </div>
 
     <el-alert
@@ -131,11 +158,15 @@ onMounted(load)
           </div>
 
           <div class="ops" v-if="rev.status === 'draft'">
-            <el-button size="small" @click="shadow(rev)">影子运行</el-button>
-            <el-button size="small" type="success" :disabled="!rev.shadow_result" @click="decide(rev, 'approve')">
+            <el-button size="small" :loading="!!opLoading[rev.id]" @click="shadow(rev)">影子运行</el-button>
+            <el-button
+              size="small" type="success"
+              :disabled="!rev.shadow_result || !!opLoading[rev.id]" :loading="!!opLoading[rev.id]"
+              @click="decide(rev, 'approve')"
+            >
               批准生效
             </el-button>
-            <el-button size="small" type="danger" plain @click="decide(rev, 'reject')">驳回</el-button>
+            <el-button size="small" type="danger" plain :disabled="!!opLoading[rev.id]" @click="decide(rev, 'reject')">驳回</el-button>
           </div>
           <div class="ops" v-else>
             <span class="dim">{{ rev.decided_by }} · {{ rev.decide_note || '无备注' }}
@@ -156,6 +187,7 @@ onMounted(load)
   margin-bottom: 12px;
 }
 .head-right { display: flex; gap: 8px; }
+.filter-row { margin-bottom: 12px; }
 .dim { color: #9aa79a; font-size: 12px; }
 .rev-card {
   background: #fff;

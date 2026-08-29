@@ -11,10 +11,22 @@ from app.models import Rule, RuleRevision
 def apply_draft_to_rule(db: Session, revision: RuleRevision) -> int:
     """把已批准的修订案写入规则表，返回应用后的规则 version。
 
+    先过 RuleCreate 校验（condition 键/算子白名单、routine 层约束）——非法 draft
+    在此处 422 拒绝，而不是入库后拖垮该作物的建议生成。
     调用方保证：revision.status 即将置为 approved、shadow 已跑、审计字段由其填写。
     add：规则必须不存在；modify：必须存在且 version+1；deactivate：软下线不改版本。
     违反前置条件抛 ValueError（路由映射 422/409）。
     """
+    from app.schemas.rule import RuleCreate
+
+    if revision.action != "deactivate":
+        draft = dict(revision.draft)
+        draft.setdefault("rule_key", revision.rule_key)
+        try:
+            RuleCreate(**draft)
+        except Exception as exc:  # noqa: BLE001 pydantic 校验错误转 422 语义
+            raise ValueError(f"draft 未通过规则校验：{exc}") from exc
+
     rule = db.query(Rule).filter_by(rule_key=revision.rule_key).one_or_none()
     draft = revision.draft
 
@@ -36,6 +48,8 @@ def apply_draft_to_rule(db: Session, revision: RuleRevision) -> int:
             priority=draft.get("priority", "medium"),
             active=True,
             source=draft.get("source"),
+            # 作物归属：draft 显式指定才限定作物，否则为全局规则（与起草契约一致）
+            crop_id=draft.get("crop_id"),
         )
         db.add(rule)
         db.flush()
