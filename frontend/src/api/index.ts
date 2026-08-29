@@ -174,6 +174,30 @@ export const annotationsApi = {  /** 同点同标签为更新（返回 200），
     request<void>(`/annotations/${annotationId}`, { method: 'DELETE' }),
 }
 
+/* ---------- 规则线 L1：规则修订审批 ---------- */
+
+export const ruleRevisionApi = {
+  list: (status?: string) =>
+    request<import('../types').RuleRevision[]>(
+      `/rule-revisions${status ? `?status=${status}` : ''}`,
+    ),
+  generate: () =>
+    request<{ created: number; revision_ids: number[] }>('/rule-revisions/generate', {
+      method: 'POST',
+    }),
+  shadow: (id: number) =>
+    request<import('../types').RuleRevision>(`/rule-revisions/${id}/shadow`, { method: 'POST' }),
+  decide: (
+    id: number,
+    action: 'approve' | 'reject',
+    payload: { decided_by: string; note?: string | null },
+  ) =>
+    request<import('../types').RuleRevision>(`/rule-revisions/${id}/${action}`, {
+      method: 'POST',
+      body: payload,
+    }),
+}
+
 /* ---------- 建议线 L2：诊断 Agent ---------- */
 
 export const agentApi = {

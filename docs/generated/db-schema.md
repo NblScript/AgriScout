@@ -236,3 +236,24 @@
 | updated_at | DateTime | NOT NULL、default=now() | — |
 
 索引 `ix_patrol_reports_patrol_id`：(patrol_id)
+
+### rule_revisions
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | Integer | PK | — |
+| rule_key | String(80) | NOT NULL | — |
+| action | String(20) | NOT NULL | — |
+| draft | JSON | NOT NULL | — |
+| reason | Text | NOT NULL | — |
+| shadow_result | JSON | — | — |
+| status | String(20) | NOT NULL | — |
+| decided_by | String(80) | — | — |
+| decide_note | Text | — | — |
+| model | String(80) | NOT NULL | — |
+| prompt_version | String(20) | NOT NULL | — |
+| applied_version | Integer | — | — |
+| created_at | DateTime | NOT NULL、default=now() | — |
+| updated_at | DateTime | NOT NULL、default=now() | — |
+
+索引 `ix_rule_revisions_rule_key`：(rule_key)

@@ -12,6 +12,7 @@ from app.models.patrol import Patrol
 from app.models.patrol_report import PatrolReport
 from app.models.planting import Planting
 from app.models.rule import Rule
+from app.models.rule_revision import RuleRevision
 from app.models.weather import WeatherSample
 
 __all__ = [
@@ -28,5 +29,6 @@ __all__ = [
     "PatrolReport",
     "Planting",
     "Rule",
+    "RuleRevision",
     "WeatherSample",
 ]

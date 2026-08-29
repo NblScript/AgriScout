@@ -41,6 +41,12 @@ const router = createRouter({
       meta: { title: '设备管理', icon: 'Cpu' },
     },
     {
+      path: '/rule-revisions',
+      name: 'rule-revisions',
+      component: () => import('../views/RuleRevisionsView.vue'),
+      meta: { title: '规则修订审批', icon: 'EditPen' },
+    },
+    {
       path: '/patrols',
       name: 'patrols',
       component: () => import('../views/PatrolsView.vue'),

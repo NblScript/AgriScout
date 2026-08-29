@@ -246,6 +246,31 @@ export const ADVICE_STATUS_LABELS: Record<AdviceStatus, string> = {
   rejected: '已驳回',
 }
 
+/* ================= 规则线 L1：规则修订审批 ================= */
+
+export interface RuleRevision {
+  id: number
+  rule_key: string
+  action: 'modify' | 'add' | 'deactivate' | string
+  draft: Record<string, unknown>
+  reason: string
+  shadow_result: {
+    patrols_checked: number[]
+    added_total: number
+    removed_total: number
+    added_sample: string[]
+    removed_sample: string[]
+    per_patrol: { patrol_id: number; before: number; after: number; added: number; removed: number }[]
+  } | null
+  status: 'draft' | 'approved' | 'rejected' | string
+  decided_by: string | null
+  decide_note: string | null
+  model: string
+  prompt_version: string
+  applied_version: number | null
+  created_at: string
+}
+
 /* ================= 建议线 L2：诊断 Agent ================= */
 
 export interface AgentChatResult {

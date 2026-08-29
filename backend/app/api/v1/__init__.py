@@ -14,6 +14,7 @@ from app.api.v1 import (
     patrols,
     plantings,
     reports,
+    rule_revisions,
     rules,
     stats,
 )
@@ -34,3 +35,4 @@ api_router.include_router(annotations.router)
 api_router.include_router(stats.router)
 api_router.include_router(reports.router)
 api_router.include_router(agent.router)
+api_router.include_router(rule_revisions.router)
