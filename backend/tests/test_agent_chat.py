@@ -140,6 +140,35 @@ def test_tool_bad_arguments_become_error_not_crash(client, monkeypatch):
     assert "参数有误" in resp.json()["answer"]
 
 
+def test_tool_round_exhaustion_fallback_strips_tool_calls(client, monkeypatch):
+    """轮次耗尽 fallback：必须去掉带 tool_calls 的 assistant 消息，否则上游 400。"""
+    patrol_id = _setup_and_upload(client)
+    seen_trimmed: list[list[dict]] = []
+
+    def always_tools(messages, tools=None):
+        # 收束轮（无 tools 参数）时记录消息序列，供断言
+        if tools is None:
+            seen_trimmed.append(list(messages))
+            return {"content": "基于已有信息的收束回答。", "tool_calls": None}
+        return {
+            "content": None,
+            "tool_calls": [{
+                "id": f"call_{len(messages)}", "type": "function",
+                "function": {"name": "get_platform_stats", "arguments": "{}"},
+            }],
+        }
+
+    monkeypatch.setattr(agent_chat, "_chat_messages", always_tools)
+    monkeypatch.setattr(agent_chat, "MAX_TOOL_ROUNDS", 1)
+    _enable_llm(monkeypatch)
+
+    resp = client.post(f"{BASE}/agent/chat", json={"question": "总结一下", "patrol_id": patrol_id})
+    assert resp.status_code == 200, resp.text
+    assert "收束回答" in resp.json()["answer"]
+    assert seen_trimmed, "fallback 未触发"
+    assert all(not m.get("tool_calls") for m in seen_trimmed[0]), "fallback 消息仍含 tool_calls"
+
+
 def test_agent_prompt_has_safety_rules():
     """prompt 模板必须含防编造与只读红线（内容回归保护）。"""
     from app.services.llm_report import PROMPTS_DIR

@@ -6,7 +6,7 @@ Session；逐点提交使 M6 前端轮询能看到渐进进度。
 import logging
 from collections.abc import Callable
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import Analysis, CapturePoint, Patrol
@@ -59,8 +59,16 @@ def run_patrol_analysis(
             crop_name = crop.name
             crop_stages = list(crop.stages or [])
 
-        patrol.analysis_status = "running"
+        # 原子抢占：仅当非 running 时翻转，防止并发重分析互相覆盖 Analysis 行
+        claimed = db.execute(
+            update(Patrol)
+            .where(Patrol.id == patrol_id, Patrol.analysis_status != "running")
+            .values(analysis_status="running")
+        ).rowcount
         db.commit()
+        if not claimed:
+            logger.warning("analysis skipped: patrol %s already running", patrol_id)
+            return
 
         analyzed = skipped = 0
         for point in patrol.capture_points:

@@ -133,6 +133,18 @@ def build_report_context(db: Session, patrol_id: int) -> dict:
     }
 
 
+def _extract_chat_payload(resp: httpx.Response) -> dict:
+    """校验 OpenAI 兼容响应骨架；非标准格式转 ValueError（路由映射 502 语义）。"""
+    try:
+        data = resp.json()
+        message = data["choices"][0]["message"]
+    except (ValueError, KeyError, IndexError, TypeError) as exc:
+        raise ValueError(f"LLM 响应格式异常：无法解析 choices[0].message（{exc}）") from exc
+    if not isinstance(message, dict):
+        raise ValueError("LLM 响应格式异常：message 不是对象")
+    return message
+
+
 def _chat(system: str, user: str) -> str:
     """OpenAI 兼容 /chat/completions 直连（不引 SDK，配置化换厂商）。
 
@@ -153,7 +165,10 @@ def _chat(system: str, user: str) -> str:
         timeout=120,
     )
     resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
+    content = _extract_chat_payload(resp).get("content")
+    if not isinstance(content, str):
+        raise ValueError("LLM 响应格式异常：message.content 缺失或非字符串")
+    return content
 
 
 def _chat_messages(messages: list[dict], tools: list[dict] | None = None) -> dict:
@@ -174,7 +189,7 @@ def _chat_messages(messages: list[dict], tools: list[dict] | None = None) -> dic
         timeout=120,
     )
     resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]
+    return _extract_chat_payload(resp)
 
 
 def generate_report(db: Session, patrol_id: int) -> PatrolReport:

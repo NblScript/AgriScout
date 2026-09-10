@@ -1,6 +1,7 @@
 """规则线 L1 API：燃料查看、起草触发、影子运行、审批（批准才写规则表）。"""
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -27,7 +28,8 @@ def generate_drafts(db: Session = Depends(get_db)):
     try:
         result = draft_rule_revisions(db)
     except ValueError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        status = 502 if "格式异常" in str(exc) else 503
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
     except LookupError as exc:  # prompt 模板缺失
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except httpx.HTTPError as exc:
@@ -90,6 +92,12 @@ def approve_revision(revision_id: int, payload: RevisionDecideIn, db: Session = 
     except ValueError as exc:
         code = 409 if "已存在" in str(exc) else 422
         raise HTTPException(status_code=code, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=422,
+            detail="规则写入失败：draft 引用了不存在的外键（如 crop_id）",
+        ) from exc
 
     revision.status = "approved"
     revision.decided_by = payload.decided_by

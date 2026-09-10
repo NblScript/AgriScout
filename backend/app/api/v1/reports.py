@@ -33,8 +33,10 @@ def generate(patrol_id: int, db: Session = Depends(get_db)):
     patrol_or_404(db, patrol_id)
     try:
         report = generate_report(db, patrol_id)
-    except ValueError as exc:  # 未配置 LLM
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        # 未配置 LLM → 503；响应格式异常 → 502（上游合同违约）
+        status = 502 if "格式异常" in str(exc) else 503
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
     except LookupError as exc:  # prompt 模板缺失（巡检存在性已在路由预检）
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except httpx.HTTPError as exc:  # 上游 LLM 网络/接口错误

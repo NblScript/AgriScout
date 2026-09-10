@@ -3,6 +3,8 @@
 红线（见 docs/05 任务流水线）：本模块只落库不做识别；
 分析由 M3 的后台任务接手，Patrol.analysis_status 驱动进度。
 """
+import logging
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session

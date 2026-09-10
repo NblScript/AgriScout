@@ -28,6 +28,9 @@ import {
 const route = useRoute()
 const router = useRouter()
 const patrolId = Number(route.params.id)
+if (!Number.isInteger(patrolId) || patrolId <= 0) {
+  void router.replace({ name: 'patrols' })
+}
 
 const patrol = ref<PatrolDetail | null>(null)
 const points = ref<CapturePointFull[]>([])

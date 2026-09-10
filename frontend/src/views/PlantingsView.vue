@@ -3,7 +3,13 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { FormRules } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
-import { cropsApi, fieldsApi, plantingsApi } from '../api'
+import {
+  cropsApi,
+  fieldsApi,
+  plantingsApi,
+  type PlantingCreatePayload,
+  type PlantingUpdatePayload,
+} from '../api'
 import { errMsg } from '../api/http'
 import { useCrudDialog } from '../composables/useCrudDialog'
 import { PLANTING_STATUS_LABELS, type Crop, type Field, type Planting, type PlantingStatus } from '../types'
@@ -62,8 +68,8 @@ const {
   openCreate: _openCreate, openEdit, submit, removeRow: _removeRow,
 } = useCrudDialog<Planting, PlantingForm>({
   reload: load,
-  create: (p) => plantingsApi.create(p as never),
-  update: (id, p) => plantingsApi.update(id, p as never),
+  create: (p) => plantingsApi.create(p as unknown as PlantingCreatePayload),
+  update: (id, p) => plantingsApi.update(id, p as unknown as PlantingUpdatePayload),
   remove: (id) => plantingsApi.remove(id),
   emptyForm: () => ({
     field_id: filterFieldId.value,

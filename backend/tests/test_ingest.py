@@ -190,3 +190,19 @@ def test_patrol_schema_exported(client):
     assert "photo" in point_def["properties"]
     header_def = schema["$defs"]["PatrolHeaderPayload"]
     assert {"field_id", "device", "started_at"} <= set(header_def["properties"])
+
+
+def test_ingest_module_has_logging_import():
+    """回归：孤儿照片清理路径使用 logging.getLogger，模块必须 import logging。"""
+    import ast
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "app" / "services" / "ingest.py"
+    tree = ast.parse(src.read_text(encoding="utf-8"))
+    imported = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    assert "logging" in imported

@@ -19,8 +19,9 @@ def agent_chat(payload: AgentChatIn, db: Session = Depends(get_db)):
             raise HTTPException(status_code=404, detail="巡检任务不存在")
     try:
         result = chat(db, payload.question, payload.patrol_id)
-    except ValueError as exc:  # 未配置 LLM
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:  # 未配置 LLM（503）或响应格式异常（502）
+        status = 502 if "格式异常" in str(exc) else 503
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
     except LookupError as exc:  # prompt 模板缺失
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except httpx.HTTPError as exc:  # 上游 LLM 错误

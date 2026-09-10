@@ -3,7 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { FormRules } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
-import { devicesApi } from '../api'
+import { devicesApi, type DeviceCreatePayload, type DeviceUpdatePayload } from '../api'
 import { errMsg } from '../api/http'
 import { useCrudDialog } from '../composables/useCrudDialog'
 import {
@@ -57,8 +57,8 @@ const {
   openCreate, openEdit, submit, removeRow,
 } = useCrudDialog<Device, DeviceForm>({
   reload: load,
-  create: (p) => devicesApi.create(p as never),
-  update: (id, p) => devicesApi.update(id, p as never),
+  create: (p) => devicesApi.create(p as unknown as DeviceCreatePayload),
+  update: (id, p) => devicesApi.update(id, p as unknown as DeviceUpdatePayload),
   remove: (id) => devicesApi.remove(id),
   emptyForm: () => ({ code: '', name: '', type: 'rover', model: '', status: 'idle', notes: '' }),
   toForm: (row) => ({

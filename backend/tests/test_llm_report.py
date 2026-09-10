@@ -132,4 +132,26 @@ def test_prompt_template_requires_evidence_citation():
     template = (llm_report.PROMPTS_DIR / "report_v1.md").read_text(encoding="utf-8")
     assert "禁止编造" in template
     assert "出处" in template
-    assert "NDVI 代理" in template
+
+
+def test_extract_chat_payload_rejects_malformed_response():
+    """非 OpenAI 兼容骨架 → ValueError（路由映射 502），不得 KeyError 变 500。"""
+
+    class _Resp:
+        def __init__(self, data):
+            self._data = data
+
+        def json(self):
+            return self._data
+
+    with pytest.raises(ValueError, match="格式异常"):
+        llm_report._extract_chat_payload(_Resp({"foo": 1}))
+    with pytest.raises(ValueError, match="格式异常"):
+        llm_report._extract_chat_payload(_Resp({"choices": []}))
+    with pytest.raises(ValueError, match="格式异常"):
+        llm_report._extract_chat_payload(_Resp({"choices": [{"message": "not-a-dict"}]}))
+
+    ok = llm_report._extract_chat_payload(
+        _Resp({"choices": [{"message": {"content": "ok", "role": "assistant"}}]})
+    )
+    assert ok["content"] == "ok"

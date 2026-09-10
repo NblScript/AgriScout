@@ -147,8 +147,12 @@ def chat(db: Session, question: str, patrol_id: int | None = None) -> dict:
 
     answer = message.get("content") or ""
     if not answer:
-        # 轮次耗尽仍无正文：去掉工具消息，强制收束一轮
-        trimmed = [m for m in messages if m.get("role") != "tool"]
+        # 轮次耗尽仍无正文：去掉 tool 消息与带 tool_calls 的 assistant 消息
+        # （OpenAI 兼容 API 要求 tool_calls 与 tool 消息一一配对，缺一则 400）
+        trimmed = [
+            m for m in messages
+            if m.get("role") != "tool" and not m.get("tool_calls")
+        ]
         trimmed.append({"role": "user", "content": "工具调用已达上限，请基于已有信息直接回答。"})
         answer = _chat_messages(trimmed).get("content") or ""
 
