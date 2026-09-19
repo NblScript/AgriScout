@@ -31,6 +31,10 @@ frontend/dist/
 # 本地照片存储（运行时产物）
 backend/media/
 
+# 真车断网巡检包队列（运行时产物）
+.rover-spool/
+rover/.rover-spool/
+
 # ZCode 本地会话配置
 .zcode/
 
