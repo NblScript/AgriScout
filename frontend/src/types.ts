@@ -327,3 +327,113 @@ export interface StatsOverview {
   advices_rejected: number
   recent_patrols: RecentPatrolStat[]
 }
+
+/* ================= 研究软件闭环：风险/复巡/评估 ================= */
+export interface RiskPrediction {
+  id: number
+  patrol_id: number
+  capture_point_id: number | null
+  observation_key: string
+  target_event: string
+  forecast_hours: number
+  forecast_start: string
+  forecast_end: string
+  probability: number
+  level: 'low' | 'medium' | 'high' | 'unknown'
+  trend: string
+  confidence: number
+  model_version: string
+  evidence: Record<string, unknown>
+  status: string
+  created_at: string
+  updated_at: string
+}
+
+export interface RevisitTask {
+  id: number
+  field_id: number
+  patrol_id: number | null
+  capture_point_id: number | null
+  device_id: number | null
+  risk_prediction_id: number | null
+  task_type: 'revisit' | 'label' | 'random'
+  status: string
+  priority: number
+  value_score: number
+  rationale: Record<string, unknown>
+  parameters: Record<string, unknown>
+  created_by: string
+  scheduled_at: string | null
+  completed_at: string | null
+  result_note: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface DatasetVersion {
+  id: number
+  name: string
+  version: string
+  status: string
+  row_count: number
+  source_filter: Record<string, unknown>
+  label_schema: Record<string, unknown>
+  created_by: string
+  frozen_at: string | null
+  snapshot_sha256: string | null
+  snapshot_summary: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ModelEvaluation {
+  id: number
+  dataset_version_id: number | null
+  model_name: string
+  model_version: string
+  split: string
+  metrics: Record<string, unknown>
+  status: string
+  notes: string | null
+  evaluated_at: string
+  approved_by: string | null
+  approved_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface DeviceHeartbeat {
+  id: number
+  device_id: number
+  client_heartbeat_id: string | null
+  observed_at: string
+  status: string
+  execution_phase: string
+  mission_id: number | null
+  position_source: string
+  queue_size: number
+  battery_pct: number | null
+  temperature_c: number | null
+  error_code: string | null
+  payload: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface DeviceEvent {
+  id: number
+  device_id: number | null
+  mission_id: number | null
+  client_event_id: string | null
+  event_type: string
+  severity: string
+  source: string
+  occurred_at: string
+  is_fault_injected: boolean
+  fault_type: string | null
+  fault_active: boolean | null
+  payload: Record<string, unknown>
+  note: string | null
+  created_at: string
+  updated_at: string
+}

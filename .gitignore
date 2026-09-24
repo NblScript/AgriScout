@@ -22,6 +22,11 @@ frontend/dist/
 .pnpm-cache/
 .pnpm-data/
 .pnpm-state/
+.pnpm-store/
+.uv-cache/
+
+# 测试临时目录
+.pytest-tmp-*/
 
 # 编辑器
 .idea/

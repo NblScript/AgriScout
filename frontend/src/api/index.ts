@@ -11,6 +11,8 @@ import type {
   CapturePointFull,
   Crop,
   Device,
+  DeviceEvent,
+  DeviceHeartbeat,
   Field,
   Page,
   Patrol,
@@ -18,6 +20,10 @@ import type {
   Planting,
   PatrolReport,
   RuleRevision,
+  RiskPrediction,
+  RevisitTask,
+  DatasetVersion,
+  ModelEvaluation,
   StatsOverview,
 } from '../types'
 
@@ -87,6 +93,23 @@ export const devicesApi = {
   update: (id: number, payload: DeviceUpdatePayload) =>
     request<Device>(`/devices/${id}`, { method: 'PATCH', body: payload }),
   remove: (id: number) => request<void>(`/devices/${id}`, { method: 'DELETE' }),
+}
+
+export const deviceProtocolApi = {
+  register: (payload: DeviceCreatePayload) =>
+    request<Device>('/devices/register', { method: 'POST', body: payload }),
+  heartbeat: (deviceId: number, payload: Record<string, unknown>) =>
+    request<DeviceHeartbeat>(`/devices/${deviceId}/heartbeat`, { method: 'POST', body: payload }),
+  heartbeats: (deviceId: number, limit = 100) =>
+    request<DeviceHeartbeat[]>(`/devices/${deviceId}/heartbeats?limit=${limit}`),
+  events: (deviceId: number, limit = 100) =>
+    request<DeviceEvent[]>(`/devices/${deviceId}/events?limit=${limit}`),
+  injectFault: (deviceId: number, payload: Record<string, unknown>) =>
+    request<DeviceEvent>(`/devices/${deviceId}/fault-injection`, { method: 'POST', body: payload }),
+  nextTask: (deviceId: number) =>
+    request<RevisitTask | null>(`/devices/${deviceId}/tasks/next`),
+  reportTaskStatus: (taskId: number, payload: { status: string; result_note?: string }) =>
+    request<RevisitTask>(`/revisit-tasks/${taskId}`, { method: 'PATCH', body: payload }),
 }
 
 export const plantingsApi = {
@@ -221,4 +244,32 @@ export const reportsApi = {
 
 export const statsApi = {
   overview: () => request<StatsOverview>('/stats/overview'),
+}
+
+/* ---------- 研究软件闭环：风险、复巡、数据集和模型闸门 ---------- */
+export const softwareLoopApi = {
+  predictions: (patrolId: number) =>
+    request<RiskPrediction[]>(`/patrols/${patrolId}/risk-predictions`),
+  generatePredictions: (patrolId: number, targetEvent = '目标病害首次显症') =>
+    request<RiskPrediction[]>(`/patrols/${patrolId}/risk-predictions/generate`, {
+      method: 'POST', body: { target_event: targetEvent, forecast_hours: 48 },
+    }),
+  followUp: (predictionId: number, payload: {
+    status: string; reviewed_by: string; event_confirmed?: boolean; evidence?: Record<string, unknown>; note?: string
+  }) => request(`/risk-predictions/${predictionId}/follow-up`, { method: 'POST', body: payload }),
+  tasks: (fieldId?: number) => request<RevisitTask[]>(`/revisit-tasks${fieldId ? `?field_id=${fieldId}` : ''}`),
+  generateTasks: (fieldId: number, patrolId: number, limit = 20) =>
+    request<RevisitTask[]>('/revisit-tasks/generate', {
+      method: 'POST', body: { field_id: fieldId, patrol_id: patrolId, limit },
+    }),
+  updateTask: (taskId: number, payload: { status?: string; result_note?: string }) =>
+    request<RevisitTask>(`/revisit-tasks/${taskId}`, { method: 'PATCH', body: payload }),
+  datasets: () => request<DatasetVersion[]>('/datasets/versions'),
+  createDataset: (payload: { name: string; version: string; source_filter?: Record<string, unknown>; label_schema?: Record<string, unknown> }) =>
+    request<DatasetVersion>('/datasets/versions', { method: 'POST', body: payload }),
+  freezeDataset: (id: number, row_count: number) =>
+    request<DatasetVersion>(`/datasets/versions/${id}/freeze`, { method: 'POST', body: { row_count } }),
+  evaluations: () => request<ModelEvaluation[]>('/model-evaluations'),
+  approveEvaluation: (id: number, approved_by: string) =>
+    request<ModelEvaluation>(`/model-evaluations/${id}/approve`, { method: 'POST', body: { approved_by } }),
 }

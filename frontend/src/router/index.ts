@@ -47,6 +47,12 @@ const router = createRouter({
       meta: { title: '规则修订审批', icon: 'EditPen' },
     },
     {
+      path: '/research-loop',
+      name: 'research-loop',
+      component: () => import('../views/ResearchLoopView.vue'),
+      meta: { title: '研究闭环', icon: 'DataAnalysis' },
+    },
+    {
       path: '/patrols',
       name: 'patrols',
       component: () => import('../views/PatrolsView.vue'),

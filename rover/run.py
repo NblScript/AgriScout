@@ -191,6 +191,37 @@ class ApiClient(AbstractContextManager["ApiClient"]):
             "code": code, "name": name, "type": "rover", "model": model,
         })
 
+    def register_device(self, code: str, name: str, model: str = "Robot-Eye Rover") -> dict[str, Any]:
+        """按 code 幂等注册小车，返回平台分配的设备 id。"""
+        return self.post("/api/v1/devices/register", {
+            "code": code, "name": name, "type": "rover", "model": model,
+        }, expect=(200,))
+
+    def send_heartbeat(self, device_id: int, heartbeat: dict[str, Any]) -> dict[str, Any]:
+        """上报设备自检/任务阶段；硬件观测字段由调用方真实提供。"""
+        return self.post(f"/api/v1/devices/{device_id}/heartbeat", heartbeat, expect=(200,))
+
+    def report_event(self, device_id: int, event: dict[str, Any]) -> dict[str, Any]:
+        """记录设备事件；client_event_id 可用于重发幂等。"""
+        return self.post(f"/api/v1/devices/{device_id}/events", event, expect=(201,))
+
+    def report_mission_event(self, mission_id: int, event: dict[str, Any]) -> dict[str, Any]:
+        """记录任务事件；现阶段平台以 Patrol id 承载 mission_id。"""
+        return self.post(f"/api/v1/missions/{mission_id}/events", event, expect=(201,))
+
+    def next_task(self, device_id: int) -> dict[str, Any] | None:
+        """领取下一条复巡任务；无任务时服务端返回 JSON null。"""
+        return self.get(f"/api/v1/devices/{device_id}/tasks/next")
+
+    def report_task_status(
+        self, task_id: int, status: str, *, result_note: str | None = None,
+    ) -> dict[str, Any]:
+        """回报任务状态；设备控制动作仍由车端安全控制器执行。"""
+        body: dict[str, Any] = {"status": status}
+        if result_note is not None:
+            body["result_note"] = result_note
+        return self._req("PATCH", f"/api/v1/revisit-tasks/{task_id}", json_body=body, expect=(200,))
+
     def ensure_field(self, name: str, boundary: dict[str, Any]):
         for field in self.get("/api/v1/fields"):
             if field["name"] == name:
