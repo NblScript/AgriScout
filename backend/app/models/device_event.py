@@ -34,4 +34,4 @@ class DeviceEvent(TimestampMixin, Base):
     note: Mapped[str | None] = mapped_column(Text)
 
     device: Mapped["Device | None"] = relationship()  # type: ignore[name-defined]
-    mission: Mapped["Patrol | None"] = relationship()  # type: ignore[name-defined]\n
+    mission: Mapped["Patrol | None"] = relationship()  # type: ignore[name-defined]

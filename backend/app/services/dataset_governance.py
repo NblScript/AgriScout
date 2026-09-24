@@ -204,4 +204,4 @@ def approve_model_evaluation(
     evaluation.approved_by = approved_by.strip()
     evaluation.approved_at = now or datetime.now(timezone.utc)
     db.flush()
-    return evaluation\n
+    return evaluation

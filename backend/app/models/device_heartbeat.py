@@ -34,4 +34,4 @@ class DeviceHeartbeat(TimestampMixin, Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
     device: Mapped["Device"] = relationship()  # type: ignore[name-defined]
-    mission: Mapped["Patrol | None"] = relationship()  # type: ignore[name-defined]\n
+    mission: Mapped["Patrol | None"] = relationship()  # type: ignore[name-defined]

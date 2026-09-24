@@ -88,4 +88,4 @@ def downgrade() -> None:
     op.drop_index("ix_device_heartbeats_mission_id", table_name="device_heartbeats")
     op.drop_index("ix_device_heartbeats_client_heartbeat_id", table_name="device_heartbeats")
     op.drop_index("ix_device_heartbeats_device_id", table_name="device_heartbeats")
-    op.drop_table("device_heartbeats")\n
+    op.drop_table("device_heartbeats")

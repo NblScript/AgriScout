@@ -165,4 +165,4 @@ def test_fault_injection_is_a_replayable_event_and_updates_platform_state(client
     assert cleared.json()["fault_active"] is False
     assert client.get(f"{BASE}/devices/{device['id']}").json()["status"] == "idle"
     events = client.get(f"{BASE}/devices/{device['id']}/events?fault_injected=true").json()
-    assert len(events) == 2\n
+    assert len(events) == 2

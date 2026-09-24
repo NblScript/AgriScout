@@ -125,4 +125,4 @@ def test_model_gate_rejects_unbound_evaluation(db):
         evaluated_at=datetime.now(timezone.utc),
     )
     with pytest.raises(ValueError, match="绑定"):
-        validate_evaluation_gate(db, evaluation)\n
+        validate_evaluation_gate(db, evaluation)

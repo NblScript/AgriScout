@@ -362,4 +362,4 @@ def is_valid_transition(current: str | None, target: str) -> bool:
 def is_complete(record: Mapping[str, Any], *, require_follow_up: bool = True) -> bool:
     """返回完整性布尔值的便捷包装。"""
 
-    return check_completeness(record, require_follow_up=require_follow_up).complete\n
+    return check_completeness(record, require_follow_up=require_follow_up).complete

@@ -303,4 +303,4 @@ def list_mission_events(
             .order_by(DeviceEvent.occurred_at.desc(), DeviceEvent.id.desc())
             .limit(limit)
         ).all()
-    )\n
+    )

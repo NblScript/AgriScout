@@ -191,4 +191,4 @@ def test_non_mapping_record_is_incomplete():
 
 def test_assert_complete_raises_with_actionable_fields():
     with pytest.raises(ValueError, match="human_conclusion_or_follow_up"):
-        assert_complete(_record(status=CONFIRMED_POSITIVE))\n
+        assert_complete(_record(status=CONFIRMED_POSITIVE))
