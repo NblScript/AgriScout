@@ -17,7 +17,8 @@ class ApiError(RuntimeError):
 class ApiClient:
     def __init__(self, base_url: str, timeout: float = 30.0) -> None:
         self.base_url = base_url.rstrip("/")
-        self._client = httpx.Client(base_url=self.base_url, timeout=timeout)
+        # 现场平台通常在局域网；不要把本机 SOCKS/HTTP 代理继承到本地协议请求。
+        self._client = httpx.Client(base_url=self.base_url, timeout=timeout, trust_env=False)
 
     def close(self) -> None:
         self._client.close()
@@ -88,6 +89,37 @@ class ApiClient:
         return self.post("/api/v1/devices", {
             "code": code, "name": name, "type": "rover", "model": model,
         })
+
+    def register_device(self, code: str, name: str, model: str = "SimRover v1") -> dict:
+        """按 code 幂等注册模拟设备；只通过平台 HTTP 协议。"""
+        return self.post("/api/v1/devices/register", {
+            "code": code, "name": name, "type": "rover", "model": model,
+        }, expect=(200,))
+
+    def send_heartbeat(self, device_id: int, heartbeat: dict[str, Any]) -> dict:
+        """发送设备状态心跳，不在模拟器内推断硬件测量值。"""
+        return self.post(f"/api/v1/devices/{device_id}/heartbeat", heartbeat, expect=(200,))
+
+    def report_event(self, device_id: int, event: dict[str, Any]) -> dict:
+        """发送设备事件；由 client_event_id 支持网络重试幂等。"""
+        return self.post(f"/api/v1/devices/{device_id}/events", event, expect=(201,))
+
+    def report_mission_event(self, mission_id: int, event: dict[str, Any]) -> dict:
+        """发送任务事件；平台当前以 Patrol id 作为 mission_id。"""
+        return self.post(f"/api/v1/missions/{mission_id}/events", event, expect=(201,))
+
+    def next_task(self, device_id: int) -> dict | None:
+        """领取优先级最高的待执行复巡任务，无任务时返回 None。"""
+        return self.get(f"/api/v1/devices/{device_id}/tasks/next")
+
+    def report_task_status(
+        self, task_id: int, status: str, *, result_note: str | None = None,
+    ) -> dict:
+        """回报任务状态；实际运动和安全停车由设备端控制器负责。"""
+        body: dict[str, Any] = {"status": status}
+        if result_note is not None:
+            body["result_note"] = result_note
+        return self.patch(f"/api/v1/revisit-tasks/{task_id}", body)
 
     def ensure_field(self, name: str, boundary: dict, area_ha: float | None = None,
                      soil_type: str = "壤土") -> dict:

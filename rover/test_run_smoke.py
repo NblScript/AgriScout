@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from rover import run as rover_run
+from simulator import client as simulator_client
 
 
 class _RecordingHandler(BaseHTTPRequestHandler):
@@ -90,6 +91,86 @@ class _RecordingServer(HTTPServer):
         self._thread = threading.Thread(target=self.serve_forever, daemon=True)
 
     def __enter__(self) -> "_RecordingServer":
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.shutdown()
+        self.server_close()
+        self._thread.join(timeout=2)
+
+    @property
+    def base_url(self) -> str:
+        return f"http://127.0.0.1:{self.server_port}"
+
+
+class _ProtocolHandler(BaseHTTPRequestHandler):
+    """仅实现设备协议所需的最小 HTTP 合同，不导入后端。"""
+
+    server: "_ProtocolServer"
+
+    def _json(self, status: int, payload: object) -> None:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _read(self) -> dict:
+        length = int(self.headers.get("Content-Length", "0"))
+        return json.loads(self.rfile.read(length)) if length else {}
+
+    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        path = urlsplit(self.path).path
+        self.server.requests.append(("GET", path, None))
+        if path.endswith("/tasks/next"):
+            self._json(200, {
+                "id": 700, "field_id": 1, "task_type": "revisit", "status": "queued",
+                "priority": 0.9, "value_score": 0.8, "rationale": {"source": "smoke"},
+                "parameters": {"seq": 3}, "created_by": "test",
+            })
+            return
+        self._json(404, {"detail": "not found"})
+
+    def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        path = urlsplit(self.path).path
+        payload = self._read()
+        self.server.requests.append(("POST", path, payload))
+        if path == "/api/v1/devices/register":
+            self._json(200, {
+                "id": 21, "code": payload["code"], "name": payload["name"],
+                "type": payload["type"], "status": payload.get("status", "idle"),
+            })
+        elif path.endswith("/heartbeat"):
+            self._json(200, {"id": 301, "device_id": 21, **payload})
+        elif path.endswith("/events"):
+            self._json(201, {"id": 401, "device_id": 21, "mission_id": 55, **payload})
+        else:
+            self._json(404, {"detail": "not found"})
+
+    def do_PATCH(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        path = urlsplit(self.path).path
+        payload = self._read()
+        self.server.requests.append(("PATCH", path, payload))
+        if path == "/api/v1/revisit-tasks/700":
+            self._json(200, {
+                "id": 700, "field_id": 1, "task_type": "revisit", **payload,
+            })
+            return
+        self._json(404, {"detail": "not found"})
+
+    def log_message(self, *_args: object) -> None:
+        return
+
+
+class _ProtocolServer(HTTPServer):
+    def __init__(self) -> None:
+        super().__init__(("127.0.0.1", 0), _ProtocolHandler)
+        self.requests: list[tuple[str, str, dict | None]] = []
+        self._thread = threading.Thread(target=self.serve_forever, daemon=True)
+
+    def __enter__(self) -> "_ProtocolServer":
         self._thread.start()
         return self
 
@@ -327,6 +408,64 @@ class RoverSmokeTests(unittest.TestCase):
             _, envelope = spool.read(queued)
             self.assertEqual(envelope["attempts"], 1)
             self.assertIn("offline", envelope["last_error"])
+
+    def test_device_protocol_smoke_for_rover_and_simulator(self) -> None:
+        """两个采集端适配器都只经 HTTP 完成注册→心跳→事件→领任务→状态回报。"""
+        for make_client in (
+            rover_run.ApiClient,
+            simulator_client.ApiClient,
+        ):
+            with self.subTest(client=make_client.__module__), _ProtocolServer() as server:
+                client = make_client(server.base_url)
+                try:
+                    device = client.register_device("smoke-protocol", "协议测试车")
+                    self.assertEqual(device["id"], 21)
+
+                    heartbeat = client.send_heartbeat(21, {
+                        "client_heartbeat_id": "hb-smoke-1",
+                        "status": "active",
+                        "execution_phase": "ready",
+                        "position_source": "unknown",
+                        "queue_size": 0,
+                        "payload": {"hardware": "fake"},
+                    })
+                    self.assertEqual(heartbeat["device_id"], 21)
+
+                    event = client.report_event(21, {
+                        "client_event_id": "evt-smoke-1",
+                        "event_type": "self_check_passed",
+                        "severity": "info",
+                        "payload": {"camera": "ok"},
+                    })
+                    self.assertEqual(event["id"], 401)
+                    mission_event = client.report_mission_event(55, {
+                        "client_event_id": "evt-smoke-mission-1",
+                        "event_type": "sample_persisted",
+                        "severity": "info",
+                        "payload": {"seq": 3},
+                    })
+                    self.assertEqual(mission_event["mission_id"], 55)
+
+                    task = client.next_task(21)
+                    self.assertIsNotNone(task)
+                    assert task is not None
+                    self.assertEqual(task["id"], 700)
+                    for status in ("assigned", "running", "completed"):
+                        updated = client.report_task_status(700, status, result_note=f"smoke:{status}")
+                        self.assertEqual(updated["status"], status)
+                finally:
+                    client.close()
+
+                paths = [(method, path) for method, path, _ in server.requests]
+                self.assertIn(("POST", "/api/v1/devices/register"), paths)
+                self.assertIn(("POST", "/api/v1/devices/21/heartbeat"), paths)
+                self.assertIn(("POST", "/api/v1/devices/21/events"), paths)
+                self.assertIn(("POST", "/api/v1/missions/55/events"), paths)
+                self.assertIn(("GET", "/api/v1/devices/21/tasks/next"), paths)
+                self.assertEqual(
+                    [path for method, path in paths if method == "PATCH"],
+                    ["/api/v1/revisit-tasks/700"] * 3,
+                )
 
 
 if __name__ == "__main__":

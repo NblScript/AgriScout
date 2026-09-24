@@ -204,6 +204,181 @@
 
 索引 `ix_annotations_patrol_id`：(patrol_id)
 
+## 研究闭环（M7 软件）
+
+### risk_predictions
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | Integer | PK | — |
+| patrol_id | Integer | FK→patrols.id、NOT NULL | — |
+| capture_point_id | Integer | FK→capture_points.id | — |
+| observation_key | String(160) | NOT NULL | — |
+| target_event | String(120) | NOT NULL | — |
+| forecast_hours | Integer | NOT NULL | — |
+| forecast_start | DateTime | NOT NULL | — |
+| forecast_end | DateTime | NOT NULL | — |
+| probability | Float | NOT NULL | — |
+| level | String(20) | NOT NULL | — |
+| trend | String(20) | NOT NULL | — |
+| confidence | Float | NOT NULL | — |
+| model_version | String(80) | NOT NULL | — |
+| evidence | JSON | NOT NULL | — |
+| status | String(24) | NOT NULL | — |
+| created_at | DateTime | NOT NULL、default=now() | — |
+| updated_at | DateTime | NOT NULL、default=now() | — |
+
+索引 `ix_risk_predictions_capture_point_id`：(capture_point_id)
+
+索引 `ix_risk_predictions_observation_key`：(observation_key)
+
+索引 `ix_risk_predictions_patrol_id`：(patrol_id)
+
+### risk_follow_ups
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | Integer | PK | — |
+| risk_prediction_id | Integer | FK→risk_predictions.id、NOT NULL、UNIQUE | — |
+| status | String(30) | NOT NULL | — |
+| reviewed_by | String(80) | — | — |
+| reviewed_at | DateTime | — | — |
+| event_confirmed | Boolean | — | — |
+| event_at | DateTime | — | — |
+| intervention_at | DateTime | — | — |
+| evidence | JSON | — | — |
+| note | Text | — | — |
+| created_at | DateTime | NOT NULL、default=now() | — |
+| updated_at | DateTime | NOT NULL、default=now() | — |
+
+索引 `ix_risk_follow_ups_risk_prediction_id`：(risk_prediction_id)（唯一）
+
+### revisit_tasks
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | Integer | PK | — |
+| field_id | Integer | FK→fields.id、NOT NULL | — |
+| patrol_id | Integer | FK→patrols.id | — |
+| capture_point_id | Integer | FK→capture_points.id | — |
+| device_id | Integer | FK→devices.id | — |
+| risk_prediction_id | Integer | FK→risk_predictions.id | — |
+| task_type | String(20) | NOT NULL | — |
+| status | String(20) | NOT NULL | — |
+| priority | Float | NOT NULL | — |
+| value_score | Float | NOT NULL | — |
+| rationale | JSON | NOT NULL | — |
+| parameters | JSON | NOT NULL | — |
+| created_by | String(80) | NOT NULL | — |
+| scheduled_at | DateTime | — | — |
+| completed_at | DateTime | — | — |
+| result_note | Text | — | — |
+| created_at | DateTime | NOT NULL、default=now() | — |
+| updated_at | DateTime | NOT NULL、default=now() | — |
+
+索引 `ix_revisit_tasks_capture_point_id`：(capture_point_id)
+
+索引 `ix_revisit_tasks_device_id`：(device_id)
+
+索引 `ix_revisit_tasks_field_id`：(field_id)
+
+索引 `ix_revisit_tasks_patrol_id`：(patrol_id)
+
+索引 `ix_revisit_tasks_risk_prediction_id`：(risk_prediction_id)
+
+### dataset_versions
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | Integer | PK | — |
+| name | String(100) | NOT NULL | — |
+| version | String(40) | NOT NULL | — |
+| status | String(20) | NOT NULL | — |
+| source_filter | JSON | NOT NULL | — |
+| label_schema | JSON | NOT NULL | — |
+| row_count | Integer | NOT NULL | — |
+| snapshot_ndjson | Text | — | — |
+| snapshot_sha256 | String(64) | — | — |
+| snapshot_summary | JSON | — | — |
+| created_by | String(80) | NOT NULL | — |
+| frozen_at | DateTime | — | — |
+| created_at | DateTime | NOT NULL、default=now() | — |
+| updated_at | DateTime | NOT NULL、default=now() | — |
+
+### model_evaluations
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | Integer | PK | — |
+| dataset_version_id | Integer | FK→dataset_versions.id | — |
+| model_name | String(100) | NOT NULL | — |
+| model_version | String(80) | NOT NULL | — |
+| split | String(20) | NOT NULL | — |
+| metrics | JSON | NOT NULL | — |
+| status | String(20) | NOT NULL | — |
+| notes | Text | — | — |
+| evaluated_at | DateTime | NOT NULL | — |
+| approved_by | String(80) | — | — |
+| approved_at | DateTime | — | — |
+| created_at | DateTime | NOT NULL、default=now() | — |
+| updated_at | DateTime | NOT NULL、default=now() | — |
+
+索引 `ix_model_evaluations_dataset_version_id`：(dataset_version_id)
+
+## 设备协议（M7 软件）
+
+### device_heartbeats
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | Integer | PK | — |
+| device_id | Integer | FK→devices.id、NOT NULL | — |
+| client_heartbeat_id | String(120) | — | — |
+| observed_at | DateTime | NOT NULL | — |
+| status | String(20) | NOT NULL | — |
+| execution_phase | String(40) | NOT NULL | — |
+| mission_id | Integer | FK→patrols.id | — |
+| position_source | String(40) | NOT NULL | — |
+| queue_size | Integer | NOT NULL | — |
+| battery_pct | Float | — | — |
+| temperature_c | Float | — | — |
+| error_code | String(80) | — | — |
+| payload | JSON | NOT NULL | — |
+| created_at | DateTime | NOT NULL、default=now() | — |
+| updated_at | DateTime | NOT NULL、default=now() | — |
+
+索引 `ix_device_heartbeats_client_heartbeat_id`：(client_heartbeat_id)
+
+索引 `ix_device_heartbeats_device_id`：(device_id)
+
+索引 `ix_device_heartbeats_mission_id`：(mission_id)
+
+### device_events
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | Integer | PK | — |
+| device_id | Integer | FK→devices.id | — |
+| mission_id | Integer | FK→patrols.id | — |
+| client_event_id | String(120) | — | — |
+| event_type | String(60) | NOT NULL | — |
+| severity | String(20) | NOT NULL | — |
+| source | String(20) | NOT NULL | — |
+| occurred_at | DateTime | NOT NULL | — |
+| is_fault_injected | Boolean | NOT NULL | — |
+| fault_type | String(80) | — | — |
+| fault_active | Boolean | — | — |
+| payload | JSON | NOT NULL | — |
+| note | Text | — | — |
+| created_at | DateTime | NOT NULL、default=now() | — |
+| updated_at | DateTime | NOT NULL、default=now() | — |
+
+索引 `ix_device_events_client_event_id`：(client_event_id)
+
+索引 `ix_device_events_device_id`：(device_id)
+
+索引 `ix_device_events_mission_id`：(mission_id)
+
 ## 其他
 
 ### agent_conversations

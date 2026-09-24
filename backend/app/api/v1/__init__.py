@@ -7,6 +7,7 @@ from app.api.v1 import (
     annotations,
     capture_points,
     crops,
+    device_protocol,
     devices,
     fields,
     health,
@@ -16,12 +17,15 @@ from app.api.v1 import (
     reports,
     rule_revisions,
     rules,
+    software_loop,
     stats,
 )
 from app.core.deps import get_current_user
 
 api_router = APIRouter(dependencies=[Depends(get_current_user)])
 api_router.include_router(health.router)
+# Protocol paths such as /devices/register must precede /devices/{device_id}.
+api_router.include_router(device_protocol.router)
 api_router.include_router(fields.router)
 api_router.include_router(crops.router)
 api_router.include_router(devices.router)
@@ -36,3 +40,4 @@ api_router.include_router(stats.router)
 api_router.include_router(reports.router)
 api_router.include_router(agent.router)
 api_router.include_router(rule_revisions.router)
+api_router.include_router(software_loop.router)
