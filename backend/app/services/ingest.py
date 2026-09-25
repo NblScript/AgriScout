@@ -34,17 +34,35 @@ def _resolve_planting(db: Session, field_id: int, planting_id: int | None) -> in
     return planting.id if planting else None
 
 
-def _resolve_photo(payload: CapturePointPayload, storage: Storage) -> tuple[str | None, bool]:
-    """返回 (photo_url, 是否本次落盘)。URL 引用直接透传。"""
+def _resolve_photo(payload: CapturePointPayload, storage: Storage) -> tuple[str | None, bool, bool]:
+    """返回 (photo_url, 是否 base64 上传, 是否本次新建文件)。URL 引用直接透传。
+
+    内容寻址去重：同图已在库中（可能被其他巡检引用）时“新建”为 False，回滚时不得删除。
+    """
     photo = payload.photo
     if photo is None:
-        return None, False
+        return None, False, False
     if is_photo_url(photo):
-        return photo, False
+        return photo, False, False
     data = decode_base64_photo(photo)  # 已在 schema 预校验，这里取字节
     # 按文件魔数判型：PNG(\x89PNG) / JPEG(\xff\xd8)，其余默认 jpg
     ext = ".png" if data[:4] == b"\x89PNG" else ".jpg"
-    return storage.save(data, suffix=ext), True
+    url, created = storage.save_tracked(data, suffix=ext)
+    return url, True, created
+
+
+def _cleanup_new_photos(db: Session, storage: Storage, urls: list[str]) -> None:
+    """回滚后清理本次新建的照片；已被其他采样点引用的（并发上传同图）保留。"""
+    logger = logging.getLogger(__name__)
+    for url in urls:
+        try:
+            still_used = db.scalar(
+                select(CapturePoint.id).where(CapturePoint.photo_url == url).limit(1)
+            )
+            if still_used is None:
+                storage.delete(url)
+        except Exception:  # noqa: BLE001 清理失败不影响主错误抛出
+            logger.warning("orphan photo cleanup failed: %s", url)
 
 
 def ingest_patrol_package(db: Session, package: PatrolPackageIn, storage: Storage) -> IngestResultOut:
@@ -72,8 +90,8 @@ def ingest_patrol_package(db: Session, package: PatrolPackageIn, storage: Storag
 
     photos_saved = 0
     photos_referenced = 0
-    # 本次新落盘的照片 URL：落库失败时逐一清理，避免孤儿文件
-    saved_photo_urls: list[str] = []
+    # 本次新建的照片文件 URL：落库失败时清理，避免孤儿文件（去重命中的共享照片不在此列）
+    created_photo_urls: list[str] = []
     patrol = Patrol(
         field_id=field.id,
         planting_id=planting_id,
@@ -88,35 +106,35 @@ def ingest_patrol_package(db: Session, package: PatrolPackageIn, storage: Storag
     db.add(patrol)
     db.flush()  # 取 patrol.id 供子表外键使用；尚未提交，失败即整体回滚
 
-    for cp in package.capture_points:
-        photo_url, saved = _resolve_photo(cp, storage)
-        if saved and photo_url:
-            saved_photo_urls.append(photo_url)
-        photos_saved += int(saved)
-        photos_referenced += int(cp.photo is not None and not saved)
-        point = CapturePoint(
-            patrol_id=patrol.id,
-            seq=cp.seq,
-            distance_m=cp.distance_m,
-            lng=cp.lng,
-            lat=cp.lat,
-            captured_at=cp.captured_at,
-            photo_url=photo_url,
-        )
-        if cp.weather is not None:
-            point.weather = WeatherSample(patrol_id=patrol.id, **cp.weather.model_dump())
-        db.add(point)
-
     try:
+        for cp in package.capture_points:
+            photo_url, uploaded, created = _resolve_photo(cp, storage)
+            if created and photo_url:
+                created_photo_urls.append(photo_url)
+            photos_saved += int(uploaded)
+            photos_referenced += int(cp.photo is not None and not uploaded)
+            point = CapturePoint(
+                patrol_id=patrol.id,
+                seq=cp.seq,
+                distance_m=cp.distance_m,
+                lng=cp.lng,
+                lat=cp.lat,
+                captured_at=cp.captured_at,
+                photo_url=photo_url,
+            )
+            if cp.weather is not None:
+                point.weather = WeatherSample(patrol_id=patrol.id, **cp.weather.model_dump())
+            db.add(point)
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        for url in saved_photo_urls:  # 单事务回滚了，落盘的照片须一并清理
-            try:
-                storage.delete(url)
-            except Exception:  # noqa: BLE001 清理失败不影响主错误抛出
-                logging.getLogger(__name__).warning("orphan photo cleanup failed: %s", url)
+        _cleanup_new_photos(db, storage, created_photo_urls)
         raise ValueError("巡检包落库失败：约束冲突（检查 seq 是否重复）") from exc
+    except Exception:
+        # 存储写盘等其他失败同样整包回滚，已新建的照片一并清理
+        db.rollback()
+        _cleanup_new_photos(db, storage, created_photo_urls)
+        raise
 
     return IngestResultOut(
         patrol_id=patrol.id,

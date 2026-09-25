@@ -3,13 +3,14 @@
 Agent 只有起草权：draft JSON 经影子运行 + 人工批准后才由系统写入规则表
 （version+1，走 sync_rules 同款指纹比对）。驳回的修订案归档留痕不删除。
 """
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import JSON, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
-from app.models.timestamps import TimestampMixin
+from app.models.timestamps import TimestampMixin, UTCDateTime
 
 
 class RuleRevision(TimestampMixin, Base):
@@ -33,3 +34,5 @@ class RuleRevision(TimestampMixin, Base):
     prompt_version: Mapped[str] = mapped_column(String(20), nullable=False)
     # 批准后回填
     applied_version: Mapped[int | None] = mapped_column()
+    # sync 首次观察到 YAML 已与审批结果一致的时间；为空表示审批内容尚未回写 YAML
+    yaml_reconciled_at: Mapped[datetime | None] = mapped_column(UTCDateTime())

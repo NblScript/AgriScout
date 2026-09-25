@@ -161,6 +161,9 @@ def tool_get_platform_stats(db: Session) -> dict:
     }
 
 
+MAX_TOOL_LIMIT = 50
+
+
 def safe_dispatch(db: Session, fn, arguments: dict[str, Any]) -> dict:
     """工具分发：白名单函数 + 显式参数提取与类型校验，不做动态解包。
 
@@ -194,6 +197,8 @@ def safe_dispatch(db: Session, fn, arguments: dict[str, Any]) -> dict:
             v = args[name]
             if v is None or any(isinstance(v, t) for t in member_types):
                 kwargs[name] = v
+            if name == "limit" and isinstance(v, int) and not isinstance(v, bool):
+                kwargs[name] = max(1, min(v, MAX_TOOL_LIMIT))  # LLM 可能请求超大 limit
         elif param.default is not inspect.Parameter.empty:
             kwargs[name] = param.default
     return fn(db, **kwargs)

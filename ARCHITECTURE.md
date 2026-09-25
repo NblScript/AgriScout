@@ -7,7 +7,7 @@
 
 ```
 ┌─ 端（采集）──────────┐   HTTP 巡检包协议 v1    ┌─ 云（本仓库）─────────────────┐
-│ 巡检小车 / 模拟器      │ ─────────────────────→ │ FastAPI backend  ←→ SQLite/PG │
+│ 巡检小车(rover)/模拟器 │ ─────────────────────→ │ FastAPI backend  ←→ SQLite/PG │
 │ RK3588 + 编码器定距拍照 │ ←───────────────────── │ Vue3 frontend（管理/回放/总览） │
 │ 未来：端侧量化 YOLO(L2) │   GET patrol-schema     │ ml/ 训练环境（离线）           │
 └──────────────────────┘   （对接合同）           └───────────────────────────────┘
@@ -32,7 +32,7 @@ services/        业务：ingest(落库) / analysis(管线) / advice(引擎) / s
   ↓
 models/ + schemas/   ORM 实体 与 DTO/协议（schemas 是对小车端的合同面）
   ↓
-core/            config(pydantic-settings) / db(Session) / deps(认证插槽)
+core/            config(pydantic-settings) / db(Session) / deps(认证插槽) / timeutil(UTC 约定，D9)
 ```
 
 跨层约定：
@@ -57,6 +57,6 @@ core/            config(pydantic-settings) / db(Session) / deps(认证插槽)
 
 ## frontend 结构
 
-- 管理台（Element Plus 亮色）：七页 CRUD + 巡检回放（地图/时间轴/复核/建议）
+- 管理台（Element Plus 亮色）：地块/作物/种植/设备 CRUD + 系统状态 + 规则修订审批 + 研究闭环（风险/复巡/随访/数据集/模型评估）+ 巡检回放（地图/时间轴/复核/建议）
 - `/screen` 数据总览：白卡片仪表盘，ECharts 亮色配色，中央 Leaflet 地图（theme 切换）
 - 数据层：`api/index.ts` 每资源一个 api 对象；类型单一事实源 `types.ts` 对齐 backend schemas

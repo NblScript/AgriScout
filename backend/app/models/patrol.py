@@ -2,11 +2,11 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, JSON, String, Text
+from sqlalchemy import ForeignKey, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
-from app.models.timestamps import TimestampMixin
+from app.models.timestamps import TimestampMixin, UTCDateTime
 
 
 class Patrol(TimestampMixin, Base):
@@ -16,8 +16,8 @@ class Patrol(TimestampMixin, Base):
     field_id: Mapped[int] = mapped_column(ForeignKey("fields.id"), nullable=False, index=True)
     planting_id: Mapped[int | None] = mapped_column(ForeignKey("plantings.id"), index=True)
     device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id"), index=True)
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    ended_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     # GeoJSON LineString：{"type":"LineString","coordinates":[[lng,lat],...]}
     track: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     # planned 已计划 / received 数据已接入 / completed 已完成

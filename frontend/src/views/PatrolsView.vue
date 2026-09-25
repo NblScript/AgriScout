@@ -40,6 +40,11 @@ function open(row: Patrol) {
   router.push(`/patrols/${row.id}`)
 }
 
+/** 后端时间一律 UTC（带时区），按浏览器本地时区显示 */
+function fmtTime(_row: Patrol, _col: unknown, value: string | null) {
+  return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—'
+}
+
 const ANALYSIS_TAG: Record<string, 'info' | 'warning' | 'success' | 'danger'> = {
   pending: 'info',
   running: 'warning',
@@ -82,8 +87,8 @@ const ANALYSIS_TAG: Record<string, 'info' | 'warning' | 'success' | 'danger'> = 
     <el-table-column label="设备" width="110">
       <template #default="{ row }">{{ row.device_code ?? '—' }}</template>
     </el-table-column>
-    <el-table-column prop="started_at" label="开始时间" min-width="160" />
-    <el-table-column prop="ended_at" label="结束时间" min-width="160" />
+    <el-table-column prop="started_at" label="开始时间" min-width="160" :formatter="fmtTime" />
+    <el-table-column prop="ended_at" label="结束时间" min-width="160" :formatter="fmtTime" />
     <el-table-column label="数据" width="90">
       <template #default="{ row }">
         <el-tag :type="row.status === 'received' ? 'success' : 'info'" effect="plain">

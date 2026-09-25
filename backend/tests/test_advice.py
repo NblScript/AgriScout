@@ -231,3 +231,38 @@ def test_generate_without_analysis_is_safe(client):
     # threshold/status 层因缺数据不命中，仅 routine 无条件恒命中
     keys = {a["rule_snapshot"]["tier"] for a in advices["items"]}
     assert keys == {"routine"}
+
+
+def test_shadow_pairs_respect_top_k_like_real_generation(client):
+    """回归：影子运行的命中集合必须与真实生成一致——新增高优规则会把保底建议挤出 Top-3。"""
+    from app.core.db import get_session_factory
+    from app.main import app
+    from app.models import Advice, Rule
+    from app.services.advice import compute_advice_pairs
+
+    field_id, crop_id, _ = _setup(client)
+    _create_rules(client, crop_id)
+    patrol_id = _upload(client, field_id).json()["patrol_id"]
+
+    db = app.dependency_overrides[get_session_factory]()()
+    try:
+        real = {(a.capture_point_id, a.rule_key) for a in db.query(Advice).filter_by(patrol_id=patrol_id)}
+        before = compute_advice_pairs(db, patrol_id)
+        assert before == real, "影子基线与真实生成结果不一致"
+
+        # 内存 draft：高优、与胁迫同条件，排序在前
+        draft = Rule(
+            rule_key="R-TEST-AAA-NEW", tier="status", priority="high",
+            condition={"stress_detected": True}, action="新规则", active=True, version=1,
+        )
+        after = compute_advice_pairs(db, patrol_id, extra_rules=[draft])
+        removed = {key for _pt, key in before - after}
+        added = {key for _pt, key in after - before}
+        assert added == {"R-TEST-AAA-NEW"}
+        assert "R-TEST-ROUTINE-JOINTING" in removed, "挤出 Top-3 的保底建议未在影子 diff 中体现"
+        per_point: dict[int, int] = {}
+        for pt, _key in after:
+            per_point[pt] = per_point.get(pt, 0) + 1
+        assert max(per_point.values()) <= 3
+    finally:
+        db.close()

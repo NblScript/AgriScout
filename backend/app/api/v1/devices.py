@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.models import Device
 from app.schemas.device import DeviceCreate, DeviceOut, DeviceUpdate
+from app.services.device_safety import record_status_override
 
 router = APIRouter(prefix="/devices", tags=["devices"])
 
@@ -44,7 +45,11 @@ def update_device(device_id: int, payload: DeviceUpdate, db: Session = Depends(g
     obj = db.get(Device, device_id)
     if obj is None:
         raise HTTPException(status_code=404, detail="设备不存在")
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    updates = payload.model_dump(exclude_unset=True)
+    if updates.get("status") is not None:
+        # 人工改状态是解除/置入安全锁存的唯一人工通道，留事件可审计
+        record_status_override(db, obj, updates["status"])
+    for key, value in updates.items():
         setattr(obj, key, value)
     db.commit()
     db.refresh(obj)

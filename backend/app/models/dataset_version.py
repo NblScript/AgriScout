@@ -2,11 +2,11 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
-from app.models.timestamps import TimestampMixin
+from app.models.timestamps import TimestampMixin, UTCDateTime
 
 
 class DatasetVersion(TimestampMixin, Base):
@@ -25,7 +25,7 @@ class DatasetVersion(TimestampMixin, Base):
     snapshot_sha256: Mapped[str | None] = mapped_column(String(64))
     snapshot_summary: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     created_by: Mapped[str] = mapped_column(String(80), nullable=False, default="system")
-    frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    frozen_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
     evaluations: Mapped[list["ModelEvaluation"]] = relationship(  # type: ignore[name-defined]
         back_populates="dataset", cascade="all, delete-orphan",

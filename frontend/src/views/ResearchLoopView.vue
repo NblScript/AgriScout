@@ -143,7 +143,7 @@ onMounted(load)
           <el-table :data="predictions" size="small" stripe>
             <el-table-column prop="observation_key" label="观察区域" min-width="160" />
             <el-table-column label="风险" width="100">
-              <template #default="{ row }"><el-tag :type="row.level === 'high' ? 'danger' : row.level === 'medium' ? 'warning' : 'success'">{{ row.level }} · {{ Math.round(row.probability * 100) }}%</el-tag></template>
+              <template #default="{ row }"><el-tag :type="row.level === 'high' ? 'danger' : row.level === 'medium' ? 'warning' : row.level === 'unknown' ? 'info' : 'success'">{{ row.level }} · {{ Math.round(row.probability * 100) }}%</el-tag></template>
             </el-table-column>
             <el-table-column prop="trend" label="趋势" width="80" />
             <el-table-column prop="model_version" label="模型" min-width="150" />

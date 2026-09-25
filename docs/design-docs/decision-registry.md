@@ -73,6 +73,18 @@
   测试强制清空 LLM 配置 + monkeypatch `_chat`，永不外呼。
 - **落点**：`services/llm_report.py`、`api/v1/reports.py`、迁移 0006。
 
+### D9 · 时间统一存 UTC（2026-09-25）
+- **问题**：SQLite 存 `DateTime(timezone=True)` 时直接丢弃时区、不做换算。采集端（rover/模拟器）
+  上报东八区时间，服务端默认值是 UTC，两种墙钟混存后无法比较——心跳乱序保护因此把新心跳全判为旧心跳。
+- **选项权衡**：
+  - 只在 API 入参统一换算：漏掉服务端自己写入的时间（如 `datetime.now(CN_TZ)`），读回仍无时区 ❌
+  - 统一存东八区墙钟：与服务端 UTC 默认值冲突，切 PostgreSQL 时语义再变一次 ❌
+  - 数据库边界统一换算（TypeDecorator）：所有写入换算为 UTC、读回一律带 UTC 时区，DDL 不变 ✅
+- **结论**：全部时间列用 `UTCDateTime`（`models/timestamps.py`）；API 输出带时区（`...Z`），前端按浏览器本地时区显示；
+  按「天」计的农事语义（生育期天数）用田间业务时区取日期（`core/timeutil.field_date`，固定东八区）。
+  旧开发库里客户端写入的东八区墙钟不做自动迁移（来源混杂无法可靠判定），演示库用模拟器重建。
+- **落点**：`core/timeutil.py`、`models/timestamps.py`、`services/analysis/base.py`、PatrolsView 时间格式化。
+
 ## B 系列：开发基线（2026-08 定稿，全文见 docs/05「开发基线定稿」）
 
 | 编号 | 决策 | 一句话 |
@@ -85,7 +97,7 @@
 ## 其他在档约束（非编号，但同等级别）
 
 - **红线**：2600 张照片的包绝不在上传请求里同步识别（= D2 的表述版）。
-- **规则单一事实源**：`backend/app/rules/wheat.yaml` 是规则源头，规则表由 YAML 同步派生；
+- **规则单一事实源**：`backend/rules/wheat.yaml` 是规则源头，规则表由 YAML 同步派生；
   Advice 冻结 `rule_snapshot` 保证历史可溯源。
 - **模拟器红旗**：见 D5；simulator/README 开头即此约束。
 - **ML 产物不入库**：`ml/data/`、`ml/runs/`、`*.pt` 均 gitignore；模型经 `ml/export_model.py`
@@ -97,3 +109,4 @@
 |---|---|---|
 | 2026-08 | D1–D6 | 原定义随 docs 清理佚失；从 git 考古补回 D2/D3/D5/D6，D1/D4 标记空闲 |
 | 2026-08-27 | D7 | 新增：LLM 建议线接入决策（OpenAI 兼容直连 + patrol_reports 溯源设计） |
+| 2026-09-25 | D9 | 新增：时间统一存 UTC，农事日期按田间时区（第二轮审查修复，计划 0006） |

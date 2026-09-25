@@ -206,3 +206,52 @@ def test_ingest_module_has_logging_import():
         for alias in node.names
     }
     assert "logging" in imported
+
+
+def _second_package(field_id: int, device: str, photo):
+    """与 _package 同内容但开始时间不同，避免被重复上传判重拦截。"""
+    pkg = _package(field_id, device, points=1, photo=photo)
+    pkg["patrol"]["started_at"] = "2026-08-27T08:00:00+00:00"
+    pkg["patrol"]["ended_at"] = "2026-08-27T09:00:00+00:00"
+    return pkg
+
+
+def _force_commit_failure(monkeypatch, exc_factory):
+    """让下一次巡检包落库在 commit 阶段失败（模拟并发约束冲突等）。"""
+    import app.services.ingest as ingest_module
+
+    real = ingest_module.ingest_patrol_package
+
+    def wrapped(db, package, storage):
+        def boom():
+            raise exc_factory()
+        monkeypatch.setattr(db, "commit", boom)
+        return real(db, package, storage)
+
+    monkeypatch.setattr("app.api.v1.ingest.ingest_patrol_package", wrapped)
+
+
+def test_rollback_keeps_photo_shared_with_existing_patrol(client, media_dir, monkeypatch):
+    """回归：内容寻址去重命中的共享照片，回滚清理时不得删除（旧巡检仍在引用）。"""
+    from sqlalchemy.exc import IntegrityError
+
+    field_id, device = _setup_field_and_device(client)
+    assert _ingest(client, _package(field_id, device, points=1, photo=TINY_PNG)).status_code == 201
+    assert len(list(media_dir.iterdir())) == 1
+
+    _force_commit_failure(monkeypatch, lambda: IntegrityError("stmt", {}, Exception("forced")))
+    resp = _ingest(client, _second_package(field_id, device, TINY_PNG))
+    assert resp.status_code == 422
+    assert len(list(media_dir.iterdir())) == 1, "旧巡检引用的共享照片被误删"
+
+
+def test_rollback_removes_only_newly_created_photo(client, media_dir, monkeypatch):
+    """回滚时本次新建的照片应被清理，不留孤儿文件；非约束类异常同样清理。"""
+    field_id, device = _setup_field_and_device(client)
+    _force_commit_failure(monkeypatch, lambda: RuntimeError("disk full"))
+    try:
+        _ingest(client, _second_package(field_id, device, TINY_PNG))
+    except RuntimeError:
+        pass  # TestClient 默认向外抛出未处理异常
+    files = [f for f in media_dir.iterdir()] if media_dir.exists() else []
+    assert files == [], f"残留孤儿照片：{files}"

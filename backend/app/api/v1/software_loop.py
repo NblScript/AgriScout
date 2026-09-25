@@ -154,9 +154,8 @@ def generate_patrol_predictions(patrol_id: int, payload: RiskGenerateIn, db: Ses
         )
         probability = baseline.probability
         confidence = baseline.confidence
+        # 证据不足时保留 unknown：缺失/低质量观测不得静默当作低风险（0005 决策）
         level = baseline.level
-        if level == "unknown":
-            level = "low"
         obj = RiskPrediction(
             patrol_id=patrol_id, capture_point_id=point.id,
             observation_key=f"patrol-{patrol_id}/point-{point.seq}", target_event=payload.target_event,
@@ -420,8 +419,12 @@ def generate_revisit_tasks(payload: TaskGenerateIn, db: Session = Depends(get_db
 
 @router.get("/devices/{device_id}/tasks/next", response_model=RevisitTaskOut | None)
 def next_device_task(device_id: int, db: Session = Depends(get_db)):
-    if db.get(Device, device_id) is None:
+    device = db.get(Device, device_id)
+    if device is None:
         raise HTTPException(status_code=404, detail="设备不存在")
+    if device.status == "maintenance":
+        # 安全锁存中的设备不领取新任务（急停/低电压/故障注入未解除）
+        return None
     obj = db.scalar(select(RevisitTask).where(
         RevisitTask.status == "queued",
         (RevisitTask.device_id == device_id) | RevisitTask.device_id.is_(None),

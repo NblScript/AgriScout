@@ -191,18 +191,7 @@ def freeze_snapshot(rule: Rule) -> dict[str, Any]:
     }
 
 
-def compute_advice_pairs(
-    db: Session,
-    patrol_id: int,
-    extra_rules: list[Rule] | None = None,
-    exclude_keys: set[str] | None = None,
-) -> set[tuple[int, str]]:
-    """纯计算：给定当前规则集，返回该巡检会产生的 (capture_point_id, rule_key) 集合。
-
-    只读零写入——影子运行（shadow_run.py）依赖此性质做新旧规则对比，
-    与 generate_advices_for_patrol 共享同一套加载与匹配逻辑。
-    extra_rules：内存中的临时规则（draft 视图）；exclude_keys：从现库规则中剔除的 key。
-    """
+def _load_patrol(db: Session, patrol_id: int) -> Patrol:
     patrol = db.scalars(
         select(Patrol)
         .options(
@@ -215,56 +204,79 @@ def compute_advice_pairs(
     ).first()
     if patrol is None:
         raise LookupError(f"巡检任务不存在：patrol_id={patrol_id}")
+    return patrol
 
-    crop_id = patrol.planting.crop_id if patrol.planting else None
-    rules = [
-        r for r in db.scalars(select(Rule).where(Rule.active.is_(True))).all()
-        if r.crop_id is None or (crop_id is not None and r.crop_id == crop_id)
-    ]
+
+def _applicable_rules(
+    db: Session,
+    crop_id: int | None,
+    extra_rules: list[Rule] | None = None,
+    exclude_keys: set[str] | None = None,
+) -> list[Rule]:
+    """当前生效规则（可叠加内存 draft / 剔除指定 key），按优先级排序。
+
+    作物无关规则恒可命中；作物专属规则仅在种植批次匹配时参与。
+    排序与 Top-K 截断是建议生成语义的一部分，影子运行必须共用同一实现。
+    """
+    def applicable(rule: Rule) -> bool:
+        return rule.crop_id is None or (crop_id is not None and rule.crop_id == crop_id)
+
+    rules = [r for r in db.scalars(select(Rule).where(Rule.active.is_(True))).all() if applicable(r)]
     if exclude_keys:
         rules = [r for r in rules if r.rule_key not in exclude_keys]
     if extra_rules:
-        rules = rules + [
-            r for r in extra_rules
-            if r.crop_id is None or (crop_id is not None and r.crop_id == crop_id)
-        ]
+        rules += [r for r in extra_rules if applicable(r)]
+    rules.sort(key=lambda r: (-_PRIORITY_WEIGHT.get(r.priority, 2), r.rule_key))
+    return rules
 
-    planting = patrol.planting
+
+def _point_context(point: CapturePoint, planting: Planting | None) -> PointContext:
+    return build_point_context(
+        point,
+        sowing_date=planting.sowing_date if planting else None,
+        crop_stages=list(planting.crop.stages) if planting and planting.crop else None,
+    )
+
+
+def select_top_hits(rules: list[Rule], ctx: PointContext) -> list[tuple[Rule, dict[str, Any]]]:
+    """按已排序规则逐条评估，取每点前 TOP_K_PER_POINT 条命中（建议生成与影子运行共用）。"""
+    top: list[tuple[Rule, dict[str, Any]]] = []
+    for rule in rules:
+        ok, bindings = evaluate(rule.condition or {}, ctx)
+        if ok:
+            top.append((rule, bindings))
+            if len(top) >= TOP_K_PER_POINT:
+                break
+    return top
+
+
+def compute_advice_pairs(
+    db: Session,
+    patrol_id: int,
+    extra_rules: list[Rule] | None = None,
+    exclude_keys: set[str] | None = None,
+) -> set[tuple[int, str]]:
+    """纯计算：给定当前规则集，返回该巡检会产生的 (capture_point_id, rule_key) 集合。
+
+    只读零写入——影子运行（shadow_run.py）依赖此性质做新旧规则对比；
+    与 generate_advices_for_patrol 共享加载、排序、匹配与 Top-K 截断逻辑，
+    保证影子 diff 与真实生成结果一致（新增高优规则挤出旧建议也能被看到）。
+    extra_rules：内存中的临时规则（draft 视图）；exclude_keys：从现库规则中剔除的 key。
+    """
+    patrol = _load_patrol(db, patrol_id)
+    crop_id = patrol.planting.crop_id if patrol.planting else None
+    rules = _applicable_rules(db, crop_id, extra_rules, exclude_keys)
     pairs: set[tuple[int, str]] = set()
     for point in patrol.capture_points:
-        ctx = build_point_context(
-            point,
-            sowing_date=planting.sowing_date if planting else None,
-            crop_stages=list(planting.crop.stages) if planting and planting.crop else None,
-        )
-        for rule in rules:
-            ok, _bindings = evaluate(rule.condition or {}, ctx)
-            if ok:
-                pairs.add((point.id, rule.rule_key))
+        for rule, _bindings in select_top_hits(rules, _point_context(point, patrol.planting)):
+            pairs.add((point.id, rule.rule_key))
     return pairs
 
 
 def generate_advices_for_patrol(db: Session, patrol_id: int) -> dict[str, int]:
-    patrol = db.scalars(
-        select(Patrol)
-        .options(
-            selectinload(Patrol.planting),
-            selectinload(Patrol.capture_points)
-            .selectinload(CapturePoint.analysis),
-            selectinload(Patrol.capture_points).selectinload(CapturePoint.weather),
-        )
-        .where(Patrol.id == patrol_id)
-    ).first()
-    if patrol is None:
-        raise LookupError(f"巡检任务不存在：patrol_id={patrol_id}")
-
+    patrol = _load_patrol(db, patrol_id)
     crop_id = patrol.planting.crop_id if patrol.planting else None
-    rules = [
-        r for r in db.scalars(select(Rule).where(Rule.active.is_(True))).all()
-        # 作物无关规则恒可命中；作物专属规则仅在种植批次匹配时参与
-        if r.crop_id is None or (crop_id is not None and r.crop_id == crop_id)
-    ]
-    rules.sort(key=lambda r: (-_PRIORITY_WEIGHT.get(r.priority, 2), r.rule_key))
+    rules = _applicable_rules(db, crop_id)
 
     # 人工决策是事实：先记录，再清 suggested，重生成时永不覆盖 accepted/rejected
     decisions: dict[tuple[int | None, str], str] = {}
@@ -279,14 +291,8 @@ def generate_advices_for_patrol(db: Session, patrol_id: int) -> dict[str, int]:
     created = skipped_decided = 0
     planting = patrol.planting
     for point in patrol.capture_points:
-        ctx = build_point_context(
-            point,
-            sowing_date=planting.sowing_date if planting else None,
-            crop_stages=list(planting.crop.stages) if planting and planting.crop else None,
-        )
-        hits = [(rule,) + evaluate(rule.condition or {}, ctx) for rule in rules]
-        top = [(rule, bindings) for rule, ok, bindings in hits if ok][:TOP_K_PER_POINT]
-        for rule, bindings in top:
+        ctx = _point_context(point, planting)
+        for rule, bindings in select_top_hits(rules, ctx):
             if decisions.get((point.id, rule.rule_key)) in {"accepted", "rejected"}:
                 skipped_decided += 1
                 continue

@@ -48,7 +48,9 @@ AgriScout 的切入点是低成本、高密度的近地采样：让小车沿垄�
 - AI 报告与问答：LLM 只作为解释层；诊断 Agent 只读查询，所有问答留痕。
 - 规则进化：Agent 可以起草规则修订案，但必须经过影子运行和人工审批才能生效。
 - 研究闭环：按逐点分析生成带时间窗和证据的风险预测，主动排序复巡/标注任务，记录人工随访结论，并以冻结数据集和模型评估闸门管理发布。
+- 设备协议：设备幂等注册、心跳、设备/任务事件、可回放故障注入，以及设备领取复巡任务（`/devices/{id}/tasks/next`）。
 - 虚拟巡田：独立模拟器提供 `healthy`、`dry`、`patchy_disease` 三种可复现场景。
+- 真车采集端：`rover/` 支持 USB 摄像头或合成图采集、本地 spool 断网续传、临时错误指数退避重试。
 
 ## 当前状态
 
@@ -62,7 +64,8 @@ AgriScout 的切入点是低成本、高密度的近地采样：让小车沿垄�
 | LLM 报告 | 已完成 | 未配置模型时静默关闭，不阻塞主链路 |
 | 诊断 Agent / 规则修订 Agent | 已完成 | 分别遵守“只读”和“起草-审批”边界 |
 | M7 软件闭环 | 已完成 | 风险、复巡、随访、数据集/模型闸门和设备任务接口已接入 |
-| M7 真车接入 | 下一阶段 | 目标是平台业务代码不因数据源改变而修改 |
+| 真车采集端软件 | 已完成 | `rover/` 可用 `--fake` 无硬件跑通上传，9 项烟测通过 |
+| M7 真车接入 | 下一阶段 | 编码器/GPS/天气传感器尚未接入；目标是平台业务代码不因数据源改变而修改 |
 
 需要明确的是：当前模型效果主要由公开数据和模拟数据验证，真实车载照片、农技阈值复核和田间对比实验仍是下一阶段的核心工作。
 
@@ -70,7 +73,7 @@ AgriScout 的切入点是低成本、高密度的近地采样：让小车沿垄�
 
 ```text
 ┌────────────── 采集端 ──────────────┐
-│ 巡检小车 / 模拟器                  │
+│ 巡检小车(rover/) / 模拟器          │
 │ RGB 照片 + 天气 + 坐标 + 里程       │
 └───────────────┬────────────────────┘
                 │ HTTP 巡检包协议 v1
@@ -99,6 +102,7 @@ AgriScout 的切入点是低成本、高密度的近地采样：让小车沿垄�
 | `backend/` | FastAPI 服务、SQLAlchemy 模型、Alembic 迁移、分析和规则引擎 |
 | `frontend/` | Vue 管理台、巡检回放页、数据总览和规则审批页 |
 | `simulator/` | 只走 HTTP 的独立虚拟巡田模拟器 |
+| `rover/` | 真车采集端（树莓派 + USB 摄像头），只走 HTTP，带断网队列 |
 | `ml/` | 独立的 YOLO 数据准备、训练和模型导出环境 |
 | `docs/` | 主计划、设计决策、执行计划、数据库结构快照和项目介绍 |
 | `tools/` | 离线地图瓦片等辅助工具 |
@@ -150,6 +154,16 @@ cd simulator
 ```
 
 模拟器会自动建档、生成 S 形垄行采样、合成照片和天气、上传巡检包、轮询分析状态，并打印建议摘要。
+### 4. 真车采集端（可选）
+
+没有摄像头时可先用合成图验证链路，详细参数见 [rover/README.md](rover/README.md)：
+
+```bash
+cd rover
+python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python run.py --api http://<后端局域网IP>:8000 --fake
+```
+
 采集端对接合同由后端导出：
 
 ```text
@@ -164,6 +178,9 @@ GET http://localhost:8000/api/v1/ingest/patrol-schema
 
 # 前端类型检查与生产构建
 (cd frontend && pnpm typecheck && pnpm build)
+
+# 真车采集端无硬件烟测（仓库根目录）
+python -m unittest rover.test_run_smoke
 
 # 规则 YAML 同步到运行时规则表
 (cd backend && .venv/bin/python -m app.tools.sync_rules)
@@ -208,7 +225,7 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 1. 上传请求只负责落库，识别必须异步执行，避免大巡检包超时。
 2. 照片不进入数据库，数据库只保存内容寻址后的 URL。
 3. 规则从 YAML 同步到数据库，建议必须冻结命中时的规则版本和条件。
-4. 模拟器和未来真车都只走巡检包协议，不能绕过 HTTP 直接调用后端内部代码。
+4. 模拟器和真车采集端（`rover/`）都只走 HTTP 协议，不能绕过 HTTP 直接调用后端内部代码。
 5. 认证当前保留 `get_current_user` 插槽；没有 JWT 不代表可以删除依赖边界。
 6. L2 Agent 只读；规则 Agent 没有直接生效权，必须经过影子运行和人工审批。
 7. 模型、数据库、照片和训练产物不进入 Git。
@@ -231,6 +248,8 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 - 当前认证是插槽实现，接口默认开放，暂不适合直接暴露到公网。
 - 标注目前以整图标签为主，病害检测所需的框标注仍在技术债中。
 - 离线地图瓦片只覆盖演示区域，更换演示田需要重新下载瓦片。
+- 巡检包还没有稳定的客户端包 ID，重复上传以“地块 + 设备 + 开始时间”判重；rover 收到 409 时保留本地队列等待人工核对。
+- 小车目前用固定步长估算里程、沿直线估算坐标、天气字段为空，需接编码器、GPS/RTK 和温湿光传感器后替换。
 
 ## 文档入口
 
@@ -238,8 +257,11 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 - [ARCHITECTURE.md](ARCHITECTURE.md)：分层架构、数据流和扩展点。
 - [docs/04-master-plan.md](docs/04-master-plan.md)：项目主计划和里程碑。
 - [docs/07-project-introduction.md](docs/07-project-introduction.md)：比赛叙事和项目介绍底稿。
+- [docs/08-system-solution.md](docs/08-system-solution.md)、[docs/09-project-application.md](docs/09-project-application.md)：系统方案与申报书底稿。
+- [rover/README.md](rover/README.md)：真车采集端安装、参数与失败行为。
 - [docs/design-docs/decision-registry.md](docs/design-docs/decision-registry.md)：编号决策注册表。
 - [docs/exec-plans/tech-debt-tracker.md](docs/exec-plans/tech-debt-tracker.md)：技术债台账。
+- [docs/reviews/2026-09-25-code-review.md](docs/reviews/2026-09-25-code-review.md)：最近一次代码审查结论与待修清单。
 - [docs/generated/db-schema.md](docs/generated/db-schema.md)：自动生成的数据库结构快照。
 
 ## 许可与使用
