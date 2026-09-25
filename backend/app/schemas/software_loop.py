@@ -43,7 +43,10 @@ class RiskPredictionOut(RiskPredictionCreate):
 class RiskGenerateIn(BaseModel):
     target_event: str = Field(min_length=1, max_length=120)
     forecast_hours: int = Field(default=48, gt=0, le=24 * 365)
-    model_version: str = Field(default="risk-heuristic-v1", min_length=1, max_length=80)
+    # v2：区域级输入 + 历史巡检（计划 0008）；v1 为逐点单次观测，旧结果按版本号区分
+    model_version: str = Field(default="risk-heuristic-v2", min_length=1, max_length=80)
+    region_cell_m: float = Field(default=2.5, gt=0, le=50, description="区域关联 grid-v0 的网格边长（米）")
+    history_days: int = Field(default=30, ge=0, le=365, description="回看多少天内的历史巡检")
 
 
 class FollowUpIn(BaseModel):

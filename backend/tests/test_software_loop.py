@@ -189,3 +189,76 @@ def test_revisit_task_patch_null_status_is_422(client):
         "field_id": field_id, "task_type": "revisit", "priority": 0.5, "value_score": 0.5,
     }).json()
     assert client.patch(f"{BASE}/revisit-tasks/{task['id']}", json={"status": None}).status_code == 422
+
+
+def _season_package(field_id: int, day: str, photos: list[str]):
+    """同一地块、同一组坐标、不同日期的巡检（模拟多日期复巡）。"""
+    return {
+        "patrol": {"field_id": field_id, "device": "loop-01", "started_at": f"{day}T08:00:00+00:00"},
+        "capture_points": [
+            {"seq": i, "distance_m": i * 0.5, "lng": 10.00001, "lat": 10.00001 + i * 0.5 / 111_320,
+             "captured_at": f"{day}T08:0{i}:00+00:00", "photo": photo,
+             "weather": {"temp_c": 20, "humidity_pct": 90, "rain_mm": 3}}
+            for i, photo in enumerate(photos)
+        ],
+    }
+
+
+def test_risk_generation_uses_region_history_across_patrols(client):
+    """同一观察区域的历史巡检进入预测：趋势不再恒为 unknown（审查第 19 项）。"""
+    field_id = _setup(client)
+    green, brown = png_b64((40, 160, 60)), png_b64((120, 85, 50))
+    first = client.post(f"{BASE}/ingest/patrol", json=_season_package(field_id, "2026-09-01", [green, green])).json()
+    second = client.post(f"{BASE}/ingest/patrol", json=_season_package(field_id, "2026-09-04", [brown, green])).json()
+
+    body = {"target_event": "首次显症", "forecast_hours": 72}
+    old = client.post(f"{BASE}/patrols/{first['patrol_id']}/risk-predictions/generate", json=body).json()
+    new = client.post(f"{BASE}/patrols/{second['patrol_id']}/risk-predictions/generate", json=body).json()
+
+    assert {p["observation_key"] for p in old} == {p["observation_key"] for p in new}  # 同一区域
+    assert all(p["observation_key"].startswith(f"field-{field_id}/grid2.5m/") for p in new)
+    assert all(p["model_version"] == "risk-heuristic-v2" for p in new)
+    region = new[0]["evidence"]["region"]
+    assert region["history_patrol_ids"] == [first["patrol_id"]]
+    assert region["region_risk_score"] > region["history_risk_scores"][0]  # 区域取最大值：一个病点即可反映
+    assert new[0]["trend"] == "rising" and old[0]["trend"] == "unknown"
+    assert new[0]["probability"] > old[0]["probability"]
+
+
+def test_history_never_uses_future_patrols(client):
+    field_id = _setup(client)
+    green, brown = png_b64((40, 160, 60)), png_b64((120, 85, 50))
+    early = client.post(f"{BASE}/ingest/patrol", json=_season_package(field_id, "2026-09-01", [green])).json()
+    client.post(f"{BASE}/ingest/patrol", json=_season_package(field_id, "2026-09-05", [brown]))
+    preds = client.post(f"{BASE}/patrols/{early['patrol_id']}/risk-predictions/generate",
+                        json={"target_event": "首次显症"}).json()
+    assert preds[0]["evidence"]["region"]["history_patrol_ids"] == []
+
+
+def test_metrics_endpoint_scores_follow_ups_with_status_semantics(client):
+    field_id = _setup(client)
+    patrol_id = client.post(f"{BASE}/ingest/patrol", json=_package(field_id)).json()["patrol_id"]
+    preds = client.post(f"{BASE}/patrols/{patrol_id}/risk-predictions/generate",
+                        json={"target_event": "首次显症", "forecast_hours": 48}).json()
+    assert len(preds) == 2
+    low, high = sorted(preds, key=lambda p: p["probability"])
+    client.post(f"{BASE}/risk-predictions/{high['id']}/follow-up", json={
+        "status": "confirmed_positive", "reviewed_by": "农技员", "evidence": EVIDENCE, "note": "显症",
+        "event_at": "2026-09-21T08:00:00+00:00",
+    })
+    client.post(f"{BASE}/risk-predictions/{low['id']}/follow-up", json={
+        "status": "confirmed_negative", "reviewed_by": "农技员", "evidence": EVIDENCE, "note": "未发病",
+    })
+    resp = client.get(f"{BASE}/risk-predictions/metrics", params={
+        "target_event": "首次显症", "model_version": "risk-heuristic-v2", "lead_threshold": 0.0,
+    })
+    assert resp.status_code == 200, resp.text
+    report = resp.json()
+    assert report["evaluable"] == 2 and report["positives"] == 1
+    assert report["pr_auc"] == 1.0  # 高分的是阳性
+    assert report["lead_time"]["events"] == 1 and report["lead_time"]["warned"] == 1
+    assert report["lead_time"]["median_lead_hours"] > 0
+    # 其他模型版本不混在一起评估
+    other = client.get(f"{BASE}/risk-predictions/metrics",
+                       params={"target_event": "首次显症", "model_version": "risk-heuristic-v1"}).json()
+    assert other["evaluable"] == 0 and other["scope"]["predictions"] == 0

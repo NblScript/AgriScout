@@ -81,6 +81,27 @@ class ApiClient:
     def get_advices(self, patrol_id: int, limit: int = 500) -> dict:
         return self.get(f"/api/v1/patrols/{patrol_id}/advices?limit={limit}")
 
+    def list_capture_points(self, patrol_id: int, page_size: int = 2000) -> list[dict]:
+        """分页拉全一趟巡检的采样点（单页上限 2000）。"""
+        items: list[dict] = []
+        while True:
+            page = self.get(f"/api/v1/capture-points?patrol_id={patrol_id}&skip={len(items)}&limit={page_size}")
+            items += page["items"]
+            if not page["items"] or len(items) >= page["total"]:
+                return items
+
+    def generate_risk(self, patrol_id: int, body: dict[str, Any]) -> list[dict]:
+        return self.post(f"/api/v1/patrols/{patrol_id}/risk-predictions/generate", body, expect=(200,))
+
+    def post_follow_up(self, prediction_id: int, body: dict[str, Any]) -> dict:
+        return self.post(f"/api/v1/risk-predictions/{prediction_id}/follow-up", body, expect=(200,))
+
+    def risk_metrics(self, params: dict[str, Any]) -> dict:
+        resp = self._client.get("/api/v1/risk-predictions/metrics", params=params)
+        if resp.status_code != 200:
+            raise ApiError(f"GET /risk-predictions/metrics -> HTTP {resp.status_code}: {resp.text[:300]}")
+        return resp.json()
+
     # ---------- 建档助手（存在即复用，幂等）----------
     def ensure_device(self, code: str, name: str, model: str = "SimRover v1") -> dict:
         for d in self.list_devices():
