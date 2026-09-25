@@ -49,7 +49,8 @@ AgriScout 的切入点是低成本、高密度的近地采样：让小车沿垄�
 - 规则进化：Agent 可以起草规则修订案，但必须经过影子运行和人工审批才能生效。
 - 研究闭环：按逐点分析生成带时间窗和证据的风险预测，主动排序复巡/标注任务，记录人工随访结论，并以冻结数据集和模型评估闸门管理发布。
 - 设备协议：设备幂等注册、心跳、设备/任务事件、可回放故障注入，以及设备领取复巡任务（`/devices/{id}/tasks/next`）。
-- 虚拟巡田：独立模拟器提供 `healthy`、`dry`、`patchy_disease` 三种可复现场景。
+- 虚拟巡田：独立模拟器提供 `healthy`、`dry`、`patchy_disease` 三种可复现场景；`season.py` 模拟整季多日期巡检，病害按潜伏期、天气和空间扩散发展，并模拟农技员随访。
+- 实验评估：风险预测按观察区域串联历史巡检；`GET /risk-predictions/metrics` 从随访结果计算 PR-AUC、Brier、固定误报负担下的召回率和提前量；`replay_eval` 离线重放 H1 特征消融、H2 复巡策略、H3 标注选样。
 - 真车采集端：`rover/` 支持 USB 摄像头或合成图采集、本地 spool 断网续传、临时错误指数退避重试。
 
 ## 当前状态
@@ -179,8 +180,8 @@ GET http://localhost:8000/api/v1/ingest/patrol-schema
 # 前端类型检查与生产构建
 (cd frontend && pnpm typecheck && pnpm build)
 
-# 真车采集端无硬件烟测（仓库根目录）
-python -m unittest rover.test_run_smoke
+# 真车采集端无硬件烟测、病害模型单测（仓库根目录）
+python -m unittest rover.test_run_smoke simulator.test_epidemic
 
 # 规则 YAML 同步到运行时规则表
 (cd backend && .venv/bin/python -m app.tools.sync_rules)

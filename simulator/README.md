@@ -50,5 +50,26 @@ simulator/
 ├── geo.py         # 米制局部坐标→经纬度；S形垄行路径；边界 GeoJSON
 ├── weather.py     # 日变化天气曲线 + 墒情衰减剖面
 ├── photo.py       # Pillow 合成农田照片（绿苗/枯斑/裸土）
-└── scenarios.py   # 场景预设（问题注入策略）
+├── scenarios.py   # 场景预设（问题注入策略）
+├── epidemic.py    # 病害扩散元胞模型（潜伏期 + 天气 + 空间扩散）
+├── season.py      # 多日期模拟季：上传、风险预测、模拟随访、导出真值
+└── test_epidemic.py  # 病害模型单测（仓库根目录 python -m unittest simulator.test_epidemic）
 ```
+
+## 多日期模拟季（执行计划 0008）
+
+`season.py` 在同一块地上按固定间隔反复巡检，用来开发和检验「时序 + 空间」的风险预测与复巡、标注策略：
+
+```bash
+cd simulator
+../backend/.venv/bin/python season.py --seed 7                 # 默认 36 天、每 3 天一趟、10 垄 × 30 m
+../backend/.venv/bin/python season.py --days 45 --rows 16 --row-length 40 --seed 11   # 更大的田，发病事件更多
+```
+
+- **病害模型**（`epidemic.py`，只用标准库）：侵染后经潜伏期才可见；可见病斑按距离向周围传播；
+  每天的传播强度由湿度、叶面湿润时长和温度决定（条锈病样参数，**未经农学校准，只检验方法流程**）。
+- **照片**：严重度 ≥ 0.3 时基础巡检稳定拍得到病斑，更早只按比例偶尔拍到；另有 3% 的非病害黄褐色干扰。
+- **随访**：固定 25% 参照区域每趟随访，另加 10% 随机抽查；10% 记为证据不足。窗口内首次显症记阳性，否则记阴性。
+- **日期**：整季放在过去，预测窗口在运行时已全部结束（满足 D10 的阴性口径）。同一天重跑会复用已有巡检。
+- **输出**：`simulator/out/season-truth-field<id>.json`（逐点逐日严重度、逐日气象站记录、巡检映射），
+  交给 `backend/app/tools/replay_eval.py` 做 H1–H3 离线重放。

@@ -23,6 +23,9 @@ cd frontend && pnpm typecheck && pnpm build
 
 # 模拟器（一键闭环：建档→采样→上传→分析→建议）
 cd simulator && ../backend/.venv/bin/python run.py --scenario dry   # healthy/dry/patchy_disease
+cd simulator && ../backend/.venv/bin/python season.py --seed 7      # 多日期病害扩散模拟季（导出真值）
+cd backend && .venv/bin/python -m app.tools.replay_eval --truth ../simulator/out/season-truth-field1.json  # H1–H3 离线重放
+python -m unittest simulator.test_epidemic         # 仓库根目录运行，病害模型单测
 
 # 真车采集端（树莓派 + USB 摄像头；--fake 无摄像头测链路）
 cd rover && .venv/bin/python run.py --api http://<后端IP>:8000 --fake
@@ -40,15 +43,15 @@ cd ml && .venv/bin/python export_model.py            # 产物 → backend/models
 | `backend/app/models/` | 22 张表，每实体一文件；`timestamps.py` 公共 mixin；`__init__.py` 为注册中心 |
 | `backend/app/api/v1/` | 路由层：CRUD + ingest + 分析 + 建议 + 标注 + stats + 报告 + Agent + 规则修订 + `device_protocol`（注册/心跳/事件/故障注入）+ `software_loop`（风险/复巡/随访/数据集/模型评估）；`deps.py` 公共 404/分页助手 |
 | `backend/app/services/analysis/` | Analyzer 协议（base.py）+ 占位颜色版 + YOLO 版 + 后台 runner |
-| `backend/app/services/` | advice(规则引擎) / agent_chat+agent_tools(L2 诊断) / agent_rule_draft+rule_feedback+shadow_run+rule_revision(L1 起草生效) / llm_report(报告) / ingest / storage / risk_prediction+active_learning+evidence_feedback+dataset_governance(M7 研究闭环，纯函数优先) |
-| `backend/app/tools/` | `sync_rules`（YAML 同步）、`gen_db_schema`（表结构快照） |
+| `backend/app/services/` | advice(规则引擎) / agent_chat+agent_tools(L2 诊断) / agent_rule_draft+rule_feedback+shadow_run+rule_revision(L1 起草生效) / llm_report(报告) / ingest / storage / risk_prediction+risk_inputs+region_association+active_learning+evidence_feedback+dataset_governance(M7 研究闭环，纯函数优先) / evaluation_metrics+offline_replay(随访指标与 H1–H3 离线重放) |
+| `backend/app/tools/` | `sync_rules`（YAML 同步）、`gen_db_schema`（表结构快照）、`replay_eval`（离线重放报告） |
 | `backend/rules/wheat.yaml` | 规则种子库 18 条（单一事实源，经 sync_rules 同步入表） |
 | `backend/app/schemas/` | DTO + 巡检包协议 v1 + 设备协议（对采集端的合同） |
 | `backend/migrations/versions/` | 手写 Alembic 迁移，`00NN_主题` 命名（当前 0013） |
 | `frontend/src/views/` | 七个管理页（系统状态/地块/作物/种植/设备/规则修订审批/研究闭环）+ PatrolsView/PatrolDetailView（回放/复核/问一问/报告）+ BigScreenView（/screen 总览） |
 | `frontend/src/components/` | MapCanvas（Leaflet 封装，theme=light/dark）、EChart、ScreenPanel |
 | `frontend/src/api/index.ts` · `types.ts` | 每资源一个 api 对象；类型单一事实源，对齐 backend schemas |
-| `simulator/` | 独立虚拟巡田，只走 HTTP（禁止 import 后端内部） |
+| `simulator/` | 独立虚拟巡田，只走 HTTP（禁止 import 后端内部）；`season.py` 多日期病害扩散模拟季 |
 | `rover/` | 真车采集端：拍照→攒点→打包上传，本地 spool 断网续传；只走 HTTP |
 | `ml/` | YOLO 训练环境（与后端运行时分离） |
 | `tools/` | download_tiles.py 离线瓦片下载（高德源） |
