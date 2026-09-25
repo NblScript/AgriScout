@@ -198,8 +198,11 @@ def fit_logistic(
     l2: float = 1.0,
     max_iter: int = 30,
 ) -> LogisticModel:
-    """L2 正则逻辑回归（牛顿法 / IRLS），特征先按训练集标准化。
+    """L2 正则逻辑回归（牛顿法 + 回溯线搜索），特征先按训练集标准化。
 
+    纯牛顿步在特征共线（当前值 / 历史最大 / 变化量）时 Hessian 接近奇异，会冲过头并发散
+    （曾在模拟季数据上把截距推到 -5.8 亿）。每一步都做 Armijo 回溯，保证正则化目标单调下降；
+    L2 使目标严格凸，因此收敛到唯一最优。
     训练集全阴或全阳时退化为常数模型（拉普拉斯平滑的患病率），不硬拟合。
     """
     names = tuple(names)
@@ -216,7 +219,17 @@ def fit_logistic(
         return LogisticModel(names, mean, std, (bias,) + (0.0,) * len(names))
     xs = [[1.0] + [(r[f] - mu) / sd for f, mu, sd in zip(names, mean, std)] for r in rows]
     d = len(names) + 1
+
+    def objective(w: list[float]) -> float:
+        """负对数似然 + L2（截距不罚）；softplus 用稳定写法。"""
+        total = 0.5 * l2 * sum(wj * wj for wj in w[1:])
+        for x, y in zip(xs, labels):
+            z = sum(wj * xj for wj, xj in zip(w, x))
+            total += (z + math.log1p(math.exp(-z)) if z > 0 else math.log1p(math.exp(z))) - y * z
+        return total
+
     w = [bias] + [0.0] * (d - 1)
+    current = objective(w)
     for _ in range(max_iter):
         grad = [l2 * w[j] if j else 0.0 for j in range(d)]
         hess = [[(l2 if i == j and i else (1e-6 if i == j else 0.0)) for j in range(d)] for i in range(d)]
@@ -234,8 +247,18 @@ def fit_logistic(
             for j in range(i):
                 hess[i][j] = hess[j][i]
         step = _solve(hess, grad)
-        w = [wi - si for wi, si in zip(w, step)]
-        if max(abs(s) for s in step) < 1e-7:
+        slope = sum(g * st for g, st in zip(grad, step))  # 下降方向时为正
+        t = 1.0
+        while True:
+            candidate = [wi - t * si for wi, si in zip(w, step)]
+            value = objective(candidate)
+            if value <= current - 1e-4 * t * slope or t < 1e-10:
+                break
+            t *= 0.5
+        if value > current:  # 连回溯都无法下降：已在数值精度内收敛
+            break
+        w, current = candidate, value
+        if max(abs(t * si) for si in step) < 1e-7:
             break
     return LogisticModel(names, mean, std, tuple(w))
 

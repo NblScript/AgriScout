@@ -149,3 +149,22 @@ def test_replay_eval_loads_platform_data_and_truth(client):
     assert set(inp.platform_prob) == {(k, d) for k in inp.regions for d in (0, 3)}
     with pytest.raises(ValueError):
         load_input(app.dependency_overrides[get_session_factory]()(), {**truth, "schema": "other"})
+
+
+def test_logistic_regression_converges_on_collinear_rare_event_data():
+    """回归：纯牛顿步在共线特征（当前值/历史最大/变化量）上发散，截距曾被推到 -5.4 亿。
+
+    夹具是模拟季（种子 11）的真实样本；加 Armijo 回溯后必须收敛到有限、稳定的解。
+    """
+    import json
+    import math
+    from pathlib import Path
+
+    data = json.loads((Path(__file__).parent / "fixtures" / "logistic_collinear_season11.json").read_text(encoding="utf-8"))
+    rows = [dict(zip(data["names"], r)) for r in data["rows"]]
+    short = fit_logistic(rows, data["labels"], data["names"], max_iter=30)
+    long = fit_logistic(rows, data["labels"], data["names"], max_iter=200)
+    assert all(math.isfinite(w) and abs(w) < 50 for w in short.weights)
+    assert short.weights == pytest.approx(long.weights, abs=1e-6)
+    # 截距对应的基线概率应接近患病率量级，而不是 0
+    assert 1e-4 < 1 / (1 + math.exp(-short.weights[0])) < 0.1
