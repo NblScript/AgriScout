@@ -12,6 +12,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field as PField, field_validator, model_validator
 
+from app.core.timeutil import to_utc
+
 MAX_PHOTO_BYTES = 8 * 1024 * 1024  # 解码后上限 8MB
 
 _URL_PREFIXES = ("http://", "https://", "/media/")
@@ -24,7 +26,12 @@ def is_photo_url(value: str) -> bool:
 
 def decode_base64_photo(value: str) -> bytes:
     """解码 base64 照片（支持 data URI 前缀），失败/超限抛 ValueError。"""
-    payload = value.split(",", 1)[1] if value.startswith(_DATA_URI) else value
+    if value.startswith(_DATA_URI):
+        header, sep, payload = value.partition(",")
+        if not sep or ";base64" not in header:
+            raise ValueError("photo data URI 须为 data:image/<type>;base64,<数据>")
+    else:
+        payload = value
     try:
         data = base64.b64decode(payload, validate=True)
     except (binascii.Error, ValueError) as exc:
@@ -63,9 +70,9 @@ class CapturePointPayload(BaseModel):
     def photo_shape(cls, v: str | None) -> str | None:
         if v is None or v == "":
             return None
-        if is_photo_url(v) or v.startswith(_DATA_URI):
+        if is_photo_url(v):
             return v
-        # 其余按 base64 预校验（提前拦截，避免落库后才发现坏数据）
+        # base64 与 data URI 一律预校验（提前拦截，避免写盘后才发现坏数据）
         decode_base64_photo(v)
         return v
 
@@ -94,7 +101,8 @@ class PatrolHeaderPayload(BaseModel):
 
     @model_validator(mode="after")
     def time_order(self) -> "PatrolHeaderPayload":
-        if self.started_at and self.ended_at and self.ended_at <= self.started_at:
+        # 统一换算 UTC 再比较：一端带时区一端不带时直接比较会 TypeError（500）；无时区按 UTC 解释（D9）
+        if self.started_at and self.ended_at and to_utc(self.ended_at) <= to_utc(self.started_at):
             raise ValueError("ended_at 必须晚于 started_at")
         return self
 

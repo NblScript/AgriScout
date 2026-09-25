@@ -155,3 +155,13 @@ def test_extract_chat_payload_rejects_malformed_response():
         _Resp({"choices": [{"message": {"content": "ok", "role": "assistant"}}]})
     )
     assert ok["content"] == "ok"
+
+
+def test_latest_prompt_sorts_versions_numerically(tmp_path, monkeypatch):
+    """字符串排序会把 v10 排在 v2 前面，升级 prompt 后实际仍用旧版。"""
+    for version in (1, 2, 10):
+        (tmp_path / f"report_v{version}.md").write_text(f"v{version}", encoding="utf-8")
+    (tmp_path / "report_vdraft.md").write_text("ignored", encoding="utf-8")
+    monkeypatch.setattr(llm_report, "PROMPTS_DIR", tmp_path)
+    path, text = llm_report.latest_prompt("report")
+    assert path.name == "report_v10.md" and text == "v10"

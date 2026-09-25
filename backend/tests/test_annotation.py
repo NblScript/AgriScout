@@ -167,3 +167,14 @@ def test_export_empty_is_valid_ndjson(client):
     resp = client.get(f"{BASE}/annotations/export?patrol_id={patrol_id}")
     assert resp.status_code == 200
     assert resp.text == ""
+
+
+def test_annotation_patch_null_label_is_422(client):
+    patrol_id = _setup_and_upload(client)
+    point = _points(client, patrol_id)[0]
+    ann = client.post(
+        f"{BASE}/capture-points/{point['id']}/annotations",
+        json={"label": "normal", "annotator_name": "张三"},
+    ).json()
+    assert client.patch(f"{BASE}/annotations/{ann['id']}", json={"label": None}).status_code == 422
+    assert client.patch(f"{BASE}/annotations/{ann['id']}", json={"note": None}).status_code == 200

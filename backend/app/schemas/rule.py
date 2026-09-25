@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field as PField, field_validator, model_validator
 
+from app.schemas.common import reject_explicit_nulls
+
 Tier = Literal["threshold", "status", "routine"]
 Priority = Literal["high", "medium", "low"]
 
@@ -96,6 +98,11 @@ class RuleUpdate(BaseModel):
     @classmethod
     def check_condition(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
         return None if v is None else _validate_condition(v)
+
+    @model_validator(mode="after")
+    def _no_null_required(self) -> "RuleUpdate":
+        reject_explicit_nulls(self, ("tier", "condition", "action", "priority", "active"))
+        return self
 
 
 class RuleOut(RuleBase):

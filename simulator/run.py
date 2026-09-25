@@ -156,7 +156,9 @@ def print_report(client: ApiClient, patrol_id: int, meta: dict) -> None:
         tier = a["rule_snapshot"]["tier"]
         tiers[tier] = tiers.get(tier, 0) + 1
     print("\n═══ 建议闭环报告 ═══")
-    print(f"  共 {len(items)} 条建议，按层分布 {tiers}")
+    # 分层统计只覆盖本页（按优先级排序的前若干条）；总数以服务端 total 为准
+    sampled = f"（前 {len(items)} 条）" if advices["total"] > len(items) else ""
+    print(f"  共 {advices['total']} 条建议，按层分布{sampled} {tiers}")
 
     seen: set[str] = set()
     shown = 0

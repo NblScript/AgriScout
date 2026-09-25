@@ -255,3 +255,55 @@ def test_rollback_removes_only_newly_created_photo(client, media_dir, monkeypatc
         pass  # TestClient 默认向外抛出未处理异常
     files = [f for f in media_dir.iterdir()] if media_dir.exists() else []
     assert files == [], f"残留孤儿照片：{files}"
+
+
+def test_data_uri_without_payload_is_422_not_404(client):
+    """data URI 缺逗号曾抛 IndexError（LookupError 子类）→ 被映射成 404「list index out of range」。"""
+    field_id, device = _setup_field_and_device(client)
+    resp = _ingest(client, _package(field_id, device, points=1, photo="data:image/png;base64"))
+    assert resp.status_code == 422
+    assert "data URI" in resp.text
+
+
+def test_bad_data_uri_rejected_before_any_photo_written(client, media_dir):
+    """data URI 与裸 base64 同样在 schema 预校验：坏数据不应先写盘再回滚。"""
+    field_id, device = _setup_field_and_device(client)
+    photos = {0: TINY_PNG, 1: "data:image/png;base64,@@not-base64@@"}
+    resp = _ingest(client, _package(field_id, device, points=2, photo=lambda i: photos[i]))
+    assert resp.status_code == 422
+    # 结构化校验错误（定位到第 2 个点的 photo），而不是落库阶段的字符串错误
+    assert resp.json()["detail"][0]["loc"][-3:] == ["capture_points", 1, "photo"]
+    assert not media_dir.exists() or not list(media_dir.iterdir())
+
+
+def test_mixed_naive_and_aware_times_do_not_500(client):
+    """一端带时区一端不带时，时间先后比较曾 TypeError → 500；无时区按 UTC 解释（D9）。"""
+    field_id, device = _setup_field_and_device(client)
+    pkg = _package(field_id, device, points=1)
+    pkg["patrol"]["ended_at"] = "2026-08-26T09:30:00"  # 无时区 = UTC，晚于 08:00Z
+    assert _ingest(client, pkg).status_code == 201
+
+    pkg = _package(field_id, device, points=1)
+    pkg["patrol"]["started_at"] = "2026-08-27T08:00:00+08:00"  # = 00:00Z
+    pkg["patrol"]["ended_at"] = "2026-08-26T23:30:00"          # = 23:30Z，早于开始
+    resp = _ingest(client, pkg)
+    assert resp.status_code == 422
+    assert "ended_at" in resp.text
+
+
+def test_planting_of_another_field_is_rejected(client):
+    """显式 planting_id 必须属于巡检地块，否则生育期与作物专属规则整体错位。"""
+    field_id, device = _setup_field_and_device(client)
+    other = client.post(f"{BASE}/fields", json={
+        "name": "别的田",
+        "boundary": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]},
+    }).json()["id"]
+    crop = client.post(f"{BASE}/crops", json={"name": "冬小麦", "lifecycle_days": 200}).json()["id"]
+    planting = client.post(f"{BASE}/plantings", json={
+        "field_id": other, "crop_id": crop, "sowing_date": "2026-01-01",
+    }).json()["id"]
+    pkg = _package(field_id, device, points=1)
+    pkg["patrol"]["planting_id"] = planting
+    resp = _ingest(client, pkg)
+    assert resp.status_code == 422
+    assert "不一致" in resp.json()["detail"]

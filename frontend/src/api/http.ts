@@ -1,4 +1,5 @@
 /** 统一 fetch 封装：JSON 编解码、错误信息提取。 */
+import type { Page } from '../types'
 
 const BASE = '/api/v1'
 
@@ -30,6 +31,24 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
   }
   if (resp.status === 204) return undefined as T
   return (await resp.json()) as T
+}
+
+/**
+ * 拉取分页接口的全部数据：total 超过单页上限时逐页请求。
+ * 单次请求有 limit 上限（采样点 2000、建议 500），2600 点巡检或 ~170 点以上的建议列表
+ * 会被静默截断，地图和建议面板只显示前一部分。
+ */
+export async function requestAllPages<T>(path: string, pageSize: number): Promise<Page<T>> {
+  const sep = path.includes('?') ? '&' : '?'
+  const items: T[] = []
+  let total = 0
+  do {
+    const page = await request<Page<T>>(`${path}${sep}skip=${items.length}&limit=${pageSize}`)
+    items.push(...page.items)
+    total = page.total
+    if (page.items.length === 0) break
+  } while (items.length < total)
+  return { items, total, skip: 0, limit: items.length }
 }
 
 /** 统一错误文案提取：全站 ElMessage.error(errMsg(e)) 一处收口。 */

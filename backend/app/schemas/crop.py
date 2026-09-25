@@ -2,7 +2,9 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field as PField
+from pydantic import BaseModel, ConfigDict, Field as PField, model_validator
+
+from app.schemas.common import reject_explicit_nulls
 
 
 class StageItem(BaseModel):
@@ -30,6 +32,11 @@ class CropUpdate(BaseModel):
     lifecycle_days: int | None = PField(default=None, ge=1)
     stages: list[StageItem] | None = None
     description: str | None = None
+
+    @model_validator(mode="after")
+    def _no_null_required(self) -> "CropUpdate":
+        reject_explicit_nulls(self, ("name", "lifecycle_days", "stages"))
+        return self
 
 
 class CropOut(CropBase):

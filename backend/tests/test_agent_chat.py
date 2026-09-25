@@ -140,15 +140,18 @@ def test_tool_bad_arguments_become_error_not_crash(client, monkeypatch):
     assert "参数有误" in resp.json()["answer"]
 
 
-def test_tool_round_exhaustion_fallback_strips_tool_calls(client, monkeypatch):
-    """轮次耗尽 fallback：必须去掉带 tool_calls 的 assistant 消息，否则上游 400。"""
-    patrol_id = _setup_and_upload(client)
-    seen_trimmed: list[list[dict]] = []
+def test_tool_round_exhaustion_fallback_keeps_tool_results(client, monkeypatch):
+    """轮次耗尽 fallback：保留已查到的工具结果，并以 tool_choice=none 收束。
 
-    def always_tools(messages, tools=None):
-        # 收束轮（无 tools 参数）时记录消息序列，供断言
-        if tools is None:
-            seen_trimmed.append(list(messages))
+    旧实现删掉全部工具结果再追问，回答失去数据依据而 trace 看似有据（审查 #15）。
+    保留时每条 tool_calls 必须都有对应 tool 消息，否则上游 400。
+    """
+    patrol_id = _setup_and_upload(client)
+    seen_final: list[list[dict]] = []
+
+    def always_tools(messages, tools=None, tool_choice="auto"):
+        if tool_choice == "none":
+            seen_final.append(list(messages))
             return {"content": "基于已有信息的收束回答。", "tool_calls": None}
         return {
             "content": None,
@@ -165,8 +168,12 @@ def test_tool_round_exhaustion_fallback_strips_tool_calls(client, monkeypatch):
     resp = client.post(f"{BASE}/agent/chat", json={"question": "总结一下", "patrol_id": patrol_id})
     assert resp.status_code == 200, resp.text
     assert "收束回答" in resp.json()["answer"]
-    assert seen_trimmed, "fallback 未触发"
-    assert all(not m.get("tool_calls") for m in seen_trimmed[0]), "fallback 消息仍含 tool_calls"
+    assert seen_final, "fallback 未触发"
+    final = seen_final[0]
+    tool_results = [m for m in final if m.get("role") == "tool"]
+    assert tool_results, "fallback 丢掉了工具结果，回答将没有数据依据"
+    call_ids = {c["id"] for m in final if m.get("tool_calls") for c in m["tool_calls"]}
+    assert call_ids == {m["tool_call_id"] for m in tool_results}, "tool_calls 与 tool 消息未一一配对"
 
 
 def test_agent_prompt_has_safety_rules():

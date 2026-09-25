@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Rule, RuleRevision
 from app.services.advice import compute_advice_pairs
+from app.services.rule_revision import resolve_draft_fields
 
 
 def run_shadow(db: Session, revision: RuleRevision, sample_patrol_ids: list[int]) -> dict:
@@ -55,28 +56,10 @@ def run_shadow(db: Session, revision: RuleRevision, sample_patrol_ids: list[int]
 def _draft_rule_view(db: Session, revision: RuleRevision) -> list[Rule]:
     """构造 draft 应用后的内存 Rule 对象列表（不加入 Session，零落库）。
 
-    modify/add → 生成携带 draft 字段的临时 Rule 实例（transient，不 add）；
-    deactivate → 返回空列表（该规则从规则集中消失）。
-    crop_id：modify 从现规则继承、add 取 draft 显式值——缺失即全局规则，
-    若丢此项，作物专属规则的影子 diff 会对其他作物的巡检虚报命中。
+    字段取自 rule_revision.resolve_draft_fields——与审批生效同一实现，影子看到的就是批准后得到的；
+    deactivate（或目标不存在的 modify）→ 返回空列表（该规则从规则集中消失）。
     """
-    if revision.action == "deactivate":
+    fields = resolve_draft_fields(db, revision)
+    if not fields:
         return []
-    draft = revision.draft
-    crop_id = draft.get("crop_id")
-    if revision.action == "modify" and crop_id is None:
-        existing = db.query(Rule).filter_by(rule_key=revision.rule_key).one_or_none()
-        crop_id = existing.crop_id if existing else None
-    rule = Rule(
-        rule_key=draft.get("rule_key", revision.rule_key),
-        tier=draft.get("tier", "threshold"),
-        condition=draft.get("condition", {}),
-        action=draft.get("action", ""),
-        params=draft.get("params"),
-        priority=draft.get("priority", "medium"),
-        active=True,
-        version=1,
-        source=draft.get("source"),
-        crop_id=crop_id,
-    )
-    return [rule]
+    return [Rule(**fields, active=True, version=1)]

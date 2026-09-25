@@ -2,7 +2,9 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field as PField
+from pydantic import BaseModel, ConfigDict, Field as PField, model_validator
+
+from app.schemas.common import reject_explicit_nulls
 
 PlantingStatus = Literal["active", "harvested", "archived"]
 
@@ -25,6 +27,11 @@ class PlantingUpdate(BaseModel):
     expected_harvest_date: date | None = None
     status: PlantingStatus | None = None
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def _no_null_required(self) -> "PlantingUpdate":
+        reject_explicit_nulls(self, ("sowing_date", "status"))
+        return self
 
 
 class PlantingOut(PlantingBase):

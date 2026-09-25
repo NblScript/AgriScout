@@ -42,10 +42,14 @@ def latest_prompt(prefix: str) -> tuple[Path, str]:
 
     调用路由统一映射为 503（服务端配置/部署不完整，非客户端错误）。
     """
-    matches = sorted(PROMPTS_DIR.glob(f"{prefix}_v*.md"))
+    matches = [
+        path for path in PROMPTS_DIR.glob(f"{prefix}_v*.md")
+        if path.stem.removeprefix(f"{prefix}_v").isdigit()
+    ]
     if not matches:
         raise LookupError(f"缺少 prompt 模板：{prefix}_v*.md")
-    path = matches[-1]
+    # 按版本号数值取最新：字符串排序会把 v10 排在 v2 前面
+    path = max(matches, key=lambda p: int(p.stem.removeprefix(f"{prefix}_v")))
     return path, path.read_text(encoding="utf-8")
 
 
@@ -171,7 +175,9 @@ def _chat(system: str, user: str) -> str:
     return content
 
 
-def _chat_messages(messages: list[dict], tools: list[dict] | None = None) -> dict:
+def _chat_messages(
+    messages: list[dict], tools: list[dict] | None = None, tool_choice: str = "auto",
+) -> dict:
     """多轮 messages 变体（供 function-calling 使用），返回完整 message 对象。
 
     L2 Agent 专用：调用方循环处理 message.tool_calls 并回填 role=tool 消息。
@@ -181,7 +187,7 @@ def _chat_messages(messages: list[dict], tools: list[dict] | None = None) -> dic
     payload: dict = {"model": settings.llm_model, "messages": messages, "temperature": 0.3}
     if tools:
         payload["tools"] = tools
-        payload["tool_choice"] = "auto"
+        payload["tool_choice"] = tool_choice
     resp = httpx.post(
         settings.llm_api_base.rstrip("/") + "/chat/completions",
         headers={"Authorization": f"Bearer {settings.llm_api_key}"},

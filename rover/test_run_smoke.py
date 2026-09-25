@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import base64
 import json
+import sys
+import types
 import threading
 import tempfile
 import unittest
@@ -408,6 +410,48 @@ class RoverSmokeTests(unittest.TestCase):
             _, envelope = spool.read(queued)
             self.assertEqual(envelope["attempts"], 1)
             self.assertIn("offline", envelope["last_error"])
+
+    def test_camera_drains_buffered_frames_before_each_shot(self) -> None:
+        """V4L2 缓冲的旧帧不能当作当前点的照片（位置/时间会错位）。"""
+        calls: list[str] = []
+
+        class _FakeVideoCapture:
+            def __init__(self, index: int) -> None:
+                self.frame_no = 0
+
+            def isOpened(self) -> bool:  # noqa: N802 - OpenCV API
+                return True
+
+            def set(self, prop: int, value: float) -> bool:
+                calls.append(f"set:{prop}={value}")
+                return False  # 模拟后端不支持缓冲设置，只能靠丢帧
+
+            def grab(self) -> bool:
+                self.frame_no += 1
+                calls.append("grab")
+                return True
+
+            def read(self):
+                self.frame_no += 1
+                calls.append(f"read:{self.frame_no}")
+                return True, object()
+
+            def release(self) -> None:
+                calls.append("release")
+
+        fake_cv2 = types.SimpleNamespace(
+            VideoCapture=_FakeVideoCapture, CAP_PROP_BUFFERSIZE=38, IMWRITE_JPEG_QUALITY=1,
+            resize=lambda frame, size: frame,
+            imencode=lambda ext, frame, params: (True, types.SimpleNamespace(tobytes=lambda: b"jpg")),
+        )
+        with patch.dict(sys.modules, {"cv2": fake_cv2}):
+            camera = rover_run.CameraCapture(0, 64, 48)
+            self.assertEqual(camera.capture(), b"jpg")
+            camera.close()
+        drained = rover_run.CameraCapture.STALE_FRAMES
+        self.assertEqual(calls[0], "set:38=1")
+        self.assertEqual(calls[1:1 + drained], ["grab"] * drained)
+        self.assertEqual(calls[1 + drained], f"read:{drained + 1}")
 
     def test_device_protocol_smoke_for_rover_and_simulator(self) -> None:
         """两个采集端适配器都只经 HTTP 完成注册→心跳→事件→领任务→状态回报。"""

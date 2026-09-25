@@ -137,3 +137,30 @@ def test_health_still_ok(client):
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+@pytest.mark.parametrize(
+    ("path", "payload", "patch"),
+    [
+        ("/api/v1/devices", DEVICE, {"name": None}),
+        ("/api/v1/devices", DEVICE, {"status": None}),
+        ("/api/v1/fields", FIELD, {"boundary": None}),
+        ("/api/v1/fields", FIELD, {"name": None}),
+        ("/api/v1/crops", CROP, {"stages": None}),
+        ("/api/v1/crops", CROP, {"lifecycle_days": None}),
+    ],
+)
+def test_patch_explicit_null_on_required_column_is_422(client, path, payload, patch):
+    """PATCH 显式传 null 的非空列曾在 commit 时触发 NOT NULL → 500。"""
+    obj_id = client.post(path, json=payload).json()["id"]
+    resp = client.patch(f"{path}/{obj_id}", json=patch)
+    assert resp.status_code == 422
+    assert "不能置空" in resp.text
+    # 可空列仍可显式清空
+    assert client.patch(f"{path}/{obj_id}", json={"notes" if path != "/api/v1/crops" else "description": None}).status_code == 200
+
+
+def test_planting_patch_null_status_is_422(client):
+    _, _, planting = _create_planting(client)
+    resp = client.patch(f"/api/v1/plantings/{planting['id']}", json={"status": None})
+    assert resp.status_code == 422

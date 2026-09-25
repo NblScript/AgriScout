@@ -106,3 +106,86 @@ def test_software_loop_end_to_end(client):
         f"{BASE}/model-evaluations/{evaluation['id']}/approve", json={"approved_by": "负责人"},
     )
     assert approved.status_code == 200 and approved.json()["status"] == "approved"
+
+
+def _prediction(client, *, forecast_hours=48, captured_at: str | None = None):
+    """captured_at 缺省用 _package 的固定历史时间（窗口早已结束）；传当前时间可得到未结束的窗口。"""
+    field_id = _setup(client)
+    package = _package(field_id)
+    if captured_at is not None:
+        package["patrol"]["started_at"] = captured_at
+        package["patrol"].pop("ended_at")
+        for point in package["capture_points"]:
+            point["captured_at"] = captured_at
+    patrol_id = client.post(f"{BASE}/ingest/patrol", json=package).json()["patrol_id"]
+    preds = client.post(
+        f"{BASE}/patrols/{patrol_id}/risk-predictions/generate",
+        json={"target_event": "目标病害首次显症", "forecast_hours": forecast_hours},
+    ).json()
+    return field_id, preds[0]
+
+
+EVIDENCE = {"reference": "/media/recheck-001.jpg"}
+
+
+def test_negative_follow_up_requires_window_to_have_ended(client):
+    """申报书 8.2：阴性需完成规定窗口的复查——窗口没走完就记阴性会污染评估标签。"""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    _, open_window = _prediction(client, forecast_hours=48, captured_at=now)  # 窗口刚开始
+    early = client.post(f"{BASE}/risk-predictions/{open_window['id']}/follow-up", json={
+        "status": "confirmed_negative", "reviewed_by": "农技员", "evidence": EVIDENCE, "note": "未见症状",
+    })
+    assert early.status_code == 422 and "窗口" in early.json()["detail"]
+    # 窗口内可以先记 insufficient，之后再补结论
+    pending = client.post(f"{BASE}/risk-predictions/{open_window['id']}/follow-up", json={
+        "status": "insufficient", "reviewed_by": "农技员", "evidence": EVIDENCE, "note": "遮挡",
+    })
+    assert pending.status_code == 200
+
+
+def test_negative_follow_up_after_window_is_accepted(client):
+    _, closed_window = _prediction(client, forecast_hours=48)  # 2026-09-20 起 48h，已结束
+    resp = client.post(f"{BASE}/risk-predictions/{closed_window['id']}/follow-up", json={
+        "status": "confirmed_negative", "reviewed_by": "农技员", "evidence": EVIDENCE,
+        "note": "窗口内复查未发病", "event_confirmed": False,
+    })
+    assert resp.status_code == 200
+
+
+def test_positive_follow_up_event_time_must_fall_in_window(client):
+    _, pred = _prediction(client, forecast_hours=48)
+    body = {"status": "confirmed_positive", "reviewed_by": "农技员", "evidence": EVIDENCE, "note": "显症"}
+    after = client.post(f"{BASE}/risk-predictions/{pred['id']}/follow-up",
+                        json={**body, "event_at": "2026-09-30T08:00:00+00:00"})
+    assert after.status_code == 422
+    before = client.post(f"{BASE}/risk-predictions/{pred['id']}/follow-up",
+                         json={**body, "event_at": "2026-09-19T08:00:00+00:00"})
+    assert before.status_code == 422
+    contradict = client.post(f"{BASE}/risk-predictions/{pred['id']}/follow-up",
+                             json={**body, "event_confirmed": False})
+    assert contradict.status_code == 422
+    inside = client.post(f"{BASE}/risk-predictions/{pred['id']}/follow-up",
+                         json={**body, "event_at": "2026-09-21T08:00:00+08:00", "event_confirmed": True})
+    assert inside.status_code == 200
+
+
+def test_manual_prediction_with_mixed_timezones_does_not_500(client):
+    field_id = _setup(client)
+    patrol_id = client.post(f"{BASE}/ingest/patrol", json=_package(field_id)).json()["patrol_id"]
+    resp = client.post(f"{BASE}/risk-predictions", json={
+        "patrol_id": patrol_id, "observation_key": "manual", "target_event": "x",
+        "forecast_hours": 24, "forecast_start": "2026-09-20T08:00:00+08:00",
+        "forecast_end": "2026-09-21T00:00:00",  # 无时区按 UTC：恰好 24h
+        "probability": 0.5, "level": "medium", "confidence": 0.5, "model_version": "m",
+    })
+    assert resp.status_code == 201, resp.text
+
+
+def test_revisit_task_patch_null_status_is_422(client):
+    field_id = _setup(client)
+    task = client.post(f"{BASE}/revisit-tasks", json={
+        "field_id": field_id, "task_type": "revisit", "priority": 0.5, "value_score": 0.5,
+    }).json()
+    assert client.patch(f"{BASE}/revisit-tasks/{task['id']}", json={"status": None}).status_code == 422

@@ -208,3 +208,61 @@ def test_calendar_stage_uses_field_local_date():
     stage = calendar_growth_stage(ctx)
     assert stage["day_after_sowing"] == 10
     assert stage["name"] == "分蘖期"
+
+
+def test_undecodable_photo_skips_point_not_whole_patrol(client, media_dir):
+    """一张解不开的照片（合法 base64、非图片）只跳过该点，不能让整趟 2600 点分析标 error。"""
+    import base64
+
+    field_id, planting_id = _setup(client)
+    junk = base64.b64encode(b"definitely not an image").decode()
+    resp = client.post(
+        f"{BASE}/ingest/patrol",
+        json=_package(field_id, planting_id, {0: GREEN, 1: junk, 2: BROWN}),
+    )
+    patrol_id = resp.json()["patrol_id"]
+    detail = client.get(f"{BASE}/patrols/{patrol_id}").json()
+    assert detail["analysis_status"] == "done"
+    assert "bad_image=1" in detail["notes"]
+    summary = client.get(f"{BASE}/patrols/{patrol_id}/analysis-summary").json()
+    assert summary["analyzed_points"] == 2
+
+
+def test_all_photos_undecodable_marks_error(client, media_dir):
+    """一张都解不开更像系统性问题，不能静默标 done。"""
+    import base64
+
+    field_id, planting_id = _setup(client)
+    junk = base64.b64encode(b"junk").decode()
+    resp = client.post(f"{BASE}/ingest/patrol", json=_package(field_id, planting_id, {0: junk}))
+    detail = client.get(f"{BASE}/patrols/{resp.json()['patrol_id']}").json()
+    assert detail["analysis_status"] == "error"
+
+
+def test_done_is_published_only_after_advices_exist(client, monkeypatch):
+    """客户端以 analysis_status=done 为「结果齐了」：建议必须在 done 之前落库。
+
+    旧顺序先提交 done 再生成建议，模拟器轮询到 done 立即取建议，报告「共 0 条建议」。
+    """
+    from app.core.db import get_session_factory
+    from app.main import app
+    from app.models import Patrol
+    from app.services import advice
+
+    seen_status: list[str] = []
+    original = advice.generate_advices_for_patrol
+
+    def spy(db, patrol_id):
+        # 用独立会话观察「外部轮询者此刻看到的状态」
+        other = app.dependency_overrides[get_session_factory]()()
+        try:
+            seen_status.append(other.get(Patrol, patrol_id).analysis_status)
+        finally:
+            other.close()
+        return original(db, patrol_id)
+
+    monkeypatch.setattr(advice, "generate_advices_for_patrol", spy)
+    field_id, planting_id = _setup(client)
+    resp = client.post(f"{BASE}/ingest/patrol", json=_package(field_id, planting_id, {0: GREEN, 1: BROWN}))
+    assert seen_status == ["running"]
+    assert client.get(f"{BASE}/patrols/{resp.json()['patrol_id']}").json()["analysis_status"] == "done"

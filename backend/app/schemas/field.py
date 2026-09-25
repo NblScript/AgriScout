@@ -2,7 +2,9 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field as PField, field_validator
+from pydantic import BaseModel, ConfigDict, Field as PField, field_validator, model_validator
+
+from app.schemas.common import reject_explicit_nulls
 
 
 def _validate_boundary(v: Any) -> dict:
@@ -45,6 +47,11 @@ class FieldUpdate(BaseModel):
     @classmethod
     def boundary_must_be_polygon(cls, v: Any) -> dict | None:
         return None if v is None else _validate_boundary(v)
+
+    @model_validator(mode="after")
+    def _no_null_required(self) -> "FieldUpdate":
+        reject_explicit_nulls(self, ("name", "boundary"))
+        return self
 
 
 class FieldOut(FieldBase):

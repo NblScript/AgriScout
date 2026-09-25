@@ -1,5 +1,5 @@
 /** 资源客户端：每个后端资源一组类型化方法。 */
-import { request } from './http'
+import { request, requestAllPages } from './http'
 import type {
   AgentChatResult,
   Advice,
@@ -147,9 +147,7 @@ export const patrolsApi = {
 
 export const capturePointsApi = {
   listByPatrol: (patrolId: number) =>
-    request<Page<CapturePointFull>>(
-      `/capture-points?patrol_id=${patrolId}&limit=2000`,
-    ),
+    requestAllPages<CapturePointFull>(`/capture-points?patrol_id=${patrolId}`, 2000),
 }
 
 export const advicesApi = {
@@ -161,8 +159,8 @@ export const advicesApi = {
     if (params.status) qs.set('status', params.status)
     if (params.capture_point_id != null)
       qs.set('capture_point_id', String(params.capture_point_id))
-    qs.set('limit', '500')
-    return request<Page<Advice>>(`/patrols/${patrolId}/advices?${qs.toString()}`)
+    const query = qs.toString()
+    return requestAllPages<Advice>(`/patrols/${patrolId}/advices${query ? `?${query}` : ''}`, 500)
   },
   setStatus: (adviceId: number, status: AdviceStatus) =>
     request<Advice>(`/advices/${adviceId}`, { method: 'PATCH', body: { status } }),

@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.core.timeutil import to_utc
 from app.models import Analysis, CapturePoint, DatasetVersion, Device, Field, FollowUp, ModelEvaluation, Patrol, RevisitTask, RiskPrediction
 from app.services.active_learning import ActiveLearningCandidate, SelectionConstraints, select_active_learning_tasks
 from app.services.dataset_governance import (
@@ -55,10 +56,12 @@ def _level(probability: float) -> str:
 
 @router.post("/risk-predictions", response_model=RiskPredictionOut, status_code=201)
 def create_risk_prediction(payload: RiskPredictionCreate, db: Session = Depends(get_db)):
-    if payload.forecast_end <= payload.forecast_start:
+    # 统一换算 UTC：一端带时区一端不带时直接相减会 TypeError（500）
+    forecast_start, forecast_end = to_utc(payload.forecast_start), to_utc(payload.forecast_end)
+    if forecast_end <= forecast_start:
         raise HTTPException(status_code=422, detail="预测结束时间必须晚于开始时间")
     expected_seconds = payload.forecast_hours * 3600
-    actual_seconds = (payload.forecast_end - payload.forecast_start).total_seconds()
+    actual_seconds = (forecast_end - forecast_start).total_seconds()
     if abs(actual_seconds - expected_seconds) > 1:
         raise HTTPException(status_code=422, detail="预测时间窗必须与 forecast_hours 一致")
     patrol = db.get(Patrol, payload.patrol_id)
@@ -198,6 +201,33 @@ def generate_patrol_predictions(patrol_id: int, payload: RiskGenerateIn, db: Ses
     return output
 
 
+def _check_follow_up_timing(prediction: RiskPrediction, payload: FollowUpIn) -> None:
+    """随访结论必须对得上预测窗口，否则会变成错误的训练/评估标签（申报书 8.2）。
+
+    - 确认阴性：窗口结束前「还没发病」不等于阴性，必须等窗口走完；
+    - 确认阳性：给了事件时间就必须落在窗口内——窗口前已有的症状不是该窗口的新发事件，
+      窗口后才出现的也不能算这次预测命中；
+    - event_confirmed 与状态不得自相矛盾。
+    """
+    start, end = to_utc(prediction.forecast_start), to_utc(prediction.forecast_end)
+    if payload.status == "confirmed_negative":
+        if datetime.now(timezone.utc) < end:
+            raise HTTPException(
+                status_code=422,
+                detail=f"预测窗口 {end.isoformat()} 才结束，窗口内未发病不能提前确认阴性（可先记 pending/insufficient）",
+            )
+        if payload.event_confirmed:
+            raise HTTPException(status_code=422, detail="确认阴性与 event_confirmed=true 矛盾")
+    if payload.status == "confirmed_positive" and payload.event_confirmed is False:
+        raise HTTPException(status_code=422, detail="确认阳性与 event_confirmed=false 矛盾")
+    if payload.event_at is not None:
+        event_at = to_utc(payload.event_at)
+        if event_at < start:
+            raise HTTPException(status_code=422, detail="事件时间早于预测窗口开始，不是该窗口内的新发事件")
+        if payload.status == "confirmed_positive" and event_at > end:
+            raise HTTPException(status_code=422, detail="事件时间晚于预测窗口结束，不能作为该预测的阳性")
+
+
 @router.post("/risk-predictions/{prediction_id}/follow-up", response_model=FollowUpOut)
 def upsert_follow_up(prediction_id: int, payload: FollowUpIn, db: Session = Depends(get_db)):
     prediction = _prediction_or_404(db, prediction_id)
@@ -237,6 +267,8 @@ def upsert_follow_up(prediction_id: int, payload: FollowUpIn, db: Session = Depe
                 status_code=422,
                 detail=f"随访证据不完整：{', '.join(completeness.issues)}",
             )
+    if current_status not in {"confirmed_positive", "confirmed_negative", "intervened"}:
+        _check_follow_up_timing(prediction, payload)
     if current_status in {"confirmed_positive", "confirmed_negative", "intervened"}:
         current_values = {key: getattr(follow, key) for key in payload.model_fields}
         if payload.status != current_status or any(

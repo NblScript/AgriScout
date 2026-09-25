@@ -2,7 +2,9 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field as PField
+from pydantic import BaseModel, ConfigDict, Field as PField, model_validator
+
+from app.schemas.common import reject_explicit_nulls
 
 DeviceType = Literal["rover", "drone", "station"]
 DeviceStatus = Literal["idle", "active", "maintenance", "offline"]
@@ -27,6 +29,11 @@ class DeviceUpdate(BaseModel):
     model: str | None = None
     status: DeviceStatus | None = None
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def _no_null_required(self) -> "DeviceUpdate":
+        reject_explicit_nulls(self, ("name", "type", "status"))
+        return self
 
 
 class DeviceOut(DeviceBase):

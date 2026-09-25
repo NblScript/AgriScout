@@ -2,7 +2,9 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.schemas.common import reject_explicit_nulls
 
 
 RiskLevel = Literal["low", "medium", "high", "unknown"]
@@ -85,6 +87,11 @@ class RevisitTaskUpdate(BaseModel):
     scheduled_at: datetime | None = None
     completed_at: datetime | None = None
     result_note: str | None = None
+
+    @model_validator(mode="after")
+    def _no_null_required(self) -> "RevisitTaskUpdate":
+        reject_explicit_nulls(self, ("status",))
+        return self
 
 
 class RevisitTaskOut(RevisitTaskCreate):

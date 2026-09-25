@@ -6,6 +6,7 @@ Session；逐点提交使 M6 前端轮询能看到渐进进度。
 import logging
 from collections.abc import Callable
 
+from PIL import Image
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session, selectinload
 
@@ -70,15 +71,25 @@ def run_patrol_analysis(
             logger.warning("analysis skipped: patrol %s already running", patrol_id)
             return
 
-        analyzed = skipped = 0
+        analyzed = skipped = bad_image = 0
         for point in patrol.capture_points:
             image = storage.open(point.photo_url) if point.photo_url else None
             if image is None:
                 skipped += 1
                 continue
-            result = analyzer.analyze(
-                image, _build_context(point, sowing_date, crop_name, crop_stages),
-            )
+            try:
+                result = analyzer.analyze(
+                    image, _build_context(point, sowing_date, crop_name, crop_stages),
+                )
+            except (OSError, Image.DecompressionBombError):
+                # 单张照片解不开（截断/非图片/超大）是该点的数据问题，跳过继续；
+                # 模型缺失等系统性错误（RuntimeError 等）仍让整趟标记 error，不被静默吞掉
+                bad_image += 1
+                logger.warning(
+                    "patrol %s point seq=%s photo undecodable: %s",
+                    patrol_id, point.seq, point.photo_url, exc_info=True,
+                )
+                continue
             # 重分析幂等：清掉旧结果再写新
             db.execute(delete(Analysis).where(Analysis.capture_point_id == point.id))
             db.add(
@@ -97,20 +108,13 @@ def run_patrol_analysis(
             analyzed += 1
             db.commit()  # 逐点提交 → 进度可轮询
 
-        patrol.analysis_status = "done"
-        # 系统统计写入 notes 头部；重分析时替换（否则旧 analyzer 版本的统计滞留）。
-        # 用户手写过的 notes（非系统格式）不覆写，统计只进日志——不复用语义。
-        stats_note = f"analyzed={analyzed} skipped_no_photo={skipped} analyzer={analyzer.version}"
-        if patrol.notes is None or patrol.notes.startswith("analyzed="):
-            patrol.notes = stats_note
-        else:
-            logger.info("patrol %s stats (user notes kept): %s", patrol_id, stats_note)
-        db.commit()
-        logger.info(
-            "patrol %s analyzed: %s points, %s skipped", patrol_id, analyzed, skipped,
-        )
+        if bad_image and not analyzed:
+            # 一张都没解开更像是系统性问题（编码器/依赖异常），不当作正常完成
+            raise RuntimeError(f"巡检 {patrol_id} 的 {bad_image} 张照片全部无法解码")
 
-        # 分析完成 → 触发建议生成（任务流水线阶段⑥，docs/05）
+        # 分析完成 → 先生成建议（任务流水线阶段⑥，docs/05），再对外宣告 done：
+        # 客户端（模拟器/前端）以 analysis_status=done 为「结果齐了」的信号，
+        # 旧顺序先提交 done 再生成建议，轮询方会读到空建议列表。
         try:
             from app.services.advice import generate_advices_for_patrol
 
@@ -119,6 +123,24 @@ def run_patrol_analysis(
         except Exception:  # noqa: BLE001 建议失败不影响分析结论，仅记录
             db.rollback()
             logger.exception("patrol %s advice generation failed", patrol_id)
+
+        patrol = db.get(Patrol, patrol_id)
+        patrol.analysis_status = "done"
+        # 系统统计写入 notes 头部；重分析时替换（否则旧 analyzer 版本的统计滞留）。
+        # 用户手写过的 notes（非系统格式）不覆写，统计只进日志——不复用语义。
+        stats_note = (
+            f"analyzed={analyzed} skipped_no_photo={skipped} bad_image={bad_image} "
+            f"analyzer={analyzer.version}"
+        )
+        if patrol.notes is None or patrol.notes.startswith("analyzed="):
+            patrol.notes = stats_note
+        else:
+            logger.info("patrol %s stats (user notes kept): %s", patrol_id, stats_note)
+        db.commit()
+        logger.info(
+            "patrol %s analyzed: %s points, %s skipped, %s bad image",
+            patrol_id, analyzed, skipped, bad_image,
+        )
     except Exception:
         db.rollback()
         try:

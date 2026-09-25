@@ -2,6 +2,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -61,6 +62,20 @@ def update_rule(rule_id: int, payload: RuleUpdate, db: Session = Depends(get_db)
     if obj is None:
         raise HTTPException(status_code=404, detail="规则不存在")
     changes = payload.model_dump(exclude_unset=True)
+    # 合并后整体再过一遍 RuleCreate：单字段合法不代表组合合法（如 tier 改 routine 但条件含天气）。
+    # 不校验就落库会让 RuleOut 序列化失败，GET /rules 整表 500。
+    merged = {
+        "rule_key": obj.rule_key, "crop_id": obj.crop_id, "tier": obj.tier,
+        "condition": obj.condition, "action": obj.action, "params": obj.params,
+        "priority": obj.priority, "source": obj.source,
+    }
+    merged.update({k: v for k, v in changes.items() if k in merged})
+    try:
+        RuleCreate(**merged)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422, detail=f"修改后的规则不合法：{exc.errors()[0].get('msg', exc)}",
+        ) from exc
     before = {f: getattr(obj, f) for f in _VERSIONED_FIELDS}
     for key, value in changes.items():
         setattr(obj, key, value)

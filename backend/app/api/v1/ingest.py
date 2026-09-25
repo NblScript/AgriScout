@@ -6,7 +6,7 @@ from app.core.db import get_db, get_session_factory
 from app.schemas.patrol import IngestResultOut, PatrolPackageIn
 from app.services.analysis import Analyzer, get_analyzer
 from app.services.analysis.runner import run_patrol_analysis
-from app.services.ingest import DuplicateError, ingest_patrol_package
+from app.services.ingest import DuplicateError, ReferenceNotFound, ingest_patrol_package
 from app.services.storage import Storage, get_storage
 
 import logging
@@ -39,7 +39,7 @@ def ingest_patrol(
             status_code=409,
             detail=f"重复上传：相同地块/设备/开始时间的巡检包已存在（patrol_id={exc.duplicate_id}）",
         ) from exc
-    except LookupError as exc:
+    except ReferenceNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

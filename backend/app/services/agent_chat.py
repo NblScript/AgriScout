@@ -147,14 +147,11 @@ def chat(db: Session, question: str, patrol_id: int | None = None) -> dict:
 
     answer = message.get("content") or ""
     if not answer:
-        # 轮次耗尽仍无正文：去掉 tool 消息与带 tool_calls 的 assistant 消息
-        # （OpenAI 兼容 API 要求 tool_calls 与 tool 消息一一配对，缺一则 400）
-        trimmed = [
-            m for m in messages
-            if m.get("role") != "tool" and not m.get("tool_calls")
-        ]
-        trimmed.append({"role": "user", "content": "工具调用已达上限，请基于已有信息直接回答。"})
-        answer = _chat_messages(trimmed).get("content") or ""
+        # 轮次耗尽仍无正文：保留全部工具结果（tool_calls 与 tool 消息已一一配对），
+        # 以 tool_choice="none" 要求模型只基于已查到的数据作答。
+        # 旧实现删掉工具结果再追问，回答失去数据依据，而 trace 里仍有一串工具调用，看起来"有据"。
+        messages.append({"role": "user", "content": "工具调用已达上限，请只基于上面已返回的工具结果直接回答。"})
+        answer = _chat_messages(messages, TOOL_SCHEMAS, tool_choice="none").get("content") or ""
 
     return {
         "answer": answer,

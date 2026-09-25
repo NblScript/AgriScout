@@ -343,7 +343,14 @@ class FakeCapture:
 
 
 class CameraCapture:
-    """USB 摄像头采集器，显式释放 OpenCV 资源。"""
+    """USB 摄像头采集器，显式释放 OpenCV 资源。
+
+    OpenCV（V4L2）默认在驱动里缓冲若干帧：按间隔拍照时直接 read() 拿到的是
+    缓冲里的旧帧，照片与记录的时间/位置对不上（小车行进时偏差 = 车速 × 间隔），
+    高密度采样的空间对应关系就失效了。每次拍照前先丢弃缓冲帧。
+    """
+
+    STALE_FRAMES = 4  # 常见 V4L2 缓冲深度；缓冲可设为 1 时多丢几帧只多等几十毫秒
 
     def __init__(self, index: int, width: int, height: int):
         import cv2  # 延迟导入，--fake 不需要 OpenCV
@@ -355,8 +362,12 @@ class CameraCapture:
         if not self._cap.isOpened():
             self._cap.release()
             raise RuntimeError(f"打不开摄像头 index={index}，确认已连接且未被占用")
+        # 部分后端不支持该属性，返回 False 时仍靠 capture() 里的丢帧兜底
+        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
     def capture(self) -> bytes:
+        for _ in range(self.STALE_FRAMES):
+            self._cap.grab()
         ok, frame = self._cap.read()
         if not ok:
             raise RuntimeError("读帧失败，检查摄像头是否被占用")

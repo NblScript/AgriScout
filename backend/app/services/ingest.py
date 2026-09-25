@@ -22,8 +22,14 @@ from app.services.storage import Storage
 
 def _resolve_planting(db: Session, field_id: int, planting_id: int | None) -> int | None:
     if planting_id is not None:
-        if db.get(Planting, planting_id) is None:
+        planting = db.get(Planting, planting_id)
+        if planting is None:
             raise ValueError(f"planting_id={planting_id} 不存在")
+        # 种植批次决定生育期与作物专属规则：挂到别的地块的批次会让分析和建议整体错位
+        if planting.field_id != field_id:
+            raise ValueError(
+                f"planting_id={planting_id} 属于地块 {planting.field_id}，与巡检地块 {field_id} 不一致"
+            )
         return planting_id
     # 未显式指定 → 取该地块最新的生长期种植记录
     planting = db.scalars(
@@ -70,11 +76,11 @@ def ingest_patrol_package(db: Session, package: PatrolPackageIn, storage: Storag
 
     field = db.get(Field, header.field_id)
     if field is None:
-        raise LookupError(f"地块不存在：field_id={header.field_id}")
+        raise ReferenceNotFound(f"地块不存在：field_id={header.field_id}")
 
     device = db.scalars(select(Device).where(Device.code == header.device)).first()
     if device is None:
-        raise LookupError(f"设备未登记：code={header.device}（先在设备管理中登记）")
+        raise ReferenceNotFound(f"设备未登记：code={header.device}（先在设备管理中登记）")
 
     planting_id = _resolve_planting(db, header.field_id, header.planting_id)
 
@@ -142,6 +148,14 @@ def ingest_patrol_package(db: Session, package: PatrolPackageIn, storage: Storag
         photos_saved=photos_saved,
         photos_referenced=photos_referenced,
     )
+
+
+class ReferenceNotFound(LookupError):
+    """巡检包引用的地块/设备不存在（→404）。
+
+    单独定义而不直接用 LookupError：IndexError/KeyError 也是 LookupError 子类，
+    内部 bug 会被误映射成 404 并暴露 "list index out of range" 这类文案。
+    """
 
 
 class DuplicateError(Exception):

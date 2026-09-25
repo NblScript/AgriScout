@@ -266,3 +266,25 @@ def test_shadow_pairs_respect_top_k_like_real_generation(client):
         assert max(per_point.values()) <= 3
     finally:
         db.close()
+
+
+def test_rule_patch_validates_merged_rule_and_never_bricks_listing(client):
+    """PATCH 单字段合法但组合非法（threshold→routine 仍带天气条件）曾直接落库，
+    随后 RuleOut 序列化失败，GET /rules 整表 500。"""
+    rule_id = client.post(f"{BASE}/rules", json={
+        "rule_key": "R-PATCH-GUARD", "tier": "threshold",
+        "condition": {"weather": {"temp_c": {"gt": 30}}}, "action": "高温预警",
+    }).json()["id"]
+
+    resp = client.patch(f"{BASE}/rules/{rule_id}", json={"tier": "routine"})
+    assert resp.status_code == 422
+    assert client.patch(f"{BASE}/rules/{rule_id}", json={"condition": {}}).status_code == 422
+    assert client.patch(f"{BASE}/rules/{rule_id}", json={"condition": None}).status_code == 422
+
+    assert client.get(f"{BASE}/rules").status_code == 200
+    rule = client.get(f"{BASE}/rules/{rule_id}").json()
+    assert rule["tier"] == "threshold" and rule["version"] == 1
+
+    # 合法组合正常生效：改 routine 的同时把条件收窄到 stage
+    ok = client.patch(f"{BASE}/rules/{rule_id}", json={"tier": "routine", "condition": {"stage": "拔节期"}})
+    assert ok.status_code == 200 and ok.json()["version"] == 2

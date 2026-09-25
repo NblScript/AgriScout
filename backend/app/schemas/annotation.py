@@ -2,7 +2,9 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field as PField
+from pydantic import BaseModel, ConfigDict, Field as PField, model_validator
+
+from app.schemas.common import reject_explicit_nulls
 
 # 复核标签：与规则引擎的胁迫类别对齐，后续可扩展
 AnnotationLabel = Literal["normal", "dry_stress", "suspected_disease", "other"]
@@ -18,6 +20,11 @@ class AnnotationUpdate(BaseModel):
     label: AnnotationLabel | None = None
     annotator_name: str | None = PField(None, min_length=1, max_length=80)
     note: str | None = None
+
+    @model_validator(mode="after")
+    def _no_null_required(self) -> "AnnotationUpdate":
+        reject_explicit_nulls(self, ("label", "annotator_name"))
+        return self
 
 
 class AnnotationOut(BaseModel):

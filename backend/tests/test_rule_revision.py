@@ -339,3 +339,40 @@ def test_deactivate_revision_does_not_block_yaml_updates(client, tmp_path):
         assert rule["active"] is False and rule["version"] == 2
     finally:
         db.close()
+
+
+def test_partial_modify_draft_shadow_matches_what_approval_applies(client):
+    """modify 草稿省略 priority 时：影子曾按默认 medium 计算，批准却保留现值 high——
+    影子报告的 Top-K 结论与上线结果分叉。两者必须用同一份合并后的规则。"""
+    from app.core.db import get_session_factory
+    from app.main import app
+    from app.models import Rule, RuleRevision
+    from app.services.shadow_run import _draft_rule_view
+
+    _setup(client, with_advice_flow=False)
+    client.post(f"{BASE}/rules", json={
+        "rule_key": "R-HIGH", "tier": "threshold", "priority": "high",
+        "condition": {"weather": {"temp_c": {"gt": 30}}}, "action": "高温", "params": {"x": 1},
+    })
+    db = app.dependency_overrides[get_session_factory]()()
+    try:
+        rev = RuleRevision(
+            rule_key="R-HIGH", action="modify",
+            draft={"tier": "threshold", "condition": {"weather": {"temp_c": {"gt": 32}}}, "action": "高温（修订）"},
+            reason="只改阈值", model="fake", prompt_version="v1",
+        )
+        db.add(rev)
+        db.commit()
+        view = _draft_rule_view(db, rev)[0]
+        assert (view.priority, view.params) == ("high", {"x": 1})
+
+        from app.services.rule_revision import apply_draft_to_rule
+
+        apply_draft_to_rule(db, rev)
+        db.commit()
+        applied = db.query(Rule).filter_by(rule_key="R-HIGH").one()
+        assert (applied.priority, applied.params, applied.condition, applied.version) == (
+            view.priority, view.params, view.condition, 2,
+        )
+    finally:
+        db.close()

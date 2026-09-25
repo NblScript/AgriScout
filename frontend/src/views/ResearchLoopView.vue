@@ -92,6 +92,11 @@ async function approveEvaluation(row: ModelEvaluation) {
   } catch (e) { if (e !== 'cancel') ElMessage.error(errMsg(e)) }
 }
 
+/** 阴性标签要求整个预测窗口已走完（后端同样校验，申报书 8.2）。 */
+function windowEnded(row: RiskPrediction): boolean {
+  return new Date(row.forecast_end).getTime() <= Date.now()
+}
+
 async function confirmPrediction(row: RiskPrediction, status: 'confirmed_positive' | 'confirmed_negative') {
   try {
     if (row.status === 'closed') return
@@ -150,7 +155,7 @@ onMounted(load)
             <el-table-column label="随访" width="190">
               <template #default="{ row }">
                 <el-button size="small" type="danger" plain :disabled="row.status === 'closed'" @click="confirmPrediction(row, 'confirmed_positive')">确认阳性</el-button>
-                <el-button size="small" type="success" plain :disabled="row.status === 'closed'" @click="confirmPrediction(row, 'confirmed_negative')">确认阴性</el-button>
+                <el-button size="small" type="success" plain :disabled="row.status === 'closed' || !windowEnded(row)" :title="windowEnded(row) ? '' : '预测窗口未结束，窗口内未发病不能确认阴性'" @click="confirmPrediction(row, 'confirmed_negative')">确认阴性</el-button>
               </template>
             </el-table-column>
           </el-table>
