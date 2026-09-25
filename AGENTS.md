@@ -89,6 +89,6 @@ cd ml && .venv/bin/python export_model.py            # 产物 → backend/models
 | 查某个编号决策（D/B/T/L） | `docs/design-docs/decision-registry.md` |
 | 理解整体架构 | `ARCHITECTURE.md`（本仓库） |
 | 看当前在做什么 / 接手未完工作 | `docs/exec-plans/active/`（空则看 README「下一阶段」） |
-| 已知问题 / 技术债 | `docs/exec-plans/tech-debt-tracker.md`、`docs/reviews/`（代码审查记录） |
+| 已知问题 / 技术债 | `docs/exec-plans/tech-debt-tracker.md`、`docs/reviews/`（代码审查记录、申报书方案评审） |
 | 立项背景 / 比赛叙事 | docs/01（调研）、docs/07（介绍）、docs/08（系统方案）、docs/09（申报书） |
 | 硬件 / 小车对接 | `rover/README.md`、docs/04 §9（硬件路线）、docs/06（嵌入式路线） |

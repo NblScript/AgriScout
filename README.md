@@ -262,6 +262,7 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 - [docs/design-docs/decision-registry.md](docs/design-docs/decision-registry.md)：编号决策注册表。
 - [docs/exec-plans/tech-debt-tracker.md](docs/exec-plans/tech-debt-tracker.md)：技术债台账。
 - [docs/reviews/2026-09-25-code-review.md](docs/reviews/2026-09-25-code-review.md)：最近一次代码审查结论与待修清单。
+- [docs/reviews/2026-09-25-application-review.md](docs/reviews/2026-09-25-application-review.md)：申报书方案评审（实现差距、创新可行性、时间线）。
 - [docs/generated/db-schema.md](docs/generated/db-schema.md)：自动生成的数据库结构快照。
 
 ## 许可与使用

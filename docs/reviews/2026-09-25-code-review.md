@@ -86,3 +86,42 @@
 - 前端 `vue-tsc --noEmit` 通过。
 - 迁移 0013：空 SQLite 升级 → 回滚到 0012 → 再升级通过（Windows 下 alembic CLI 按 GBK 读 `alembic.ini` 会失败，用 Python API 验证；WSL 下可直接用 CLI）。
 - 旧开发库里客户端写入的东八区墙钟不会自动迁移，读出会晚 8 小时；演示库建议用模拟器重建。
+
+## 第三轮复核（2026-09-25 同日）
+
+范围：HEAD `936c055` 全量（backend / frontend / rover / simulator），并对照申报书（docs/09）核对实现。
+方法同前：每项先写临时用例或实跑复现，确认失败后再修，正式回归用例补进 `backend/tests/` 与 `rover/test_run_smoke.py`（新用例在旧代码上均失败）。
+方案层面的问题另见 [申报书方案评审](2026-09-25-application-review.md)。
+
+### 新发现并已修复
+
+| # | 位置 | 问题（均已复现） | 做法 | 回归测试 |
+|---|---|---|---|---|
+| 20 | `schemas/patrol.py` 照片校验 | `data:image/png;base64`（缺逗号）抛 IndexError；IndexError 是 LookupError 子类，被接入路由映射成 **404「list index out of range」**。data URI 也不做预校验，坏数据要到写盘阶段才暴露 | data URI 与裸 base64 一律在 schema 预校验；接入 404 改用专用 `ReferenceNotFound` | `test_ingest.py::test_data_uri_without_payload_is_422_not_404`、`test_bad_data_uri_rejected_before_any_photo_written` |
+| 21 | 巡检包 / 手工风险预测的时间比较 | `started_at` 带时区、`ended_at` 不带（或反之）时比较抛 TypeError → **500** | 统一 `to_utc` 后比较（无时区按 UTC，D9） | `test_mixed_naive_and_aware_times_do_not_500`、`test_manual_prediction_with_mixed_timezones_does_not_500` |
+| 22 | `services/ingest.py` | 显式 `planting_id` 不校验归属，挂到别的地块的种植批次也 201，生育期与作物专属规则整体错位 | 归属不一致 422 | `test_planting_of_another_field_is_rejected` |
+| 23 | `analysis/runner.py` | 一张合法 base64 但解不开的照片让**整趟巡检标 error**（2600 点里坏一张全丢） | 解码类错误只跳过该点，notes 记 `bad_image`；全部解不开才标 error（系统性问题不静默） | `test_undecodable_photo_skips_point_not_whole_patrol`、`test_all_photos_undecodable_marks_error` |
+| 24 | `analysis/runner.py` | 先提交 `analysis_status=done` 再生成建议；轮询方（模拟器、前端）读到 done 立刻取建议，**模拟器报告「共 0 条建议」** | 建议生成后再发布 done | `test_done_is_published_only_after_advices_exist` |
+| 25 | `api/v1/rules.py` PATCH（#17 的实际后果） | 单字段合法、组合非法的修改直接落库，如 threshold→routine 仍带天气条件；随后 `RuleOut` 序列化失败，**`GET /rules` 整表 500**，直到手工改库 | 合并后整体过 `RuleCreate`，不合法 422 且不落库 | `test_advice.py::test_rule_patch_validates_merged_rule_and_never_bricks_listing` |
+| 26 | 全部 PATCH 接口 | 显式传 `null` 写非空列（设备名、地块边界、作物生育期表、种植状态、规则条件、标注标签、复巡任务状态）在 commit 时触发 NOT NULL → **500** | `schemas/common.reject_explicit_nulls`，可空列仍可置空 | `test_crud.py::test_patch_explicit_null_on_required_column_is_422` 等 |
+| 27 | `shadow_run.py` 与 `rule_revision.py` | modify 草稿省略字段时：影子运行按默认值补（priority 缺失当 medium），审批生效却保留现值（high）；影子报告的 Top-K 挤出结论与上线结果不一致 | 抽出 `resolve_draft_fields`，影子与生效共用；校验对象改为合并后的完整规则 | `test_rule_revision.py::test_partial_modify_draft_shadow_matches_what_approval_applies` |
+| 28 | `software_loop.py` 随访 | 预测窗口还没结束就能记「确认阴性」（实测提前一年也 200）；阳性事件时间可以落在窗口外；`event_confirmed` 可与状态矛盾。与申报书 8.2「阴性需完成规定窗口的复查」直接冲突，会污染评估标签 | 见决策 D10；前端窗口未结束时禁用「确认阴性」 | `test_negative_follow_up_requires_window_to_have_ended`、`test_positive_follow_up_event_time_must_fall_in_window` 等 |
+| 29 | `rover/run.py` `CameraCapture` | OpenCV（V4L2）缓冲若干帧，按间隔拍照时 `read()` 拿到旧帧，照片与记录的位置/时间错位 | 设 `CAP_PROP_BUFFERSIZE=1`，拍照前丢弃缓冲帧 | `test_camera_drains_buffered_frames_before_each_shot` |
+| 30 | `simulator/run.py` | 建议报告按本页条数（上限 500）显示总数，1234 点巡检实际 2042 条 | 以服务端 `total` 为准 | 端到端实跑 |
+
+### 第二轮遗留项状态
+
+| # | 状态 | 说明 |
+|---|---|---|
+| 15 | 已修复 | Agent 兜底保留工具结果，以 `tool_choice="none"` 收束；原测试断言的是旧行为，已改写为 `test_tool_round_exhaustion_fallback_keeps_tool_results` |
+| 16 | 已修复 | 前端 `requestAllPages` 分页拉全采样点与建议（建议 500 条上限在 ~170 点巡检就会截断） |
+| 17 | 已修复 | 见第 25 项 |
+| 18 | 已修复 | `latest_prompt` 按版本号数值取最新，`test_latest_prompt_sorts_versions_numerically` |
+| 19 | 未修（方案级） | 趋势恒为 unknown 的根因是缺少跨巡检的观察区域身份，见方案评审 P0-1 |
+| 6、7、9、10 | 未修 | 其中第 6 项（客户端包 ID）在方案评审里升级为 P0-3 |
+
+### 验证
+
+- 后端 pytest：152 passed（Linux，Python 3.13 venv）；新增 23 条用例在旧代码上 21 条失败（其余 2 条是边界正向用例）。
+- rover 烟测 10 OK；前端 `vue-tsc --noEmit` 与 `vite build` 通过。
+- 端到端：空库 `alembic upgrade head` → `sync_rules` 18 条 → 模拟器 `patchy_disease`（304 点）与 `dry`（12 垄 × 50 m，1234 点）闭环通过。
