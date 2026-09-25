@@ -67,14 +67,28 @@ def _analysis_rows(db: Session, *conditions) -> list[tuple[Analysis, CapturePoin
     return [tuple(row) for row in db.execute(stmt).all()]  # type: ignore[misc]
 
 
+@dataclass(slots=True)
+class RegionInputs:
+    """一趟巡检的区域级输入。
+
+    series 只含本次巡检有分析结果的区域；history 含回看窗口内出现过的所有区域
+    （某区域这趟没照片时，它作为邻居的「上一趟」分数仍然要算，训练与上线才一致）。
+    """
+
+    point_key: dict[int, str]
+    series: dict[str, RegionSeries]
+    grid: FieldGrid
+    history: dict[str, list[tuple[int, dict[str, Any]]]] = field(default_factory=dict)
+
+
 def build_region_series(
     db: Session,
     patrol: Patrol,
     *,
     cell_m: float,
     history_days: int,
-) -> tuple[dict[int, str], dict[str, RegionSeries], FieldGrid]:
-    """返回 (采样点 id → 区域键, 区域键 → 时间序列, 网格)。只包含本次巡检有分析结果的区域。"""
+) -> RegionInputs:
+    """本次巡检各区域的聚合观测 + 回看窗口内历史巡检的区域观测（只取更早的巡检）。"""
     grid = FieldGrid.from_boundary(patrol.field_id, patrol.field.boundary, cell_m)
 
     current_rows = _analysis_rows(db, Analysis.patrol_id == patrol.id)
@@ -85,7 +99,7 @@ def build_region_series(
         point_key[row[1].id] = key
         current_groups[key].append(row)
     if not current_rows:
-        return point_key, {}, grid
+        return RegionInputs(point_key, {}, grid)
 
     first_capture = min(to_utc(row[1].captured_at) for row in current_rows)
     since: datetime = first_capture - timedelta(days=history_days)
@@ -99,16 +113,16 @@ def build_region_series(
 
     history_groups: dict[str, dict[int, list]] = defaultdict(lambda: defaultdict(list))
     for row in history_rows:
-        key = grid.key(row[1].lng, row[1].lat)
-        if key in current_groups:
-            history_groups[key][row[1].patrol_id].append(row)
+        history_groups[grid.key(row[1].lng, row[1].lat)][row[1].patrol_id].append(row)
+    history = {
+        key: sorted(((pid, _aggregate(rows)) for pid, rows in by_patrol.items()),
+                    key=lambda item: (item[1]["captured_at"], item[0]))
+        for key, by_patrol in history_groups.items()
+    }
 
     series: dict[str, RegionSeries] = {}
     for key, rows in current_groups.items():
-        past = sorted(
-            ((pid, _aggregate(r)) for pid, r in history_groups.get(key, {}).items()),
-            key=lambda item: item[1]["captured_at"],
-        )
+        past = history.get(key, [])
         series[key] = RegionSeries(
             key=key,
             current=_aggregate(rows),
@@ -116,7 +130,7 @@ def build_region_series(
             history_patrol_ids=[pid for pid, _ in past],
             points_in_region=len(rows),
         )
-    return point_key, series, grid
+    return RegionInputs(point_key, series, grid, history)
 
 
 def region_evidence(series: RegionSeries, grid: FieldGrid) -> dict[str, Any]:

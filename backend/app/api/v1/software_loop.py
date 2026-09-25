@@ -17,6 +17,7 @@ from app.services.dataset_governance import (
 from app.services.evaluation_metrics import LabeledPrediction, WindowPrediction, evaluate_predictions, event_lead_times
 from app.services.evidence_feedback import InvalidTransitionError, check_completeness, transition_status
 from app.services.risk_inputs import build_region_series, region_evidence
+from app.services.risk_model import RegionRisk, is_lr_version, load_model, predict_regions
 from app.services.risk_prediction import predict_region_risk
 from app.schemas.software_loop import (
     DatasetFreezeIn, DatasetVersionCreate, DatasetVersionOut, FollowUpIn, FollowUpOut,
@@ -123,12 +124,46 @@ def list_patrol_predictions(patrol_id: int, db: Session = Depends(get_db)):
     return list(db.scalars(select(RiskPrediction).where(RiskPrediction.patrol_id == patrol_id).order_by(RiskPrediction.forecast_start, RiskPrediction.id)).all())
 
 
+def _model_approval(db: Session, model_version: str) -> dict:
+    """模型版本的审批状态：同版本号的模型评估是否已通过发布闸门（D11/0009：不强制，但必须可追溯）。"""
+    approved = db.scalar(
+        select(ModelEvaluation)
+        .where(ModelEvaluation.model_version == model_version, ModelEvaluation.status == "approved")
+        .order_by(ModelEvaluation.approved_at.desc())
+    )
+    if approved is None:
+        return {"status": "unapproved"}
+    return {"status": "approved", "evaluation_id": approved.id, "approved_by": approved.approved_by,
+            "approved_at": approved.approved_at.isoformat() if approved.approved_at else None}
+
+
+def _heuristic_region_risks(inputs, payload: RiskGenerateIn) -> dict[str, RegionRisk]:
+    """启发式基线（risk-heuristic-*）：区域时间序列 → predict_region_risk。"""
+    results = {}
+    for key, series in inputs.series.items():
+        baseline = predict_region_risk(
+            observations=series.observations, horizon_hours=payload.forecast_hours,
+            as_of=series.current["captured_at"], model_version=payload.model_version,
+        )
+        # 证据不足时保留 unknown：缺失/低质量观测不得静默当作低风险（0005 决策）
+        results[key] = RegionRisk(
+            probability=baseline.probability, level=baseline.level, trend=baseline.trend,
+            confidence=baseline.confidence,
+            evidence={"prediction_evidence": list(baseline.evidence),
+                      "feature_values": dict(baseline.feature_values),
+                      "recheck_window_hours": list(baseline.recheck_window_hours),
+                      "limitations": ["启发式区域基线（区域关联 grid-v0），待病种数据训练与独立评估"]},
+        )
+    return results
+
+
 @router.post("/patrols/{patrol_id}/risk-predictions/generate", response_model=list[RiskPredictionOut])
 def generate_patrol_predictions(patrol_id: int, payload: RiskGenerateIn, db: Session = Depends(get_db)):
     """把逐点分析转为有窗口、有依据的风险记录。
 
     输入是区域级时间序列（本次 + 回看窗口内的历史巡检，见 services/risk_inputs.py）；
-    预测仍按采样点落库（复巡任务需要具体点位），同一区域同一趟巡检的点共享区域级输入。
+    预测仍按采样点落库（复巡任务需要具体点位），同一区域同一趟巡检的点共享区域级结果。
+    model_version 以 risk-lr- 开头时使用训练好的逻辑回归模型文件（计划 0009），否则用启发式基线。
     """
     patrol = db.get(Patrol, patrol_id)
     if patrol is None:
@@ -136,43 +171,45 @@ def generate_patrol_predictions(patrol_id: int, payload: RiskGenerateIn, db: Ses
     rows = list(db.scalars(select(Analysis).where(Analysis.patrol_id == patrol_id).order_by(Analysis.capture_point_id)).all())
     if not rows:
         raise HTTPException(status_code=422, detail="该巡检尚无逐点分析结果")
+    lr_model = None
+    if is_lr_version(payload.model_version):
+        try:
+            lr_model = load_model(payload.model_version)
+            lr_model.check_request(
+                target_event=payload.target_event, forecast_hours=payload.forecast_hours,
+                cell_m=payload.region_cell_m, history_days=payload.history_days,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
-        point_key, series_by_key, grid = build_region_series(
+        inputs = build_region_series(
             db, patrol, cell_m=payload.region_cell_m, history_days=payload.history_days,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if lr_model is not None:
+        region_risks = predict_regions(lr_model, inputs, patrol.id, _model_approval(db, payload.model_version))
+    else:
+        region_risks = _heuristic_region_risks(inputs, payload)
     points = {p.id: p for p in patrol.capture_points}
-    baselines: dict = {}  # 区域键 → 区域级预测（同区域同趟巡检只算一次）
     output: list[RiskPrediction] = []
     for analysis in rows:
         point = points.get(analysis.capture_point_id)
-        key = point_key.get(analysis.capture_point_id)
+        key = inputs.point_key.get(analysis.capture_point_id)
         if point is None or key is None:
             continue
-        series = series_by_key[key]
-        if key not in baselines:
-            baselines[key] = predict_region_risk(
-                observations=series.observations, horizon_hours=payload.forecast_hours,
-                as_of=series.current["captured_at"], model_version=payload.model_version,
-            )
-        baseline = baselines[key]
-        detail = analysis.detail or {}
-        # 证据不足时保留 unknown：缺失/低质量观测不得静默当作低风险（0005 决策）
+        risk = region_risks[key]
         obj = RiskPrediction(
             patrol_id=patrol_id, capture_point_id=point.id,
             observation_key=key, target_event=payload.target_event,
             forecast_hours=payload.forecast_hours, forecast_start=point.captured_at,
             forecast_end=point.captured_at + timedelta(hours=payload.forecast_hours),
-            probability=baseline.probability, level=baseline.level, trend=baseline.trend,
-            confidence=baseline.confidence, model_version=payload.model_version,
+            probability=risk.probability, level=risk.level, trend=risk.trend,
+            confidence=risk.confidence, model_version=payload.model_version,
             evidence={"source": "region-analysis", "analyzer_version": analysis.analyzer_version,
-                      "risk_score": analysis.risk_score, "features": detail,
-                      "region": region_evidence(series, grid),
-                      "prediction_evidence": list(baseline.evidence),
-                      "feature_values": dict(baseline.feature_values),
-                      "recheck_window_hours": list(baseline.recheck_window_hours),
-                      "limitations": ["启发式区域基线（区域关联 grid-v0），待病种数据训练与独立评估"]},
+                      "risk_score": analysis.risk_score, "features": analysis.detail or {},
+                      "region": region_evidence(inputs.series[key], inputs.grid),
+                      **risk.evidence},
         )
         existing = db.scalar(select(RiskPrediction).where(
             RiskPrediction.patrol_id == patrol_id,
@@ -208,7 +245,10 @@ def risk_prediction_metrics(
     model_version: str = Query(min_length=1),
     field_id: int | None = Query(None, gt=0),
     fp_per_unit: float = Query(2.0, ge=0, description="每个地块·日允许的误报条数"),
-    lead_threshold: float = Query(0.5, ge=0, le=1, description="计算提前量时视为「已预警」的概率阈值"),
+    lead_threshold: float | None = Query(
+        None, ge=0, le=1,
+        description="计算提前量时视为「已预警」的概率阈值；缺省取固定误报负担下的阈值（与 recall_at_fp 同一阈值）",
+    ),
     calibrate: bool = Query(False, description="按时间前后拆分做等渗校准，比较校准前后 Brier"),
     db: Session = Depends(get_db),
 ):
@@ -240,7 +280,17 @@ def risk_prediction_metrics(
         if status == "confirmed_positive" and follow.event_at is not None:
             events.append((prediction.observation_key, to_utc(follow.event_at)))
     report = evaluate_predictions(records, fp_per_unit=fp_per_unit, calibrate=calibrate)
-    report["lead_time"] = event_lead_times(sorted(set(events)), windows, lead_threshold)
+    # 申报书 9.2：提前量要在「相同误报负担」下比较——固定概率阈值对不同模型不公平
+    # （分数整体偏高的模型在同一阈值下几乎全田报警，提前量看起来反而更好）
+    threshold = lead_threshold if lead_threshold is not None else report["recall_at_fp"]["threshold"]
+    if threshold is None:
+        report["lead_time"] = {"threshold": None, "events": len(set(events)),
+                               "note": "没有可评估的阳性或误报预算内无可用阈值，无法计算提前量"}
+    else:
+        report["lead_time"] = {
+            **event_lead_times(sorted(set(events)), windows, threshold),
+            "threshold_source": "指定" if lead_threshold is not None else f"每地块·日误报 ≤ {fp_per_unit:g}",
+        }
     report["scope"] = {
         "target_event": target_event, "model_version": model_version, "field_id": field_id,
         "predictions": len(records), "unit": "地块·日（田间时区）",

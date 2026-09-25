@@ -82,6 +82,7 @@ def load_input(db: Session, truth: dict[str, Any], cell_m: float = DEFAULT_CELL_
         weather=truth["weather"],
         horizon_days=math.ceil(truth["horizon_hours"] / 24),
         platform_prob=platform_prob,
+        platform_model=truth["model_version"],
         event_severity=truth["event_severity"],
         base_severity=truth.get("base_detect_severity", 0.3),
     )

@@ -33,7 +33,7 @@ from run import WHEAT_STAGES
 
 TZ_CN = timezone(timedelta(hours=8))
 SECONDS_PER_STEP = 3
-MODEL_VERSION = "risk-heuristic-v2"
+DEFAULT_MODEL_VERSION = "risk-heuristic-v2"
 # 基础巡检照片稳定拍到病斑所需的严重度；低于它只按比例偶尔拍到
 BASE_DETECT_SEVERITY = 0.3
 TRUTH_SCHEMA = "agriscout.season-truth.v1"
@@ -55,6 +55,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--horizon-hours", type=int, default=72, help="预测窗口 H")
     p.add_argument("--target-event", default="条锈病样首次显症（模拟）")
+    p.add_argument("--model-version", default=DEFAULT_MODEL_VERSION,
+                   help="生成风险预测用的模型版本；risk-lr-* 需先在后端训练导出模型文件")
     p.add_argument("--event-severity", type=float, default=0.1,
                    help="随访判定「显症」的区域严重度阈值（近距离复查可见）")
     p.add_argument("--followup-ref", type=float, default=0.25, help="固定参照区域比例（每趟都随访）")
@@ -232,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             preds = client.generate_risk(patrol_id, {
                 "target_event": args.target_event, "forecast_hours": args.horizon_hours,
-                "model_version": MODEL_VERSION,
+                "model_version": args.model_version,
             })
             point_seq = {p["id"]: p["seq"] for p in client.list_capture_points(patrol_id)}
             visible = sum(1 for (x, y) in xy.values() if epi.severity_at(x, y, day) >= args.event_severity)
@@ -245,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
         counts = run_follow_ups(client, args, epi, xy, patrols, dates)
         print(f"[随访] {counts}")
         metrics = client.risk_metrics({
-            "target_event": args.target_event, "model_version": MODEL_VERSION,
+            "target_event": args.target_event, "model_version": args.model_version,
             "field_id": field["id"], "calibrate": "true",
         })
     except ApiError as exc:
@@ -255,7 +257,9 @@ def main(argv: list[str] | None = None) -> int:
         client.close()
 
     print_metrics(metrics)
-    out = Path(args.truth_out) if args.truth_out else Path(__file__).resolve().parent / "out" / f"season-truth-field{field['id']}.json"
+    suffix = "" if args.model_version == DEFAULT_MODEL_VERSION else f"-{args.model_version}"
+    out = (Path(args.truth_out) if args.truth_out
+           else Path(__file__).resolve().parent / "out" / f"season-truth-field{field['id']}{suffix}.json")
     write_truth(out, args, field, dates, weather, patrols, epi, xy, layout)
     print(f"[真值] {out}\n  离线重放：cd backend && .venv/bin/python -m app.tools.replay_eval --truth {out}")
     return 0
@@ -265,13 +269,16 @@ def print_metrics(m: dict) -> None:
     cal = m.get("calibration", {})
     fp = m["recall_at_fp"]
     lead = m["lead_time"]
-    print("\n═══ 平台指标（来自随访，启发式基线 v2）═══")
+    print(f"\n═══ 平台指标（来自随访，{m['scope']['model_version']}）═══")
     print(f"  可评估 {m['evaluable']}（阳性 {m['positives']}，患病率 {m['prevalence']}）；状态 {m['status_counts']}")
     print(f"  PR-AUC {m['pr_auc']} | Brier {m['brier']} | 校准后 Brier（时间后半段）"
           f"{cal.get('brier_raw')} → {cal.get('brier_calibrated')}")
     print(f"  每地块·日误报 ≤ {fp['fp_per_unit_budget']} 时召回率 {fp['recall']}（阈值 {fp['threshold']}）")
-    print(f"  提前量：{lead['events']} 个事件，已预警 {lead['warned']}，漏报率 {lead['missed_rate']}，"
-          f"中位提前 {lead['median_lead_hours']} 小时")
+    if lead.get("threshold") is None:
+        print(f"  提前量：{lead.get('note')}")
+    else:
+        print(f"  提前量（阈值 {lead['threshold']}，{lead.get('threshold_source')}）：{lead['events']} 个事件，"
+              f"已预警 {lead['warned']}，漏报率 {lead['missed_rate']}，中位提前 {lead['median_lead_hours']} 小时")
 
 
 def write_truth(out: Path, args, field: dict, dates, weather, patrols, epi: Epidemic, xy, layout: Layout) -> None:
@@ -284,7 +291,7 @@ def write_truth(out: Path, args, field: dict, dates, weather, patrols, epi: Epid
     doc = {
         "schema": TRUTH_SCHEMA,
         "field_id": field["id"], "field_name": field["name"], "seed": args.seed,
-        "target_event": args.target_event, "model_version": MODEL_VERSION,
+        "target_event": args.target_event, "model_version": args.model_version,
         "horizon_hours": args.horizon_hours, "event_severity": args.event_severity,
         "day0": dates[0].isoformat(),
         "weather": [{"day": w.day, "date": dates[w.day].isoformat(), "temp_c": w.temp_c,

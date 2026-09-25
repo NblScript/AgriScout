@@ -262,3 +262,25 @@ def test_metrics_endpoint_scores_follow_ups_with_status_semantics(client):
     other = client.get(f"{BASE}/risk-predictions/metrics",
                        params={"target_event": "首次显症", "model_version": "risk-heuristic-v1"}).json()
     assert other["evaluable"] == 0 and other["scope"]["predictions"] == 0
+
+
+def test_lead_time_defaults_to_fixed_false_alarm_threshold(client):
+    """提前量缺省在「相同误报负担」下计算：阈值取 recall_at_fp 的阈值，而不是固定 0.5。"""
+    field_id = _setup(client)
+    patrol_id = client.post(f"{BASE}/ingest/patrol", json=_package(field_id)).json()["patrol_id"]
+    preds = client.post(f"{BASE}/patrols/{patrol_id}/risk-predictions/generate",
+                        json={"target_event": "首次显症", "forecast_hours": 48}).json()
+    low, high = sorted(preds, key=lambda p: p["probability"])
+    client.post(f"{BASE}/risk-predictions/{high['id']}/follow-up", json={
+        "status": "confirmed_positive", "reviewed_by": "农技员", "evidence": EVIDENCE, "note": "显症",
+        "event_at": "2026-09-21T08:00:00+00:00",
+    })
+    client.post(f"{BASE}/risk-predictions/{low['id']}/follow-up", json={
+        "status": "confirmed_negative", "reviewed_by": "农技员", "evidence": EVIDENCE, "note": "未发病",
+    })
+    report = client.get(f"{BASE}/risk-predictions/metrics", params={
+        "target_event": "首次显症", "model_version": "risk-heuristic-v2", "fp_per_unit": 0,
+    }).json()
+    lead = report["lead_time"]
+    assert lead["threshold"] == report["recall_at_fp"]["threshold"] == high["probability"]
+    assert "误报" in lead["threshold_source"] and lead["warned"] == 1

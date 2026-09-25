@@ -2,7 +2,7 @@
 
 - **H1 特征消融**：同一目标（区域在未来 H 内首次显症），用逻辑回归分别训练
   「仅环境 / 仅图像 / 图像+历史 / 全部（含空间邻域）」，按空间条带分组交叉验证，报告 PR-AUC（区域自助法置信区间）、
-  Brier、固定误报负担下的召回率；平台启发式 v2 的输出作为额外参照。
+  Brier、固定误报负担下的召回率；平台线上预测（启发式或已部署的 risk-lr）作为额外参照。
 - **H2 复巡策略**：每趟巡检后有相同的定点复查预算（区域数），比较固定路线 / 随机 / 只按风险 / 联合策略
   （平台 ``rank_candidates`` 的 revisit 打分）。定点近距离复查能在更低严重度确认病害；同一区域只计一次。
 - **H3 标注选样**：相同初始样本与候选池，比较随机 / 仅不确定性 / 联合策略（平台 label 打分 + 重复惩罚）的学习曲线。
@@ -21,16 +21,19 @@ from typing import Any
 
 from app.services.active_learning import ActiveLearningCandidate, SelectionConstraints, rank_candidates
 from app.services.evaluation_metrics import average_precision, brier_score, recall_at_fp_budget
+from app.services.logistic import LogisticModel, fit_logistic
+from app.services.risk_features import DEFAULT_LOOKBACK_DAYS, IMAGE_FEATURES, image_features, neighbor_map
 
 FEATURE_SETS: dict[str, tuple[str, ...]] = {
     "env": ("env_fav", "env_rain", "env_humidity"),
     "image": ("img_now",),
     "image_history": ("img_now", "img_hist_max", "img_delta"),
-    "full": ("img_now", "img_hist_max", "img_delta", "nbr_now", "nbr_delta",
-             "env_fav", "env_rain", "env_humidity"),
+    "no_env": IMAGE_FEATURES,
+    "full": (*IMAGE_FEATURES, "env_fav", "env_rain", "env_humidity"),
 }
 FEATURE_SET_LABELS = {
-    "env": "仅环境", "image": "仅图像", "image_history": "图像+历史", "full": "全部（含空间邻域）",
+    "env": "仅环境", "image": "仅图像", "image_history": "图像+历史",
+    "no_env": "图像+历史+邻域（无环境，risk-lr-v1）", "full": "全部（含空间邻域与环境）",
 }
 
 
@@ -51,6 +54,7 @@ class ReplayInput:
     weather: list[dict[str, float]]                         # 逐日气象站记录
     horizon_days: int
     platform_prob: dict[tuple[str, int], float] = field(default_factory=dict)
+    platform_model: str = "risk-heuristic-v2"                # 平台线上预测所用的模型版本
     event_severity: float = 0.1                             # 首次显症（随访确认）的严重度
     close_severity: float = 0.05                            # 定点近距离复查能确认的严重度
     base_severity: float = 0.3                              # 基础巡检照片稳定可见的严重度
@@ -74,18 +78,6 @@ class Sample:
     platform_p: float | None = None
 
 
-def _neighbors(inp: ReplayInput) -> dict[str, list[str]]:
-    by_cell = {cell: key for key, cell in inp.regions.items()}
-    result = {}
-    for key, (ix, iy) in inp.regions.items():
-        result[key] = [
-            by_cell[(ix + dx, iy + dy)]
-            for dx in (-1, 0, 1) for dy in (-1, 0, 1)
-            if (dx, dy) != (0, 0) and (ix + dx, iy + dy) in by_cell
-        ]
-    return result
-
-
 def _env_features(weather: Sequence[dict[str, float]], day: int) -> dict[str, float]:
     """只用巡检日之前 5 天的气象站记录（当天记录要到日末才完整，不能用）。"""
     past = list(weather[max(0, day - 5): day])
@@ -106,161 +98,29 @@ def spatial_folds(regions: dict[str, tuple[int, int]], n_folds: int) -> dict[str
     return {key: fold_of_row[iy] for key, (_, iy) in regions.items()}
 
 
-def build_samples(inp: ReplayInput, n_folds: int = 4) -> list[Sample]:
+def build_samples(
+    inp: ReplayInput, n_folds: int = 4, lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+) -> list[Sample]:
     """所有 (区域, 巡检日) 的观测特征；只有巡检日尚未显症的才带标签（窗口 (t, t+H] 内首次显症为阳性）。
 
-    特征只来自平台观测与气象站记录；真值只决定标签，策略打分不会读到。
+    图像/时空特征调用 risk_features.image_features（与线上 risk-lr-* 同一实现，回看窗口一致）；
+    环境特征只在离线重放里用（线上暂无连续气象记录）。真值只决定标签，特征与策略打分都读不到。
     """
-    neighbors = _neighbors(inp)
+    neighbors = neighbor_map(inp.regions)
     folds = spatial_folds(inp.regions, n_folds)
     samples: list[Sample] = []
     for k, day in enumerate(inp.patrol_days):
-        prev_day = inp.patrol_days[k - 1] if k else None
-        earlier = inp.patrol_days[:k]
+        earlier = [d for d in inp.patrol_days[:k] if d >= day - lookback_days]
         env = _env_features(inp.weather, day)
         for region in sorted(inp.regions):
             label = None if inp.severity(region, day) >= inp.event_severity else int(any(
                 inp.severity(region, d) >= inp.event_severity
                 for d in range(day + 1, day + inp.horizon_days + 1)
             ))
-            now = inp.image_score.get((region, day), 0.0)
-            prev = inp.image_score.get((region, prev_day), now) if prev_day is not None else now
-            nbr_now = max((inp.image_score.get((n, day), 0.0) for n in neighbors[region]), default=0.0)
-            nbr_prev = (
-                max((inp.image_score.get((n, prev_day), 0.0) for n in neighbors[region]), default=0.0)
-                if prev_day is not None else nbr_now
-            )
-            features = {
-                "img_now": now,
-                "img_hist_max": max((inp.image_score.get((region, d), 0.0) for d in earlier), default=0.0),
-                "img_delta": now - prev,
-                "nbr_now": nbr_now,
-                "nbr_delta": nbr_now - nbr_prev,
-                **env,
-            }
+            features = {**image_features(inp.image_score, earlier, day, region, neighbors[region]), **env}
             samples.append(Sample(region, day, folds[region], features, label,
                                   inp.platform_prob.get((region, day))))
     return samples
-
-
-# ---------------------------------------------------------------- 逻辑回归（IRLS，纯 Python）
-
-
-def _sigmoid(z: float) -> float:
-    if z >= 0:
-        return 1.0 / (1.0 + math.exp(-z))
-    e = math.exp(z)
-    return e / (1.0 + e)
-
-
-def _solve(a: list[list[float]], b: list[float]) -> list[float]:
-    """高斯消元（部分主元）。矩阵小（≤10 维），纯 Python 足够。"""
-    n = len(b)
-    m = [row[:] + [b[i]] for i, row in enumerate(a)]
-    for col in range(n):
-        pivot = max(range(col, n), key=lambda r: abs(m[r][col]))
-        m[col], m[pivot] = m[pivot], m[col]
-        if abs(m[col][col]) < 1e-12:
-            continue
-        for r in range(col + 1, n):
-            factor = m[r][col] / m[col][col]
-            if factor:
-                for c in range(col, n + 1):
-                    m[r][c] -= factor * m[col][c]
-    x = [0.0] * n
-    for r in range(n - 1, -1, -1):
-        if abs(m[r][r]) < 1e-12:
-            continue
-        x[r] = (m[r][n] - sum(m[r][c] * x[c] for c in range(r + 1, n))) / m[r][r]
-    return x
-
-
-@dataclass(frozen=True, slots=True)
-class LogisticModel:
-    names: tuple[str, ...]
-    mean: tuple[float, ...]
-    std: tuple[float, ...]
-    weights: tuple[float, ...]  # weights[0] 为截距
-
-    def predict(self, features: dict[str, float]) -> float:
-        z = self.weights[0] + sum(
-            w * (features[n] - mu) / sd
-            for w, n, mu, sd in zip(self.weights[1:], self.names, self.mean, self.std)
-        )
-        return _sigmoid(z)
-
-
-def fit_logistic(
-    rows: Sequence[dict[str, float]],
-    labels: Sequence[int],
-    names: Sequence[str],
-    *,
-    l2: float = 1.0,
-    max_iter: int = 30,
-) -> LogisticModel:
-    """L2 正则逻辑回归（牛顿法 + 回溯线搜索），特征先按训练集标准化。
-
-    纯牛顿步在特征共线（当前值 / 历史最大 / 变化量）时 Hessian 接近奇异，会冲过头并发散
-    （曾在模拟季数据上把截距推到 -5.8 亿）。每一步都做 Armijo 回溯，保证正则化目标单调下降；
-    L2 使目标严格凸，因此收敛到唯一最优。
-    训练集全阴或全阳时退化为常数模型（拉普拉斯平滑的患病率），不硬拟合。
-    """
-    names = tuple(names)
-    n = len(rows)
-    positives = sum(labels)
-    prior = (positives + 0.5) / (n + 1.0) if n else 0.5
-    mean = tuple(sum(r[f] for r in rows) / n if n else 0.0 for f in names)
-    std = tuple(
-        (math.sqrt(sum((r[f] - mu) ** 2 for r in rows) / n) or 1.0) if n else 1.0
-        for f, mu in zip(names, mean)
-    )
-    bias = math.log(prior / (1 - prior))
-    if n == 0 or positives in (0, n):
-        return LogisticModel(names, mean, std, (bias,) + (0.0,) * len(names))
-    xs = [[1.0] + [(r[f] - mu) / sd for f, mu, sd in zip(names, mean, std)] for r in rows]
-    d = len(names) + 1
-
-    def objective(w: list[float]) -> float:
-        """负对数似然 + L2（截距不罚）；softplus 用稳定写法。"""
-        total = 0.5 * l2 * sum(wj * wj for wj in w[1:])
-        for x, y in zip(xs, labels):
-            z = sum(wj * xj for wj, xj in zip(w, x))
-            total += (z + math.log1p(math.exp(-z)) if z > 0 else math.log1p(math.exp(z))) - y * z
-        return total
-
-    w = [bias] + [0.0] * (d - 1)
-    current = objective(w)
-    for _ in range(max_iter):
-        grad = [l2 * w[j] if j else 0.0 for j in range(d)]
-        hess = [[(l2 if i == j and i else (1e-6 if i == j else 0.0)) for j in range(d)] for i in range(d)]
-        for x, y in zip(xs, labels):
-            p = _sigmoid(sum(wj * xj for wj, xj in zip(w, x)))
-            r = p - y
-            s = p * (1 - p)
-            for i in range(d):
-                grad[i] += r * x[i]
-                si = s * x[i]
-                row = hess[i]
-                for j in range(i, d):
-                    row[j] += si * x[j]
-        for i in range(d):
-            for j in range(i):
-                hess[i][j] = hess[j][i]
-        step = _solve(hess, grad)
-        slope = sum(g * st for g, st in zip(grad, step))  # 下降方向时为正
-        t = 1.0
-        while True:
-            candidate = [wi - t * si for wi, si in zip(w, step)]
-            value = objective(candidate)
-            if value <= current - 1e-4 * t * slope or t < 1e-10:
-                break
-            t *= 0.5
-        if value > current:  # 连回溯都无法下降：已在数值精度内收敛
-            break
-        w, current = candidate, value
-        if max(abs(t * si) for si in step) < 1e-7:
-            break
-    return LogisticModel(names, mean, std, tuple(w))
 
 
 # ---------------------------------------------------------------- H1 特征消融
@@ -322,6 +182,7 @@ def out_of_fold(
 
 def h1_ablation(
     all_samples: Sequence[Sample], *, seed: int = 0, bootstrap: int = 200, fp_per_unit: float = 1.0,
+    platform_model: str = "risk-heuristic-v2",
 ) -> tuple[dict[str, Any], dict[tuple[str, int], float]]:
     """返回 (报告, 全特征模型对所有观测的交叉验证预测)；后者供 H2 的风险排序使用。"""
     samples = labeled(all_samples)
@@ -339,8 +200,9 @@ def h1_ablation(
     if with_platform:
         subset = [s for s, _ in with_platform]
         preds = [p for _, p in with_platform]
-        report["platform_v2"] = {
-            "label": "平台启发式 v2（未训练）", "features": ["platform_probability"], "n": len(subset),
+        report["platform"] = {
+            "label": f"平台线上预测 {platform_model}（不重新训练）", "features": ["platform_probability"],
+            "n": len(subset),
             **_score_block(preds, [s.label for s in subset], subset, random.Random(seed), bootstrap, fp_per_unit),
         }
     return report, full_oof
@@ -473,7 +335,7 @@ def h2_revisit_replay(
         "joint": ("联合策略（平台 revisit 打分）", joint),
     }
     if inp.platform_prob:
-        strategies["platform_risk"] = ("只按风险（平台启发式 v2）", by_score(inp.platform_prob))
+        strategies["platform_risk"] = (f"只按风险（平台线上预测 {inp.platform_model}）", by_score(inp.platform_prob))
 
     report: dict[str, Any] = {
         "budget_per_patrol": budget, "regions": len(regions), "patrols": len(inp.patrol_days),
@@ -608,7 +470,7 @@ def run_replay(
     all_samples = build_samples(inp, n_folds)
     samples = labeled(all_samples)
     positives = sum(s.label for s in samples)
-    h1, _ = h1_ablation(all_samples, seed=seed)
+    h1, _ = h1_ablation(all_samples, seed=seed, platform_model=inp.platform_model)
     nowcast = out_of_fold(
         all_samples, FEATURE_SETS["full"],
         labels=[int(inp.severity(s.region, s.day) >= inp.close_severity) for s in all_samples],

@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     # 识别引擎：placeholder 颜色统计 | yolo 麦穗检测（需 requirements-ml.txt + 模型文件）
     analyzer_backend: str = "placeholder"
     yolo_model_path: str = "./models/wheat-yolo-v1.pt"
+    # 可训练风险模型（risk-lr-*）的模型文件目录：<目录>/<版本号>.json（训练产物，不入库）
+    risk_model_dir: str = "./models"
 
     # LLM 建议线（OpenAI 兼容 /chat/completions，智谱/DeepSeek/通义等均可；留空=功能关闭）
     llm_api_base: str = ""
