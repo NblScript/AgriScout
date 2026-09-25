@@ -266,3 +266,40 @@ def test_done_is_published_only_after_advices_exist(client, monkeypatch):
     resp = client.post(f"{BASE}/ingest/patrol", json=_package(field_id, planting_id, {0: GREEN, 1: BROWN}))
     assert seen_status == ["running"]
     assert client.get(f"{BASE}/patrols/{resp.json()['patrol_id']}").json()["analysis_status"] == "done"
+
+
+def test_analysis_does_not_reload_whole_patrol_per_point(client, media_dir):
+    """逐点 commit 后不能再读过期的 patrol：刷新会带着 selectinload 把整趟采样点重载一遍，
+    2600 点的大包分析退化为 O(n²)。整趟采样点的批量加载次数必须与点数无关。"""
+    from sqlalchemy import event
+
+    from app.core.db import get_session_factory
+    from app.main import app
+
+    engine = app.dependency_overrides[get_session_factory]().kw["bind"]
+    field_id, _ = _setup(client)
+
+    def bulk_point_loads(n_points: int, hour: int) -> int:
+        pkg = {
+            "patrol": {"field_id": field_id, "device": "sim-a01", "started_at": f"2026-08-26T{hour:02d}:00:00+00:00"},
+            "capture_points": [
+                {"seq": seq, "lng": 10.001 + seq * 0.0001, "lat": 10.001,
+                 "captured_at": f"2026-08-26T{hour:02d}:{seq:02d}:00+00:00", "photo": GREEN}
+                for seq in range(n_points)
+            ],
+        }
+        patrol_id = client.post(f"{BASE}/ingest/patrol", json=pkg).json()["patrol_id"]
+        statements: list[str] = []
+
+        def record(conn, cursor, statement, *args):
+            statements.append(statement)
+
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            assert client.post(f"{BASE}/patrols/{patrol_id}/analyze").status_code == 202
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+        assert client.get(f"{BASE}/patrols/{patrol_id}").json()["analysis_status"] == "done"
+        return sum("= capture_points.patrol_id" in s or "capture_points.patrol_id IN" in s for s in statements)
+
+    assert bulk_point_loads(3, 8) == bulk_point_loads(12, 10)

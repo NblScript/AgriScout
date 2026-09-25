@@ -95,7 +95,8 @@ def run_patrol_analysis(
             db.add(
                 Analysis(
                     capture_point_id=point.id,
-                    patrol_id=patrol.id,
+                    # 用参数而非 patrol.id：逐点 commit 后 patrol 已过期，读它会把整趟采样点重载一遍（大包 O(n²)）
+                    patrol_id=patrol_id,
                     analyzer_version=analyzer.version,
                     growth_stage=result.growth_stage,
                     vigor_level=result.vigor_level,
