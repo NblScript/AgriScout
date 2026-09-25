@@ -428,6 +428,7 @@
 | model | String(80) | NOT NULL | — |
 | prompt_version | String(20) | NOT NULL | — |
 | applied_version | Integer | — | — |
+| yaml_reconciled_at | DateTime | — | — |
 | created_at | DateTime | NOT NULL、default=now() | — |
 | updated_at | DateTime | NOT NULL、default=now() | — |
 

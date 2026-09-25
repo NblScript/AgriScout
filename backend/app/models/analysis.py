@@ -2,10 +2,11 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, func
+from sqlalchemy import Float, ForeignKey, Integer, JSON, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
+from app.models.timestamps import UTCDateTime
 
 
 class Analysis(Base):
@@ -29,7 +30,7 @@ class Analysis(Base):
     risk_score: Mapped[float | None] = mapped_column(Float)  # 0-1
     detail: Mapped[dict[str, Any] | None] = mapped_column(JSON)  # 原始指标：绿色占比等
     analyzed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False,
+        UTCDateTime(), server_default=func.now(), nullable=False,
     )
 
     capture_point: Mapped["CapturePoint"] = relationship(back_populates="analysis")  # type: ignore[name-defined]  # noqa: F821

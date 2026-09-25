@@ -1,5 +1,6 @@
 """照片存储抽象（基线 D6）：本地目录实现，生产换对象存储只改此处。"""
 import hashlib
+import uuid
 from pathlib import Path
 from typing import Protocol
 
@@ -13,6 +14,14 @@ class Storage(Protocol):
     """照片存储接口：写入二进制返回 URL；按 URL 读回字节（分析管线用）。"""
 
     def save(self, data: bytes, suffix: str = ".jpg") -> str: ...
+
+    def save_tracked(self, data: bytes, suffix: str = ".jpg") -> tuple[str, bool]:
+        """同 save，额外返回本次是否新建了文件。
+
+        内容寻址天然去重：同图已存在时不会重写，返回 False——调用方回滚清理时
+        只能删除自己新建的文件，否则会误删其他巡检仍在引用的共享照片。
+        """
+        ...
 
     def open(self, url: str) -> bytes | None:
         """读回照片字节；非本地引用或文件缺失返回 None（调用方自行跳过）。"""
@@ -30,19 +39,25 @@ class LocalStorage:
         self.root = Path(root)
 
     def save(self, data: bytes, suffix: str = ".jpg") -> str:
+        return self.save_tracked(data, suffix)[0]
+
+    def save_tracked(self, data: bytes, suffix: str = ".jpg") -> tuple[str, bool]:
         suffix = suffix.lower()
         if suffix not in _SUFFIXES:
             suffix = ".jpg"
         digest = hashlib.sha256(data).hexdigest()
         name = f"{digest}{suffix}"
         path = self.root / name
+        created = False
         if not path.exists():
             self.root.mkdir(parents=True, exist_ok=True)
-            # 先写临时文件再原子改名，避免并发半截文件
-            tmp = path.with_suffix(".tmp")
+            # 先写临时文件再原子改名，避免并发半截文件；临时名带随机后缀，
+            # 防止两个请求同时写同一张图时互相覆盖临时文件
+            tmp = path.with_name(f"{name}.{uuid.uuid4().hex}.tmp")
             tmp.write_bytes(data)
             tmp.replace(path)
-        return f"/media/{name}"
+            created = True
+        return f"/media/{name}", created
 
     def open(self, url: str) -> bytes | None:
         if not url or not url.startswith("/media/"):

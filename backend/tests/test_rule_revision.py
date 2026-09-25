@@ -213,3 +213,129 @@ def test_malformed_llm_output_creates_nothing(client, monkeypatch):
     resp = client.post(f"{BASE}/rule-revisions/generate")
     assert resp.status_code == 200
     assert resp.json()["created"] == 0
+
+
+def test_yaml_sync_does_not_silently_revert_approved_revision(client, monkeypatch, tmp_path):
+    """回归：审批生效的规则版本不会被例行 YAML 同步悄悄覆盖回旧内容。"""
+    from app.core.db import get_session_factory
+    from app.main import app
+    from app.tools.sync_rules import sync_rules
+
+    _setup(client)
+    monkeypatch.setattr(agent_rule_draft, "_chat", lambda system, user: FAKE_DRAFTS)
+    _enable_llm(monkeypatch)
+    client.post(f"{BASE}/rule-revisions/generate")
+    rev = client.get(f"{BASE}/rule-revisions?status=draft").json()[0]
+    client.post(f"{BASE}/rule-revisions/{rev['id']}/shadow?sample_size=1")
+    assert client.post(f"{BASE}/rule-revisions/{rev['id']}/approve",
+                       json={"decided_by": "测试员"}).status_code == 200
+
+    # YAML 仍是审批前的旧内容
+    (tmp_path / "test.yaml").write_text(
+        "rules:\n"
+        "  - rule_key: R-TEST-ROUTINE\n"
+        "    tier: routine\n"
+        "    priority: low\n"
+        "    condition: {}\n"
+        "    action: 常规巡检保底建议。\n"
+        "    source: 测试\n",
+        encoding="utf-8",
+    )
+
+    def rule():
+        return next(r for r in client.get(f"{BASE}/rules").json() if r["rule_key"] == "R-TEST-ROUTINE")
+
+    db = app.dependency_overrides[get_session_factory]()()
+    try:
+        stats = sync_rules(db, tmp_path)
+        assert stats["updated"] == 0 and len(stats["conflicts"]) == 1
+        assert rule()["version"] == 2 and rule()["condition"] == {"stage": "拔节期"}
+
+        forced = sync_rules(db, tmp_path, force=True)
+        assert forced["updated"] == 1 and forced["conflicts"] == []
+        assert rule()["version"] == 3 and rule()["condition"] == {}
+    finally:
+        db.close()
+
+
+def test_yaml_writeback_reconciles_then_later_edits_sync_normally(client, monkeypatch, tmp_path):
+    """回归：审批内容回写 YAML 后记为已对齐；此后 YAML 的正常修改不再被当作冲突挡住。"""
+    from app.core.db import get_session_factory
+    from app.main import app
+    from app.tools.sync_rules import sync_rules
+
+    _setup(client)
+    monkeypatch.setattr(agent_rule_draft, "_chat", lambda system, user: FAKE_DRAFTS)
+    _enable_llm(monkeypatch)
+    client.post(f"{BASE}/rule-revisions/generate")
+    rev = client.get(f"{BASE}/rule-revisions?status=draft").json()[0]
+    client.post(f"{BASE}/rule-revisions/{rev['id']}/shadow?sample_size=1")
+    assert client.post(f"{BASE}/rule-revisions/{rev['id']}/approve",
+                       json={"decided_by": "测试员"}).status_code == 200
+
+    def write_yaml(action: str) -> None:
+        (tmp_path / "test.yaml").write_text(
+            "rules:\n"
+            "  - rule_key: R-TEST-ROUTINE\n"
+            "    tier: routine\n"
+            "    priority: low\n"
+            "    condition: {stage: 拔节期}\n"
+            f"    action: {action}\n"
+            "    source: 基于平台反馈统计，待农技复核\n",
+            encoding="utf-8",
+        )
+
+    def rule():
+        return next(r for r in client.get(f"{BASE}/rules").json() if r["rule_key"] == "R-TEST-ROUTINE")
+
+    db = app.dependency_overrides[get_session_factory]()()
+    try:
+        write_yaml("拔节期常规管理（按反馈修订版）。")  # 人工把审批内容回写 YAML
+        stats = sync_rules(db, tmp_path)
+        assert stats["conflicts"] == [] and stats["unchanged"] == 1
+        assert len(stats["reconciled"]) == 1
+
+        write_yaml("拔节期常规管理（农技复核版）。")  # 之后的正常修改
+        stats = sync_rules(db, tmp_path)
+        assert stats["conflicts"] == [] and stats["updated"] == 1
+        assert rule()["version"] == 3 and rule()["action"] == "拔节期常规管理（农技复核版）。"
+    finally:
+        db.close()
+
+
+def test_deactivate_revision_does_not_block_yaml_updates(client, tmp_path):
+    """deactivate 修订案不改内容，不应让该规则后续的 YAML 更新变成冲突；停用状态保持。"""
+    from app.core.db import get_session_factory
+    from app.main import app
+    from app.models import RuleRevision
+    from app.tools.sync_rules import sync_rules
+
+    def write_yaml(action: str) -> None:
+        (tmp_path / "r.yaml").write_text(
+            "rules:\n  - rule_key: R-DEACT\n    tier: status\n    priority: medium\n"
+            "    condition: {vigor_level: {lte: 2}}\n"
+            f"    action: {action}\n    source: 测试\n",
+            encoding="utf-8",
+        )
+
+    db = app.dependency_overrides[get_session_factory]()()
+    try:
+        write_yaml("长势偏弱，排查原因。")
+        sync_rules(db, tmp_path)
+        rev = RuleRevision(
+            rule_key="R-DEACT", action="deactivate", draft={"rule_key": "R-DEACT"},
+            reason="零命中", model="fake", prompt_version="v1",
+            shadow_result={"patrols_checked": []},
+        )
+        db.add(rev)
+        db.commit()
+        assert client.post(f"{BASE}/rule-revisions/{rev.id}/approve",
+                           json={"decided_by": "测试员"}).status_code == 200
+
+        write_yaml("长势偏弱（等级{vigor_level}/5），排查原因。")
+        stats = sync_rules(db, tmp_path)
+        assert stats["conflicts"] == [] and stats["updated"] == 1
+        rule = next(r for r in client.get(f"{BASE}/rules").json() if r["rule_key"] == "R-DEACT")
+        assert rule["active"] is False and rule["version"] == 2
+    finally:
+        db.close()

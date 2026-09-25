@@ -84,8 +84,11 @@ def deactivate_rule(rule_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/sync-yaml")
-def trigger_yaml_sync(db: Session = Depends(get_db)):
-    """从 backend/rules/*.yaml 幂等同步种子规则。"""
+def trigger_yaml_sync(
+    force: bool = Query(False, description="以 YAML 覆盖审批修订案产生的规则版本"),
+    db: Session = Depends(get_db),
+):
+    """从 backend/rules/*.yaml 幂等同步种子规则；与审批结果冲突的规则跳过并列入 conflicts。"""
     if not Path(RULES_DIR).exists():
         raise HTTPException(status_code=404, detail=f"规则目录不存在：{RULES_DIR}")
-    return sync_rules(db)
+    return sync_rules(db, force=force)

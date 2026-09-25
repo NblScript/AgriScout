@@ -159,3 +159,52 @@ def test_calendar_stage_before_sowing_is_none(client, media_dir):
     )
     assert analysis is not None
     assert analysis["growth_stage"] is None  # 早于播种日期 → 无法推算
+
+
+def test_stale_running_can_be_reanalyzed_but_fresh_running_is_locked(client):
+    """回归：进程中断遗留的 running 超时后可重新分析；正在进行的分析仍受 409 保护。"""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import update
+
+    from app.core.db import get_session_factory
+    from app.main import app
+    from app.models import Analysis, Patrol
+    # 与 `from conftest import ...` 同一导入方式：venv 里有第三方包自带顶层 `tests`，
+    # 写成 `tests.test_ingest` 会被它遮蔽
+    from test_ingest import TINY_PNG, _ingest, _package, _setup_field_and_device
+
+    field_id, device = _setup_field_and_device(client)
+    patrol_id = _ingest(client, _package(field_id, device, points=2, photo=TINY_PNG)).json()["patrol_id"]
+    db = app.dependency_overrides[get_session_factory]()()
+    try:
+        db.execute(update(Patrol).where(Patrol.id == patrol_id).values(analysis_status="running"))
+        db.commit()
+        assert client.post(f"{BASE}/patrols/{patrol_id}/analyze").status_code == 409
+
+        old = datetime.now(timezone.utc) - timedelta(hours=1)
+        db.execute(update(Patrol).where(Patrol.id == patrol_id).values(updated_at=old))
+        db.execute(update(Analysis).where(Analysis.patrol_id == patrol_id).values(analyzed_at=old))
+        db.commit()
+    finally:
+        db.close()
+    resp = client.post(f"{BASE}/patrols/{patrol_id}/analyze")
+    assert resp.status_code == 202, resp.text
+    assert client.get(f"{BASE}/patrols/{patrol_id}/analysis-summary").json()["analysis_status"] == "done"
+
+
+def test_calendar_stage_uses_field_local_date():
+    """回归（D9）：库内时间为 UTC；东八区凌晨的采集按田间本地日期计天数，不算成前一天。"""
+    from datetime import date, datetime, timezone
+
+    from app.services.analysis.base import CaptureContext, calendar_growth_stage
+
+    stages = [{"name": "出苗期", "days": 10}, {"name": "分蘖期", "days": 20}]
+    # 2026-09-11 01:00 +08:00 == 2026-09-10 17:00 UTC；播种 09-01 → 第 10 天（分蘖期）
+    ctx = CaptureContext(
+        captured_at=datetime(2026, 9, 10, 17, 0, tzinfo=timezone.utc), lng=0, lat=0,
+        sowing_date=date(2026, 9, 1), crop_stages=stages,
+    )
+    stage = calendar_growth_stage(ctx)
+    assert stage["day_after_sowing"] == 10
+    assert stage["name"] == "分蘖期"

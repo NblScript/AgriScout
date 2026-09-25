@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Protocol
 
+from app.core.timeutil import field_date
+
 # ---------- 上下文与结果 ----------
 
 
@@ -55,7 +57,8 @@ def calendar_growth_stage(context: CaptureContext) -> dict[str, Any] | None:
     """
     if context.sowing_date is None or not context.crop_stages:
         return None
-    days = (context.captured_at.date() - context.sowing_date).days
+    # 播种日期是田间本地日期，采集时间也按田间时区取日期（库内时间为 UTC，D9）
+    days = (field_date(context.captured_at) - context.sowing_date).days
     if days < 0:
         return None
     cursor = 0

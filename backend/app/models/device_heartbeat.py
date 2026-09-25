@@ -2,11 +2,11 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, UniqueConstraint
+from sqlalchemy import Float, ForeignKey, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
-from app.models.timestamps import TimestampMixin
+from app.models.timestamps import TimestampMixin, UTCDateTime
 
 
 class DeviceHeartbeat(TimestampMixin, Base):
@@ -20,7 +20,7 @@ class DeviceHeartbeat(TimestampMixin, Base):
         ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True,
     )
     client_heartbeat_id: Mapped[str | None] = mapped_column(String(120), index=True)
-    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="idle")
     execution_phase: Mapped[str] = mapped_column(String(40), nullable=False, default="idle")
     mission_id: Mapped[int | None] = mapped_column(

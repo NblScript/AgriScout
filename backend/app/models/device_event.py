@@ -2,11 +2,11 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
-from app.models.timestamps import TimestampMixin
+from app.models.timestamps import TimestampMixin, UTCDateTime
 
 
 class DeviceEvent(TimestampMixin, Base):
@@ -26,7 +26,7 @@ class DeviceEvent(TimestampMixin, Base):
     event_type: Mapped[str] = mapped_column(String(60), nullable=False)
     severity: Mapped[str] = mapped_column(String(20), nullable=False, default="info")
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="device")
-    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     is_fault_injected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     fault_type: Mapped[str | None] = mapped_column(String(80))
     fault_active: Mapped[bool | None] = mapped_column(Boolean)

@@ -2,11 +2,11 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, UniqueConstraint
+from sqlalchemy import Float, ForeignKey, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
-from app.models.timestamps import TimestampMixin
+from app.models.timestamps import TimestampMixin, UTCDateTime
 
 
 class RiskPrediction(TimestampMixin, Base):
@@ -24,8 +24,8 @@ class RiskPrediction(TimestampMixin, Base):
     observation_key: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
     target_event: Mapped[str] = mapped_column(String(120), nullable=False)
     forecast_hours: Mapped[int] = mapped_column(Integer, nullable=False)
-    forecast_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    forecast_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    forecast_start: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    forecast_end: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     probability: Mapped[float] = mapped_column(Float, nullable=False)
     level: Mapped[str] = mapped_column(String(20), nullable=False)
     trend: Mapped[str] = mapped_column(String(20), nullable=False, default="stable")

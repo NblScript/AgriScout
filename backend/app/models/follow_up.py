@@ -2,11 +2,11 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, JSON, String, Text
+from sqlalchemy import Boolean, ForeignKey, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
-from app.models.timestamps import TimestampMixin
+from app.models.timestamps import TimestampMixin, UTCDateTime
 
 
 class FollowUp(TimestampMixin, Base):
@@ -18,10 +18,10 @@ class FollowUp(TimestampMixin, Base):
     )
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
     reviewed_by: Mapped[str | None] = mapped_column(String(80))
-    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     event_confirmed: Mapped[bool | None] = mapped_column(Boolean)
-    event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    intervention_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    event_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    intervention_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     note: Mapped[str | None] = mapped_column(Text)
 

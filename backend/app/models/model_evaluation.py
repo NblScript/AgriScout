@@ -2,11 +2,11 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, JSON, String, Text
+from sqlalchemy import ForeignKey, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
-from app.models.timestamps import TimestampMixin
+from app.models.timestamps import TimestampMixin, UTCDateTime
 
 
 class ModelEvaluation(TimestampMixin, Base):
@@ -20,8 +20,8 @@ class ModelEvaluation(TimestampMixin, Base):
     metrics: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="candidate")
     notes: Mapped[str | None] = mapped_column(Text)
-    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     approved_by: Mapped[str | None] = mapped_column(String(80))
-    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
     dataset: Mapped["DatasetVersion | None"] = relationship(back_populates="evaluations")  # type: ignore[name-defined]

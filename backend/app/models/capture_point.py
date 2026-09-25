@@ -1,11 +1,11 @@
 """CapturePoint 采样点：每 0.5m 一个点，系统的一等公民（基线 B1：lng/lat 浮点双列）。"""
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Float, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
-from app.models.timestamps import TimestampMixin
+from app.models.timestamps import TimestampMixin, UTCDateTime
 
 
 class CapturePoint(TimestampMixin, Base):
@@ -20,7 +20,7 @@ class CapturePoint(TimestampMixin, Base):
     distance_m: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     lng: Mapped[float] = mapped_column(Float, nullable=False)
     lat: Mapped[float] = mapped_column(Float, nullable=False)
-    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    captured_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     photo_url: Mapped[str | None] = mapped_column(String(500))  # 本地 /media/... 或外部 URL；照片不进库
 
     patrol: Mapped["Patrol"] = relationship(back_populates="capture_points")  # type: ignore[name-defined]  # noqa: F821

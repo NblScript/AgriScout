@@ -3,8 +3,10 @@
 故障注入只写入可回放的 ``DeviceEvent``，用于故障注入测试和状态机联调，
 不把测试请求当成真实编码器、RTK、天气或急停结果。
 """
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -19,16 +21,9 @@ from app.schemas.device_protocol import (
     DeviceRegisterIn,
     FaultInjectionIn,
 )
+from app.services.device_safety import is_locking_event, release_after_fault_clear
 
 router = APIRouter(tags=["device-protocol"])
-
-_SAFETY_EVENT_TYPES = {
-    "emergency_stop",
-    "watchdog_timeout",
-    "low_voltage",
-    "obstacle",
-    "fault_injected",
-}
 
 
 def _device_or_404(db: Session, device_id: int) -> Device:
@@ -77,10 +72,34 @@ def _existing_event(db: Session, device_id: int | None, client_id: str | None) -
     return db.scalar(stmt)
 
 
-def _apply_event_status(device: Device, event_type: str, severity: str) -> None:
-    """只对明确的安全事件进入维护态，不推断普通业务事件的硬件状态。"""
+def _utc_naive(value: datetime) -> datetime:
+    """统一成 UTC 无时区时间再比较（SQLite 读回的时间不带时区）。"""
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
 
-    if event_type in _SAFETY_EVENT_TYPES and severity in {"error", "critical"}:
+
+def _apply_self_reported_status(device: Device, reported: str) -> None:
+    """设备自报状态（心跳/注册）的更新规则。
+
+    维护态是安全锁存（规则见 services/device_safety.py）：设备自报的 idle/active
+    不能解除它，否则一条默认心跳就会静默解除急停。
+    """
+    if device.status == "maintenance" and reported != "maintenance":
+        return
+    device.status = reported
+
+
+def _is_latest_heartbeat(db: Session, device_id: int, observed_at: datetime) -> bool:
+    """乱序到达的旧心跳只留档，不覆盖设备当前状态。"""
+    latest = db.scalar(
+        select(func.max(DeviceHeartbeat.observed_at)).where(DeviceHeartbeat.device_id == device_id)
+    )
+    return latest is None or _utc_naive(observed_at) >= _utc_naive(latest)
+
+
+def _apply_event_status(device: Device, event_type: str, severity: str) -> None:
+    if is_locking_event(event_type, severity):
         device.status = "maintenance"
 
 
@@ -94,9 +113,11 @@ def register_device(payload: DeviceRegisterIn, db: Session = Depends(get_db)):
         db.add(obj)
     else:
         values = payload.model_dump(exclude_unset=True)
-        for key in ("name", "type", "model", "status", "notes"):
+        for key in ("name", "type", "model", "notes"):
             if key in values:
                 setattr(obj, key, values[key])
+        if "status" in values:
+            _apply_self_reported_status(obj, values["status"])
     try:
         db.commit()
     except IntegrityError as exc:
@@ -118,10 +139,12 @@ def receive_heartbeat(
     if existing is not None:
         return existing
 
+    is_latest = _is_latest_heartbeat(db, device_id, payload.observed_at)
     obj = DeviceHeartbeat(device_id=device_id, **payload.model_dump())
     db.add(obj)
     # 心跳中的状态是设备自报状态；平台不根据缺失的传感器值臆造状态。
-    device.status = payload.status
+    if is_latest:
+        _apply_self_reported_status(device, payload.status)
     try:
         db.commit()
     except IntegrityError as exc:
@@ -256,8 +279,12 @@ def inject_device_fault(
         note=payload.note,
     )
     db.add(event)
-    # 注入只改变平台可观察的测试状态，清除时恢复空闲；不伪造底盘动作。
-    device.status = "maintenance" if payload.active else "idle"
+    # 注入只改变平台可观察的测试状态，不伪造底盘动作。清除时只解除「仅由注入造成」的锁：
+    # 真实急停、其他仍生效的注入故障、人工置入维护都会保持锁存。
+    if payload.active:
+        device.status = "maintenance"
+    else:
+        release_after_fault_clear(db, device)
     try:
         db.commit()
     except IntegrityError as exc:
