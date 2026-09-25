@@ -18,7 +18,7 @@ from app.services.evaluation_metrics import LabeledPrediction, WindowPrediction,
 from app.services.evidence_feedback import InvalidTransitionError, check_completeness, transition_status
 from app.services.risk_inputs import build_region_series, region_evidence
 from app.services.risk_model import RegionRisk, is_lr_version, load_model, predict_regions
-from app.services.risk_prediction import predict_region_risk
+from app.services.risk_prediction import DEFAULT_QUALITY, predict_region_risk
 from app.schemas.software_loop import (
     DatasetFreezeIn, DatasetVersionCreate, DatasetVersionOut, FollowUpIn, FollowUpOut,
     ModelApproveIn, ModelEvaluationCreate, ModelEvaluationOut, RevisitTaskCreate,
@@ -475,6 +475,26 @@ def update_revisit_task(task_id: int, payload: RevisitTaskUpdate, db: Session = 
     return obj
 
 
+def _task_signals(prediction: RiskPrediction) -> dict[str, float]:
+    """预测 → 复巡/标注打分信号（D13）。
+
+    启发式基线的置信度本身就是证据充分度，沿用；risk-lr 的置信度是 |2p−1|（模型有多确定），
+    不能当证据质量：质量改读 evidence_quality，风险按模型自己的 high 阈值归一，
+    使 high 等级正好对应打分里的 risk ≥ 0.5（罕见事件的概率绝对值普遍很小）。
+    """
+    signals = {
+        "quality": prediction.confidence, "uncertainty": 1.0 - prediction.confidence,
+        "risk": prediction.probability, "change": 1.0 if prediction.trend == "rising" else 0.0,
+    }
+    if is_lr_version(prediction.model_version):
+        evidence = prediction.evidence or {}
+        signals["quality"] = (evidence.get("evidence_quality") or {}).get("score", DEFAULT_QUALITY)
+        high = ((evidence.get("model") or {}).get("level_thresholds") or {}).get("high")
+        if high:
+            signals["risk"] = min(1.0, prediction.probability / (2 * high))
+    return signals
+
+
 @router.post("/revisit-tasks/generate", response_model=list[RevisitTaskOut])
 def generate_revisit_tasks(payload: TaskGenerateIn, db: Session = Depends(get_db)):
     if db.get(Field, payload.field_id) is None:
@@ -500,10 +520,7 @@ def generate_revisit_tasks(payload: TaskGenerateIn, db: Session = Depends(get_db
         candidate_id = f"risk-{prediction.id}"
         prediction_by_id[candidate_id] = prediction
         candidates.append(ActiveLearningCandidate(
-            candidate_id=candidate_id, quality=prediction.confidence,
-            uncertainty=1.0 - prediction.confidence, risk=prediction.probability,
-            change=1.0 if prediction.trend == "rising" else 0.0,
-            representativeness=0.5, cost=1.0,
+            candidate_id=candidate_id, **_task_signals(prediction), representativeness=0.5, cost=1.0,
         ))
     ranked = select_active_learning_tasks(candidates, SelectionConstraints(max_tasks=payload.limit, budget=float(payload.limit)))
     output: list[RevisitTask] = []

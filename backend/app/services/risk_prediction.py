@@ -372,6 +372,25 @@ def _trend(scores: Sequence[float], threshold: float) -> tuple[Trend, float]:
     return "stable", delta
 
 
+# 平台暂无图像质量测量：缺失的质量按「不确定」处理，而不是当作完美图像。
+DEFAULT_QUALITY = 0.65
+
+
+def evidence_confidence(valid_scores: int, quality: float = DEFAULT_QUALITY, *, has_environment: bool = False) -> float:
+    """证据充分度（0–1）：有效观测次数（3 次封顶）× 图像质量，≥2 次观测另加 0.1。
+
+    启发式基线直接把它当置信度；risk-lr 的置信度是 |2p−1|，复巡任务的「证据质量」
+    改用它（D13），两类模型的复巡依据因此同一口径。
+    """
+    coverage = min(valid_scores / 3.0, 1.0) if valid_scores else 0.0
+    if has_environment:
+        coverage = max(coverage, 0.35)
+    confidence = _clamp(coverage * (0.55 + 0.45 * _clamp(quality)))
+    if valid_scores >= 2:
+        confidence = _clamp(confidence + 0.1)
+    return round(confidence, 4)
+
+
 def _level(probability: float, *, has_evidence: bool, thresholds: RiskThresholds) -> RiskLevel:
     if not has_evidence:
         return "unknown"
@@ -460,7 +479,7 @@ def predict_region_risk(
         aggregate_quality = sum(quality_values) / len(quality_values)
     if aggregate_quality is None:
         # Missing quality is uncertainty, not a perfect image.
-        aggregate_quality = 0.65
+        aggregate_quality = DEFAULT_QUALITY
 
     components: list[tuple[float, float]] = []
     if recent is not None:
@@ -481,13 +500,9 @@ def predict_region_risk(
     probability = round(probability, 4)
 
     has_evidence = bool(scores or environment_component is not None)
-    coverage = min(len(scores) / 3.0, 1.0) if scores else 0.0
-    if environment_component is not None:
-        coverage = max(coverage, 0.35)
-    confidence = _clamp(coverage * (0.55 + 0.45 * _clamp(aggregate_quality)))
-    if len(scores) >= 2:
-        confidence = _clamp(confidence + 0.1)
-    confidence = round(confidence, 4)
+    confidence = evidence_confidence(
+        len(scores), aggregate_quality, has_environment=environment_component is not None,
+    )
 
     threshold_values = thresholds or RiskThresholds()
     level = _level(probability, has_evidence=has_evidence, thresholds=threshold_values)
@@ -545,9 +560,11 @@ def predict_risk(*args: Any, **kwargs: Any) -> RiskPrediction:
 
 
 __all__ = [
+    "DEFAULT_QUALITY",
     "RegionObservation",
     "RiskPrediction",
     "RiskThresholds",
+    "evidence_confidence",
     "predict_region_risk",
     "predict_risk",
 ]

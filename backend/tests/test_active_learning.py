@@ -42,6 +42,22 @@ def test_task_type_prefers_revisit_label_and_random_for_distinct_signals():
     assert classify_task(representative) == "random"
 
 
+def test_high_or_rising_risk_is_revisited_not_spot_checked():
+    """证据充分、模型也很确定的高风险或上升区域要复巡确认，不能兜底成随机抽查（D13）。"""
+    certain_high = _candidate("certain-high", quality=0.95, uncertainty=0.0, risk=1.0, change=0.0)
+    rising = _candidate("rising", quality=0.95, uncertainty=0.1, risk=0.3, change=1.0)
+
+    assert classify_task(certain_high) == "revisit"
+    assert classify_task(rising) == "revisit"
+    ranked = {row.candidate_id: row for row in rank_candidates([certain_high, rising])}
+    assert "risk_high" in ranked["certain-high"].reasons
+    assert "change_high" in ranked["rising"].reasons
+    # 阈值可配置：调到够不着时回到按分数兜底
+    lenient = SelectionConstraints(revisit_risk_threshold=1.0, revisit_change_threshold=1.0)
+    assert classify_task(_candidate("x", quality=0.95, uncertainty=0.0, risk=0.9), lenient) != "revisit"
+    with pytest.raises(ValueError, match="revisit_risk_threshold"):
+        SelectionConstraints(revisit_risk_threshold=1.5)
+
 def test_ranking_is_explainable_and_deterministic():
     candidates = [
         _candidate("z", quality=0.2, risk=0.8, change=0.8),

@@ -162,3 +162,26 @@ def test_lr_request_must_match_training_target(client, model_dir):
     # 默认仍是启发式，不受模型文件影响
     heuristic = client.post(f"{BASE}/patrols/{pid}/risk-predictions/generate", json={"target_event": TARGET})
     assert heuristic.status_code == 200 and heuristic.json()[0]["model_version"] == "risk-heuristic-v2"
+
+
+def test_lr_revisit_tasks_use_evidence_quality_not_model_certainty(client, model_dir):
+    """risk-lr 的置信度是 |2p−1|，不是证据质量；高风险区域必须生成复巡而不是随机抽查（D13）。"""
+    save_model_file(_doc(), model_path("risk-lr-test"))
+    field_id, patrols = _mini_season(client)
+    preds = {p["id"]: p for p in _generate(client, patrols[-1]["patrol_id"]).json()}
+    for pred in preds.values():
+        quality = pred["evidence"]["evidence_quality"]
+        assert 0 <= quality["score"] <= 1 and quality["observations"] >= 1
+        assert pred["evidence"]["model"]["level_thresholds"]["high"] > 0
+
+    tasks = client.post(f"{BASE}/revisit-tasks/generate",
+                        json={"field_id": field_id, "patrol_id": patrols[-1]["patrol_id"], "limit": 8}).json()
+    assert tasks
+    for task in tasks:
+        pred = preds[task["risk_prediction_id"]]
+        signals = task["rationale"]["signals"]
+        assert signals["quality"] == pytest.approx(pred["evidence"]["evidence_quality"]["score"])
+        assert signals["uncertainty"] == pytest.approx(1 - pred["confidence"])
+        if pred["level"] == "high":
+            assert task["task_type"] != "random", (pred["observation_key"], signals)
+    assert any(task["task_type"] == "revisit" for task in tasks)

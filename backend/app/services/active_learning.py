@@ -4,11 +4,12 @@
 模型不确定性、风险、时序变化、代表性和执行成本压缩为三个可解释任务之一：
 
 ``revisit``
-    证据质量不足或风险变化值得再次采集，优先请求复拍/复巡。
+    证据质量不足，或风险高/正在上升值得再次采集确认，优先请求复拍/复巡。
 ``label``
     图像质量足够但模型不确定，优先交给专家标注。
 ``random``
-    作为代表性或低风险抽查，防止只看模型认为重要的点。
+    作为代表性或低风险抽查，防止只看模型认为重要的点；高风险或上升的候选
+    不会落到随机抽查（D13）。
 
 输入信号约定为 0--1（``cost`` 为非负成本单位）；超出 0--1 的信号会在
 计算时截断，避免单个脏数据拖垮候选队列。选择约束由 :class:`SelectionConstraints`
@@ -80,6 +81,8 @@ class SelectionConstraints:
     max_random: int | None = None
     min_score: float = 0.0
     revisit_quality_threshold: float = 0.45
+    revisit_risk_threshold: float = 0.50
+    revisit_change_threshold: float = 0.50
     label_uncertainty_threshold: float = 0.55
     label_quality_floor: float = 0.50
     random_representativeness_threshold: float = 0.60
@@ -101,7 +104,8 @@ class SelectionConstraints:
 
         if self.min_score < 0 or self.min_score > 1:
             raise ValueError("min_score 必须在 0--1 之间")
-        for name in ("revisit_quality_threshold", "label_uncertainty_threshold",
+        for name in ("revisit_quality_threshold", "revisit_risk_threshold", "revisit_change_threshold",
+                     "label_uncertainty_threshold",
                      "label_quality_floor", "random_representativeness_threshold"):
             value = getattr(self, name)
             try:
@@ -236,8 +240,8 @@ def classify_task(
 ) -> TaskType | None:
     """按信号和能力约束选择任务类型。
 
-    低质量证据优先复巡；质量足够且不确定性高优先标注；代表性高的正常/低风险
-    候选优先随机抽查。没有达到阈值时，退回可用任务中得分最高者。
+    低质量证据优先复巡；质量足够且不确定性高优先标注；风险高或正在上升的复巡确认；
+    代表性高的正常/低风险候选优先随机抽查。没有达到阈值时，退回可用任务中得分最高者。
     """
 
     config = constraints or SelectionConstraints()
@@ -256,6 +260,13 @@ def classify_task(
         and signals["uncertainty"] >= config.label_uncertainty_threshold
     ):
         return "label"
+    # 证据够、模型也有把握的高风险/上升区域：去现场复查确认，不能按分数兜底成
+    # 随机抽查（随机抽查的打分偏好高质量、低不确定性，会把最该去的点抽走）。
+    if "revisit" in available and (
+        signals["risk"] >= config.revisit_risk_threshold
+        or signals["change"] >= config.revisit_change_threshold
+    ):
+        return "revisit"
     if (
         "random" in available
         and signals["representativeness"]
@@ -279,9 +290,9 @@ def _reasons(
     if task_type == "revisit":
         if signals["quality"] <= constraints.revisit_quality_threshold:
             reasons.append("quality_below_revisit_threshold")
-        if signals["risk"] >= 0.5:
+        if signals["risk"] >= constraints.revisit_risk_threshold:
             reasons.append("risk_high")
-        if signals["change"] >= 0.5:
+        if signals["change"] >= constraints.revisit_change_threshold:
             reasons.append("change_high")
         if not reasons:
             reasons.append("highest_available_revisit_score")

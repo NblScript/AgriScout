@@ -19,7 +19,7 @@ from app.services.logistic import LogisticModel, model_from_dict
 from app.services.region_association import parse_key
 from app.services.risk_features import image_features, neighbor_map
 from app.services.risk_inputs import RegionInputs
-from app.services.risk_prediction import RiskThresholds, _trend
+from app.services.risk_prediction import DEFAULT_QUALITY, RiskThresholds, _trend, evidence_confidence
 
 MODEL_SCHEMA = "agriscout.risk-model.v1"
 LR_PREFIX = "risk-lr-"
@@ -183,6 +183,8 @@ def predict_regions(
         probability = round(risk_model.model.predict(features), 6)
         own = [obs.get("risk_score") for obs in series.observations if obs.get("risk_score") is not None]
         trend, _delta = _trend(own, rising_delta)
+        # |2p−1| 只说明模型有多确定；复巡任务要的「证据质量」按本区域有效观测次数算（D13）
+        quality = evidence_confidence(len(own))
         results[key] = RegionRisk(
             probability=probability,
             level=risk_model.level(probability),
@@ -194,12 +196,16 @@ def predict_regions(
                     "features": list(risk_model.model.names), "prevalence": risk_model.prevalence,
                     "level_rule": f"≥ 患病率×{risk_model.level_ratios['high']:g} 为 high，"
                                   f"≥ ×{risk_model.level_ratios['medium']:g} 为 medium",
+                    "level_thresholds": {name: round(risk_model.prevalence * ratio, 6)
+                                         for name, ratio in risk_model.level_ratios.items()},
                     "confidence_rule": "|2p−1|：概率越接近 0 或 1 越确定",
                     "trained_on": risk_model.metadata.get("trained_on"),
                     "approval": approval,
                 },
                 "feature_values": {k: round(v, 6) for k, v in features.items()},
                 "contributions": _contributions(risk_model.model, features),
+                "evidence_quality": {"score": quality, "observations": len(own),
+                                     "rule": f"有效观测次数（3 次封顶）× 缺省图像质量 {DEFAULT_QUALITY:g}，≥2 次另加 0.1"},
             },
         )
     return results
