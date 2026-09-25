@@ -19,7 +19,7 @@
 - [ ] P0-1 v2 协议最小子集：`observation_key` / `route_chainage_m` / 距离与定位来源 / `client_package_id`（迁移 + schema 导出 + simulator + rover）
 - [ ] P0-2 时钟：RTC 或局域网时间源；心跳上报同步状态；服务端对时间戳偏差告警
 - [ ] P0-3 rover 逐点落盘 + 照片按哈希上传端点 + 元数据包只引用 URL
-- [ ] P0-4 环境历史：气象站或数据源接入；预报版本存档
+- [ ] P0-4 环境历史：气象站或数据源接入；预报版本存档（接入后出 risk-lr-v2，加入环境特征，见计划 0009）
 - [ ] P1-6 图像质量指标进入分析结果（升级 `analyzer_version`）；复巡排序改用真实质量
 - [ ] P1-7 数据集冻结写入按地块/日期分组的划分；评估闸门核对来源
 - [x] P1-8 从随访结果重算 PR-AUC / Brier / 召回率 / 提前量；先校准再报 Brier（计划 0008：`GET /risk-predictions/metrics`）

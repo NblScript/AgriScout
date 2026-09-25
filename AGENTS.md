@@ -25,6 +25,7 @@ cd frontend && pnpm typecheck && pnpm build
 cd simulator && ../backend/.venv/bin/python run.py --scenario dry   # healthy/dry/patchy_disease
 cd simulator && ../backend/.venv/bin/python season.py --seed 7      # 多日期病害扩散模拟季（导出真值）
 cd backend && .venv/bin/python -m app.tools.replay_eval --truth ../simulator/out/season-truth-field1.json  # H1–H3 离线重放
+cd backend && .venv/bin/python -m app.tools.train_risk_lr --truth ../simulator/out/season-truth-field1.json  # 训练 risk-lr-v1
 python -m unittest simulator.test_epidemic         # 仓库根目录运行，病害模型单测
 
 # 真车采集端（树莓派 + USB 摄像头；--fake 无摄像头测链路）
@@ -43,8 +44,8 @@ cd ml && .venv/bin/python export_model.py            # 产物 → backend/models
 | `backend/app/models/` | 22 张表，每实体一文件；`timestamps.py` 公共 mixin；`__init__.py` 为注册中心 |
 | `backend/app/api/v1/` | 路由层：CRUD + ingest + 分析 + 建议 + 标注 + stats + 报告 + Agent + 规则修订 + `device_protocol`（注册/心跳/事件/故障注入）+ `software_loop`（风险/复巡/随访/数据集/模型评估）；`deps.py` 公共 404/分页助手 |
 | `backend/app/services/analysis/` | Analyzer 协议（base.py）+ 占位颜色版 + YOLO 版 + 后台 runner |
-| `backend/app/services/` | advice(规则引擎) / agent_chat+agent_tools(L2 诊断) / agent_rule_draft+rule_feedback+shadow_run+rule_revision(L1 起草生效) / llm_report(报告) / ingest / storage / risk_prediction+risk_inputs+region_association+active_learning+evidence_feedback+dataset_governance(M7 研究闭环，纯函数优先) / evaluation_metrics+offline_replay(随访指标与 H1–H3 离线重放) |
-| `backend/app/tools/` | `sync_rules`（YAML 同步）、`gen_db_schema`（表结构快照）、`replay_eval`（离线重放报告） |
+| `backend/app/services/` | advice(规则引擎) / agent_chat+agent_tools(L2 诊断) / agent_rule_draft+rule_feedback+shadow_run+rule_revision(L1 起草生效) / llm_report(报告) / ingest / storage / risk_prediction+risk_inputs+region_association+active_learning+evidence_feedback+dataset_governance(M7 研究闭环，纯函数优先) / evaluation_metrics+offline_replay(随访指标与 H1–H3 离线重放) / logistic+risk_features+risk_model(risk-lr 可训练风险模型，D12) |
+| `backend/app/tools/` | `sync_rules`（YAML 同步）、`gen_db_schema`（表结构快照）、`replay_eval`（离线重放报告）、`train_risk_lr`（训练导出风险模型） |
 | `backend/rules/wheat.yaml` | 规则种子库 18 条（单一事实源，经 sync_rules 同步入表） |
 | `backend/app/schemas/` | DTO + 巡检包协议 v1 + 设备协议（对采集端的合同） |
 | `backend/migrations/versions/` | 手写 Alembic 迁移，`00NN_主题` 命名（当前 0013） |
@@ -64,7 +65,7 @@ cd ml && .venv/bin/python export_model.py            # 产物 → backend/models
 4. **协议即合同**：巡检包/设备协议 schema 变更必须同步 `/api/v1/ingest/patrol-schema` 导出、模拟器与 rover
 5. **认证插槽**：无 JWT，全路由挂 `get_current_user` 插槽依赖，不得绕过（B4）
 6. **采集端隔离**：simulator 与 rover 只走 HTTP，禁止 import 后端内部代码（D5）
-7. **产物不入库**：`*.db`、`*.pt`、`media/`、`ml/data|runs|.venv`、`.pytest-tmp-*`、`.rover-spool/` 均 gitignore
+7. **产物不入库**：`*.db`、`*.pt`、`backend/models/`、`media/`、`ml/data|runs|.venv`、`.pytest-tmp-*`、`.rover-spool/` 均 gitignore
 8. **测试红线**：backend pytest 全绿才能 commit；协议/引擎改动必须带新测试
 9. **Agent 权限边界**：L2 诊断 Agent 只读；规则修订 Agent 只能起草，必须影子运行 + 人工审批才生效
 10. **证据闸门**：随访终态不可改；模型评估只能绑定已冻结数据集的 test split 才能审批发布

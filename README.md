@@ -51,6 +51,7 @@ AgriScout 的切入点是低成本、高密度的近地采样：让小车沿垄�
 - 设备协议：设备幂等注册、心跳、设备/任务事件、可回放故障注入，以及设备领取复巡任务（`/devices/{id}/tasks/next`）。
 - 虚拟巡田：独立模拟器提供 `healthy`、`dry`、`patchy_disease` 三种可复现场景；`season.py` 模拟整季多日期巡检，病害按潜伏期、天气和空间扩散发展，并模拟农技员随访。
 - 实验评估：风险预测按观察区域串联历史巡检；`GET /risk-predictions/metrics` 从随访结果计算 PR-AUC、Brier、固定误报负担下的召回率和提前量；`replay_eval` 离线重放 H1 特征消融、H2 复巡策略、H3 标注选样。
+- 可训练风险模型：`train_risk_lr` 用逻辑回归训练 `risk-lr-v1`（本区域图像、历史、邻近区域 5 个特征），生成预测时指定 `model_version=risk-lr-v1` 使用；训练与线上共用同一特征实现。
 - 真车采集端：`rover/` 支持 USB 摄像头或合成图采集、本地 spool 断网续传、临时错误指数退避重试。
 
 ## 当前状态
