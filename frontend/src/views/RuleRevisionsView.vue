@@ -142,7 +142,7 @@ onMounted(load)
 
           <div class="section">
             <span class="label">修订后规则</span>
-            <pre class="draft">{{ JSON.stringify(rev.draft, null, 1) }}</pre>
+            <pre class="draft-json">{{ JSON.stringify(rev.draft, null, 1) }}</pre>
           </div>
 
           <div class="section" v-if="rev.shadow_result">
@@ -201,7 +201,8 @@ onMounted(load)
 .section { margin: 8px 0; }
 .label { font-size: 12px; color: #7a8a7e; }
 .reason { font-size: 13px; margin: 4px 0; }
-.draft {
+/* 不能叫 .draft：卡片带状态类名 draft，会把整张待审卡片截成 180px */
+.draft-json {
   font-size: 11px;
   background: #f8faf8;
   border: 1px solid #e8eee8;

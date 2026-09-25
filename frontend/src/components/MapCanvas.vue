@@ -216,11 +216,15 @@ onBeforeUnmount(() => {
   border-radius: 3px;
   pointer-events: none;
 }
+/* 缓存缺的瓦片露出容器底色：download_tiles.py 把 <1KB 的纯色瓦片当占位图丢弃（多为空白农田），底色取瓦片地面色，不显示灰块 */
+.map-canvas.leaflet-container {
+  background: #fcf9f2;
+}
 /* 暗色观感：同源瓦片反相+色相旋转，免第二套瓦片（离线演示同样生效） */
 .map-canvas.theme-dark :deep(.leaflet-tile) {
   filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.92);
 }
-.map-canvas.theme-dark :deep(.leaflet-container) {
+.map-canvas.theme-dark.leaflet-container {
   background: #0d1a12;
 }
 </style>
