@@ -22,7 +22,9 @@ class Settings(BaseSettings):
 
     # 识别引擎：placeholder 颜色统计 | yolo 麦穗检测（需 requirements-ml.txt + 模型文件）
     analyzer_backend: str = "placeholder"
-    yolo_model_path: str = "./models/wheat-yolo-v1.pt"
+    yolo_model_path: str = "./models/wheat-yolo-v1.pt"  # 留空 = 不做数穗，长势沿用颜色统计
+    # 条锈病图块分类模型（计划 0010，ml/train_rust.py 训练导出）；留空 = 不启用，病害信号沿用颜色统计
+    disease_model_path: str = ""
     # 可训练风险模型（risk-lr-*）的模型文件目录：<目录>/<版本号>.json（训练产物，不入库）
     risk_model_dir: str = "./models"
 

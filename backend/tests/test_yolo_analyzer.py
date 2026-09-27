@@ -93,3 +93,89 @@ def test_dispatch_defaults_to_placeholder(client):
 def test_version_encodes_model_name():
     """analyzer_version 带模型文件名，历史可溯源。"""
     assert YoloAnalyzer(model_path="./models/wheat-yolo-v1.pt").version == "yolo-wheat-yolo-v1"
+
+
+# ---------------------------------------------------------------- 条锈病图块分类（计划 0010）
+
+from app.services.analysis.disease_classifier import TileProb, tile_boxes  # noqa: E402
+
+
+def _tiles(probs: list[float]) -> list[TileProb]:
+    boxes = tile_boxes(640, 480)
+    assert len(boxes) == len(probs)
+    return [TileProb((x / 640, y / 480, w / 640, h / 480), p) for (x, y, w, h), p in zip(boxes, probs)]
+
+
+def test_tile_grid_matches_training_geometry():
+    """短边 3 格、正方形、贴边补齐：640×480 → 4×3 共 12 块、边长 160；竖拍同理。"""
+    boxes = tile_boxes(640, 480)
+    assert len(boxes) == 12 and {w for _, _, w, _ in boxes} == {160}
+    assert max(x + w for x, _, w, _ in boxes) == 640 and max(y + h for _, y, _, h in boxes) == 480
+    assert len(tile_boxes(480, 640)) == 12
+    uneven = tile_boxes(700, 480)  # 700 不是 160 的整数倍：最后一列贴右边
+    assert max(x + w for x, _, w, _ in uneven) == 700
+
+
+def test_rust_tiles_give_model_detection_and_risk():
+    analyzer = YoloAnalyzer(model_path=None, disease_model_path="/models/rust-cls-v1.pt")
+    probs = [0.02] * 12
+    probs[5], probs[6] = 0.93, 0.61
+    result = analyzer.build_result(GREEN, CTX, [], _tiles(probs))
+    rust = [d for d in result.disease_detections if d["type"] == "stripe_rust"]
+    assert len(rust) == 1
+    assert rust[0]["confidence"] == 0.93 and rust[0]["area_ratio"] == round(2 / 12, 3)
+    assert len(rust[0]["boxes"]) == 2 and all(0 <= v <= 1 for box in rust[0]["boxes"] for v in box)
+    assert result.risk_score == 0.93
+    assert result.detail["risk_source"] == "disease_model" and result.detail["disease_model"] == "rust-cls-v1"
+
+
+def test_healthy_tiles_keep_risk_low_even_if_colour_looks_stressed():
+    """枯黄色图但模型判为健康：保留颜色胁迫提示（非病害），风险分由模型给出，不被颜色抬高。"""
+    analyzer = YoloAnalyzer(model_path=None, disease_model_path="/models/rust-cls-v1.pt")
+    result = analyzer.build_result(BROWN, CTX, [], _tiles([0.08] * 12))
+    types = [d["type"] for d in result.disease_detections]
+    assert types == ["suspected_stress"]
+    assert result.risk_score == 0.08
+    assert result.detail["rust_tiles"] == 0
+
+
+def test_without_ear_model_vigor_matches_colour_analyzer():
+    from app.services.analysis import PlaceholderColorAnalyzer
+
+    analyzer = YoloAnalyzer(model_path=None, disease_model_path="/models/rust-cls-v1.pt")
+    assert analyzer.version == "color+rust-cls-v1"
+    assert analyzer._detect(GREEN) == []  # 无麦穗模型不加载 YOLO
+    result = analyzer.build_result(GREEN, CTX, [], _tiles([0.1] * 12))
+    assert result.vigor_level == PlaceholderColorAnalyzer().analyze(GREEN, CTX).vigor_level
+
+
+def test_version_and_config_combinations(monkeypatch):
+    from app.core.config import get_settings
+    from app.services.analysis import _yolo_singleton, get_analyzer
+
+    both = YoloAnalyzer(model_path="./models/wheat-yolo-v1.pt", disease_model_path="./models/rust-cls-v1.pt")
+    assert both.version == "yolo-wheat-yolo-v1+rust-cls-v1"
+    try:
+        YoloAnalyzer(model_path=None)
+        raise AssertionError("两个模型都没配应当报错")
+    except ValueError as e:
+        assert "至少需要" in str(e)
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "analyzer_backend", "yolo")
+    monkeypatch.setattr(settings, "yolo_model_path", "")
+    monkeypatch.setattr(settings, "disease_model_path", "./models/rust-cls-v1.pt")
+    _yolo_singleton.cache_clear()
+    try:
+        assert get_analyzer().version == "color+rust-cls-v1"
+    finally:
+        _yolo_singleton.cache_clear()
+
+
+def test_missing_disease_model_gives_clear_error():
+    analyzer = YoloAnalyzer(model_path=None, disease_model_path="/nonexistent/rust-cls-v1.pt")
+    try:
+        analyzer.analyze(GREEN, CTX)
+        raise AssertionError("应当抛出 RuntimeError")
+    except RuntimeError as e:
+        assert "病害模型文件不存在" in str(e)

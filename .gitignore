@@ -49,6 +49,7 @@ rover/.rover-spool/
 # ML 训练产物（数据集/运行日志/权重不入库，模型导出到 backend/models/ 也不入库）
 ml/data/*
 !ml/data/prepare_gwd.py
+!ml/data/prepare_nwrd.py
 ml/runs/
 ml/.venv/
 *.pt

@@ -1,6 +1,7 @@
 """分析引擎包：协议、占位实现、YOLO 实现、后台执行器。
 
 ANALYZER_BACKEND=placeholder|yolo 环境变量切换（默认占位，测试零依赖）。
+yolo 后端下 YOLO_MODEL_PATH（麦穗，可留空）与 DISEASE_MODEL_PATH（条锈病，可留空）至少配一个。
 """
 from functools import lru_cache
 
@@ -18,15 +19,15 @@ _singleton = PlaceholderColorAnalyzer()
 
 
 @lru_cache
-def _yolo_singleton(model_path: str) -> YoloAnalyzer:
-    return YoloAnalyzer(model_path)
+def _yolo_singleton(model_path: str, disease_model_path: str = "") -> YoloAnalyzer:
+    return YoloAnalyzer(model_path or None, disease_model_path or None)
 
 
 def get_analyzer() -> Analyzer:
     """FastAPI 依赖：按配置分派识别引擎（测试可 override）。"""
     settings = get_settings()
     if settings.analyzer_backend == "yolo":
-        return _yolo_singleton(settings.yolo_model_path)
+        return _yolo_singleton(settings.yolo_model_path, settings.disease_model_path)
     return _singleton
 
 

@@ -6,6 +6,10 @@
 
 模型由 ml/train.py 训练产出（Global Wheat Head 公开集），真车照片到位后
 换数据重训，本模块协议不变。ultralytics 为可选依赖：仅 backend=yolo 时加载。
+
+病害（计划 0010）：配置 DISEASE_MODEL_PATH 后叠加条锈病图块分类（disease_classifier.py），
+输出 stripe_rust 汇总检出，逐点风险分改由模型给出；颜色胁迫检出保留为独立类型，只作非病害胁迫提示。
+麦穗模型可不配（YOLO_MODEL_PATH 为空）：长势/NDVI 代理/胁迫检出沿用颜色版，两个模型可单独或同时启用。
 """
 import logging
 from pathlib import Path
@@ -18,6 +22,8 @@ from app.services.analysis.base import (
     calendar_growth_stage,
     image_color_stats,
 )
+from app.services.analysis.disease_classifier import RustTileClassifier, TileProb, summarize_tiles
+from app.services.analysis.placeholder_color import PlaceholderColorAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +35,20 @@ CONF_THRESHOLD = 0.25
 DENSITY_WEIGHT = 0.6
 VIGOR_CUTS = ((0.45, 5), (0.35, 4), (0.25, 3), (0.15, 2))  # 其余为 1
 
+_COLOR = PlaceholderColorAnalyzer()
+
 
 class YoloAnalyzer:
-    """麦穗检测分析器。模型懒加载，version 带模型文件名便于多版本溯源。"""
+    """麦穗检测 + 可选病害分类分析器。模型懒加载，version 带模型文件名便于多版本溯源：
+    yolo-<麦穗模型>、yolo-<麦穗模型>+<病害模型>，或无麦穗模型时 color+<病害模型>。"""
 
-    def __init__(self, model_path: str | Path):
-        self._model_path = Path(model_path)
-        self.version = f"yolo-{self._model_path.stem}"
+    def __init__(self, model_path: str | Path | None, disease_model_path: str | Path | None = None):
+        self._model_path = Path(model_path) if model_path else None
+        self._disease = RustTileClassifier(disease_model_path) if disease_model_path else None
+        if self._model_path is None and self._disease is None:
+            raise ValueError("YOLO 分析器至少需要麦穗模型（YOLO_MODEL_PATH）或病害模型（DISEASE_MODEL_PATH）之一")
+        ear = f"yolo-{self._model_path.stem}" if self._model_path else "color"
+        self.version = f"{ear}+{self._disease.version}" if self._disease else ear
         self._model: Any | None = None
 
     def _load(self) -> Any:
@@ -65,6 +78,8 @@ class YoloAnalyzer:
 
         from PIL import Image
 
+        if self._model_path is None:
+            return []
         model = self._load()
         pil_image = Image.open(io.BytesIO(image)).convert("RGB")
         results = model.predict(pil_image, conf=CONF_THRESHOLD, verbose=False)
@@ -85,12 +100,29 @@ class YoloAnalyzer:
 
     def analyze(self, image: bytes, context: CaptureContext) -> AnalysisResult:
         detections = self._detect(image)
-        return self.build_result(image, context, detections)
+        tiles = self._disease.classify(image) if self._disease else None
+        return self.build_result(image, context, detections, tiles)
 
     def build_result(
         self, image: bytes, context: CaptureContext, detections: list[dict[str, Any]],
+        tiles: list[TileProb] | None = None,
     ) -> AnalysisResult:
-        """检测 + 颜色信号 → 结构化结果。与推理解耦，便于单元测试。"""
+        """检测 + 颜色信号（+ 病害图块概率）→ 结构化结果。与推理解耦，便于单元测试。"""
+        result = self._ear_result(image, context, detections) if self._model_path else _COLOR.analyze(image, context)
+        if tiles is None:
+            return result
+        detection, detail, risk = summarize_tiles(tiles, self._disease.version if self._disease else "disease-model")
+        found = list(result.disease_detections or [])
+        if detection is not None:
+            found.append(detection)
+        result.disease_detections = found or None
+        result.risk_score = risk  # 风险分来自病害模型，颜色胁迫不再决定它
+        result.detail = {**result.detail, **detail}
+        return result
+
+    def _ear_result(
+        self, image: bytes, context: CaptureContext, detections: list[dict[str, Any]],
+    ) -> AnalysisResult:
         stats = image_color_stats(image)
         green_ratio = stats["green_ratio"]
         stress_ratio = stats["stress_ratio"]
