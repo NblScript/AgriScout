@@ -366,10 +366,15 @@ def h3_active_learning(
     step: int = 20,
     budget: int = 160,
     names: Sequence[str] = FEATURE_SETS["full"],
+    test_folds: Sequence[int] | None = None,
 ) -> dict[str, Any]:
-    """相同初始样本、相同候选池、相同标注预算下，比较三种选样策略的学习曲线（测试集 PR-AUC）。"""
+    """相同初始样本、相同候选池、相同标注预算下，比较三种选样策略的学习曲线（测试集 PR-AUC）。
+
+    缺省每个 fold 轮流当测试集（空间条带交叉验证）；test_folds 指定固定测试集时只轮这些 fold，
+    其余全部作候选池（计划 0011：NWRD 官方测试集）。
+    """
     names = tuple(names)
-    folds = sorted({s.fold for s in samples})
+    folds = sorted(test_folds) if test_folds is not None else sorted({s.fold for s in samples})
     strategies = ("random", "uncertainty", "joint")
     curves: dict[str, dict[int, list[float]]] = {s: {} for s in strategies}
     full_aps: list[float] = []
@@ -408,10 +413,11 @@ def h3_active_learning(
         s: round(statistics.mean(ap for _, ap in report["curves"][s]), 4) if report["curves"][s] else None
         for s in strategies
     }
-    report["labels_to_90pct_of_full"] = {
-        s: next((n for n, ap in report["curves"][s] if reference and ap >= 0.9 * reference), None)
-        for s in strategies
-    }
+    for pct in (90, 95):
+        report[f"labels_to_{pct}pct_of_full"] = {
+            s: next((n for n, ap in report["curves"][s] if reference and ap >= pct / 100 * reference), None)
+            for s in strategies
+        }
     return report
 
 
@@ -436,7 +442,8 @@ def _select(strategy: str, pool: Sequence[Sample], labeled: list[int], model: Lo
             ActiveLearningCandidate(
                 candidate_id=str(i), quality=1.0,
                 uncertainty=1 - abs(2 * probs[i] - 1), risk=probs[i],
-                change=_clamp(2 * max(pool[i].features["img_delta"], pool[i].features["nbr_delta"])),
+                # 单日期图像没有时序变化：缺省 0（计划 0011）
+                change=_clamp(2 * max(pool[i].features.get("img_delta", 0.0), pool[i].features.get("nbr_delta", 0.0))),
                 representativeness=(distance[i] / top) * (0.3 if pool[i].region in labeled_regions else 1.0),
                 cost=1.0,
             )

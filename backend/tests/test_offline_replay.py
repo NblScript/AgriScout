@@ -8,6 +8,7 @@ from app.services.offline_replay import (
     fit_logistic,
     h1_ablation,
     h2_revisit_replay,
+    Sample,
     h3_active_learning,
     labeled,
     out_of_fold,
@@ -93,6 +94,26 @@ def test_h3_curves_share_the_same_starting_point_and_budget():
     assert firsts == {10} and len(first_aps) == 1  # 相同初始样本 → 相同起点
     assert all(curve[-1][0] <= 40 for curve in report["curves"].values())
 
+
+
+def test_h3_fixed_test_fold_and_features_without_time_series():
+    """计划 0011：固定测试集只评一次；没有 img_delta/nbr_delta 的静态图像特征也能跑联合策略。"""
+    import random as _random
+
+    rng = _random.Random(3)
+    samples = []
+    for i in range(160):
+        label = int(i % 3 == 0)
+        x = rng.gauss(1.5 if label else 0.0, 1.0)
+        samples.append(Sample(region=f"img{i % 16}", day=0, fold=0 if i < 40 else 1,
+                              features={"f0": x, "f1": rng.gauss(0, 1)}, label=label))
+    report = h3_active_learning(samples, seeds=(0, 1), init=10, step=10, budget=40,
+                                names=("f0", "f1"), test_folds=(0,))
+    assert report["folds_used"] == 1
+    assert set(report["curves"]) == {"random", "uncertainty", "joint"}
+    assert report["full_pool_pr_auc"] > 0.6  # 信号可学
+    assert all(curve[-1][0] == 40 for curve in report["curves"].values())
+    assert set(report["labels_to_95pct_of_full"]) == {"random", "uncertainty", "joint"}
 
 def test_run_replay_is_deterministic():
     inp = _ring_world()
