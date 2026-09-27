@@ -38,6 +38,8 @@ cd ml && .venv/bin/python export_model.py            # 产物 → backend/models
 cd ml && .venv/bin/python data/prepare_nwrd.py && .venv/bin/python train_rust.py && .venv/bin/python eval_rust.py
 cd ml && .venv/bin/python export_model.py --kind rust  # 条锈病模型 → rust-cls-v{N}.pt + .json 说明（后端 DISEASE_MODEL_PATH）
 python -m unittest ml.test_prepare_nwrd            # 仓库根目录运行，NWRD 切块口径单测
+cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/python -m app.tools.al_replay_images \
+  --samples ../ml/data/nwrd_cls/al_features.json --pool-prevalence 0.05   # H3 真实数据选样对比（计划 0011）
 ```
 
 ## 代码地图
@@ -48,7 +50,7 @@ python -m unittest ml.test_prepare_nwrd            # 仓库根目录运行，NWR
 | `backend/app/api/v1/` | 路由层：CRUD + ingest + 分析 + 建议 + 标注 + stats + 报告 + Agent + 规则修订 + `device_protocol`（注册/心跳/事件/故障注入）+ `software_loop`（风险/复巡/随访/数据集/模型评估）；`deps.py` 公共 404/分页助手 |
 | `backend/app/services/analysis/` | Analyzer 协议（base.py）+ 占位颜色版 + YOLO 版（麦穗，可选）+ disease_classifier（条锈病图块分类，可选）+ 后台 runner |
 | `backend/app/services/` | advice(规则引擎) / agent_chat+agent_tools(L2 诊断) / agent_rule_draft+rule_feedback+shadow_run+rule_revision(L1 起草生效) / llm_report(报告) / ingest / storage / risk_prediction+risk_inputs+region_association+active_learning+evidence_feedback+dataset_governance(M7 研究闭环，纯函数优先) / evaluation_metrics+offline_replay(随访指标与 H1–H3 离线重放) / logistic+risk_features+risk_model(risk-lr 可训练风险模型，D12) |
-| `backend/app/tools/` | `sync_rules`（YAML 同步）、`gen_db_schema`（表结构快照）、`replay_eval`（离线重放报告）、`train_risk_lr`（训练导出风险模型） |
+| `backend/app/tools/` | `sync_rules`（YAML 同步）、`gen_db_schema`（表结构快照）、`replay_eval`（离线重放报告）、`train_risk_lr`（训练导出风险模型）、`al_replay_images`（H3 真实图像数据选样对比） |
 | `backend/rules/wheat.yaml` | 规则种子库 18 条（单一事实源，经 sync_rules 同步入表） |
 | `backend/app/schemas/` | DTO + 巡检包协议 v1 + 设备协议（对采集端的合同） |
 | `backend/migrations/versions/` | 手写 Alembic 迁移，`00NN_主题` 命名（当前 0013） |
