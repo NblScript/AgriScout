@@ -104,14 +104,16 @@ function renderPoints() {
   pointsLayer = L.layerGroup().addTo(map)
   for (const p of props.points) {
     const stressed = !!p.analysis?.disease_detections?.length
+    // 病害模型检出（stripe_rust）红圈优先于颜色胁迫的黄圈
+    const diseased = !!p.analysis?.disease_detections?.some((d) => d.type === 'stripe_rust')
     L.circleMarker([p.lat, p.lng], {
-      radius: 4.5,
-      color: stressed ? '#ffd54f' : '#ffffff',
-      weight: stressed ? 2 : 1,
+      radius: diseased ? 5.5 : 4.5,
+      color: diseased ? '#dc2626' : stressed ? '#ffd54f' : '#ffffff',
+      weight: diseased ? 2.5 : stressed ? 2 : 1,
       fillColor: pointColor(p),
       fillOpacity: 0.9,
     })
-      .bindTooltip(`#${p.seq} · ${pointColor(p) === NO_ANALYSIS_COLOR ? '未分析' : `长势${p.analysis?.vigor_level}`}`)
+      .bindTooltip(`#${p.seq} · ${pointColor(p) === NO_ANALYSIS_COLOR ? '未分析' : `长势${p.analysis?.vigor_level}`}${diseased ? ' · 疑似条锈病' : ''}`)
       .on('click', () => emit('select', p.id))
       .addTo(pointsLayer)
   }

@@ -21,6 +21,7 @@ import {
   type AnnotationLabel,
   type AnnotationSummary,
   type CapturePointFull,
+  type DiseaseDetection,
   type PatrolDetail,
   type PatrolReport,
 } from '../types'
@@ -47,6 +48,19 @@ let timer: ReturnType<typeof setInterval> | null = null
 const currentPoint = computed<CapturePointFull | null>(
   () => points.value[currentIndex.value] ?? null,
 )
+
+/* ---------- 病害模型检出：病斑框与标签 ---------- */
+const showDiseaseBoxes = ref(true)
+const diseaseBoxes = computed<number[][]>(() =>
+  (currentPoint.value?.analysis?.disease_detections ?? []).flatMap((d) => (Array.isArray(d.boxes) ? d.boxes : [])),
+)
+
+function detectionText(d: DiseaseDetection): string {
+  const parts = [d.label ?? d.type ?? '检出']
+  if (d.type === 'stripe_rust' && typeof d.confidence === 'number') parts.push(`置信度 ${Math.round(d.confidence * 100)}%`)
+  if (typeof d.area_ratio === 'number') parts.push(`病斑图块 ${Math.round(d.area_ratio * 100)}%`)
+  return parts.join(' · ')
+}
 
 function selectByPointId(pointId: number) {
   const idx = points.value.findIndex((p) => p.id === pointId)
@@ -408,6 +422,7 @@ const weatherOption = computed<EChartsOption>(() => {
             <span v-for="(c, lv) in VIGOR_COLORS" :key="lv" class="lg"><i :style="{ background: c }" />长势{{ lv }}</span>
             <span class="lg"><i style="background:#9e9e9e" />未分析</span>
             <span class="lg"><i style="border:2px solid #fbbf24;background:#fff" />胁迫检出</span>
+            <span class="lg"><i style="border:2px solid #dc2626;background:#fff" />病害检出（模型）</span>
           </div>
         </div>
         <!-- 时间轴 -->
@@ -439,12 +454,27 @@ const weatherOption = computed<EChartsOption>(() => {
         <div class="panel detail-card">
           <template v-if="currentPoint">
             <h4>采样点 #{{ currentPoint.seq }}（里程 {{ currentPoint.distance_m }}m）</h4>
-            <el-image
-              v-if="currentPoint.photo_url" :src="currentPoint.photo_url"
-              :preview-src-list="[currentPoint.photo_url]"
-              :initial-index="0" preview-teleported hide-on-click-modal
-              class="photo" fit="cover" alt="采样照片（点击放大）"
-            />
+            <div v-if="currentPoint.photo_url" class="photo-box">
+              <!-- 照片按原比例完整显示：病斑框用归一化坐标叠在同尺寸容器上，裁剪显示会错位 -->
+              <div class="photo-wrap">
+                <el-image
+                  :src="currentPoint.photo_url"
+                  :preview-src-list="[currentPoint.photo_url]"
+                  :initial-index="0" preview-teleported hide-on-click-modal
+                  class="photo" alt="采样照片（点击放大）"
+                />
+                <template v-if="showDiseaseBoxes">
+                  <span
+                    v-for="(b, i) in diseaseBoxes" :key="i" class="disease-box"
+                    :style="{ left: `${b[0] * 100}%`, top: `${b[1] * 100}%`, width: `${b[2] * 100}%`, height: `${b[3] * 100}%` }"
+                  />
+                </template>
+              </div>
+              <div v-if="diseaseBoxes.length" class="box-toggle">
+                <el-switch v-model="showDiseaseBoxes" size="small" />
+                <span>病斑框（模型判为锈病的图块，{{ diseaseBoxes.length }} 块）</span>
+              </div>
+            </div>
             <p v-else class="dim">该点无照片</p>
 
             <template v-if="currentPoint.analysis">
@@ -470,8 +500,11 @@ const weatherOption = computed<EChartsOption>(() => {
                 />
               </div>
               <div v-if="currentPoint.analysis.disease_detections?.length" class="stress-box">
-                <el-tag v-for="(d, i) in currentPoint.analysis.disease_detections" :key="i" type="warning" effect="plain">
-                  ⚠ {{ d.label ?? d.type }}
+                <el-tag
+                  v-for="(d, i) in currentPoint.analysis.disease_detections" :key="i"
+                  :type="d.type === 'stripe_rust' ? 'danger' : 'warning'" effect="plain"
+                >
+                  ⚠ {{ detectionText(d) }}
                 </el-tag>
               </div>
             </template>
@@ -688,12 +721,18 @@ const weatherOption = computed<EChartsOption>(() => {
 .detail-card { max-height: 505px; overflow: auto; }
 .detail-card h4 { margin-bottom: 10px; }
 .detail-card h5 { font-size: 13px; margin-bottom: 8px; color: #1f2d1f; }
-.photo {
-  width: 100%;
-  border-radius: 8px;
-  margin-bottom: 10px;
-  max-height: 190px;
+.photo-box { margin-bottom: 10px; text-align: center; }
+.photo-wrap { position: relative; display: inline-block; max-width: 100%; line-height: 0; }
+.photo { display: block; border-radius: 8px; }
+.photo :deep(.el-image__inner) { display: block; max-width: 100%; max-height: 190px; width: auto; height: auto; }
+.disease-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid #dc2626;
+  border-radius: 2px;
+  pointer-events: none;  /* 点击穿透到照片，保留放大预览 */
 }
+.box-toggle { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; color: #6b7a6b; line-height: 1.4; }
 .kv-row { display: flex; align-items: center; gap: 10px; margin: 7px 0; }
 .kv-row > span { width: 68px; font-size: 13px; color: #6b7a6b; }
 .stress-box { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }

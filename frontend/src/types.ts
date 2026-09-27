@@ -107,6 +107,11 @@ export interface DiseaseDetection {
   type?: string
   label?: string
   confidence?: number
+  /** 病害模型（stripe_rust）：阳性图块框，归一化 [x, y, w, h] */
+  boxes?: number[][]
+  /** 病害模型：阳性图块占全部图块的比例 */
+  area_ratio?: number
+  model?: string
   [k: string]: unknown
 }
 
