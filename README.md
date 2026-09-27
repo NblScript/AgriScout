@@ -41,7 +41,7 @@ AgriScout 的切入点是低成本、高密度的近地采样：让小车沿垄�
 
 - 基础管理：地块、作物、种植批次、设备的 CRUD。
 - 巡检接入：巡检包 v1、重复上传保护、照片 SHA-256 内容寻址存储、分页和地理范围查询。
-- 异步分析：上传快速返回，后台逐点执行；支持颜色统计占位分析器和可选 YOLO 麦穗分析器。
+- 异步分析：上传快速返回，后台逐点执行；支持颜色统计占位分析器、可选 YOLO 麦穗分析器，以及可选条锈病识别模型（NWRD 公开田间数据训练，输出病斑图块位置与风险分）。
 - 规则建议：天气阈值、分析状态、生育期保底三层规则；每点最多保留 Top-3；建议冻结 `rule_snapshot`。
 - 可视化回放：Leaflet 地图、轨迹、采样点长势着色、时间轴、照片/天气/分析详情。
 - 人工复核：建议采纳/驳回、采样点标签、标注修改和 NDJSON 训练集导出。
@@ -63,6 +63,7 @@ AgriScout 的切入点是低成本、高密度的近地采样：让小车沿垄�
 | 管理、接入、分析、建议、可视化 | 已完成 | 可用模拟器跑通完整闭环 |
 | 标注回流 | 已完成 | 支持人工标签和 NDJSON 导出 |
 | YOLO 识别管线 | 已完成 | 公开小麦数据集训练，默认仍使用零依赖占位引擎 |
+| 条锈病识别模型 | 已完成 | `rust-cls-v1`：NWRD 公开田间数据训练，官方测试集图块 F1 0.82、ROC-AUC 0.93；默认不启用 |
 | LLM 报告 | 已完成 | 未配置模型时静默关闭，不阻塞主链路 |
 | 诊断 Agent / 规则修订 Agent | 已完成 | 分别遵守“只读”和“起草-审批”边界 |
 | M7 软件闭环 | 已完成 | 风险、复巡、随访、数据集/模型闸门和设备任务接口已接入 |
@@ -199,12 +200,16 @@ curl http://localhost:8000/api/v1/health
 默认分析器是 `placeholder-color-v0`，使用图像颜色统计估计绿色覆盖率、长势和胁迫风险，
 适合零依赖演示，不等同于真实 NDVI。
 
-如果已经训练并导出 YOLO 模型，可以在 `backend/.env` 中切换：
+如果已经训练并导出 YOLO 模型，可以在 `backend/.env` 中切换（两个模型可单独或同时启用，留空即不启用）：
 
 ```dotenv
 ANALYZER_BACKEND=yolo
-YOLO_MODEL_PATH=./models/wheat-yolo-v1.pt
+YOLO_MODEL_PATH=./models/wheat-yolo-v1.pt      # 麦穗检测：数穗估长势
+DISEASE_MODEL_PATH=./models/rust-cls-v1.pt     # 条锈病识别：病斑图块与逐点风险分
 ```
+
+后端推理需要 `pip install -r requirements-ml.txt`。条锈病模型的数据来源、测试指标与局限见
+`backend/models/rust-cls-v1.json` 和 [计划 0010](docs/exec-plans/completed/0010-rust-classifier.md)。
 
 训练环境与后端分离：
 
@@ -216,6 +221,11 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 .venv/bin/python data/prepare_gwd.py
 .venv/bin/python train.py --epochs 40
 .venv/bin/python export_model.py
+# 条锈病识别（NWRD，约 609 MB，自动校验 MD5；CPU 约 1 小时，GPU 几分钟）
+.venv/bin/python data/prepare_nwrd.py
+.venv/bin/python train_rust.py
+.venv/bin/python eval_rust.py
+.venv/bin/python export_model.py --kind rust
 ```
 
 规则的单一事实源是 [backend/rules/wheat.yaml](backend/rules/wheat.yaml)。修改 YAML 后同步入表；历史建议使用冻结快照，不会被新规则回写。
@@ -247,6 +257,7 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 
 - 默认颜色统计是占位算法，绿色覆盖率代理值不能当作真实 NDVI。
 - YOLO 公开数据集与真实车载照片存在域差，真车数据到位后需要重训和重新评估。
+- 条锈病模型只覆盖单一病害，训练数据为巴基斯坦田间近距离叶片图；输出是候选检出，须人工复核，车载照片到位后需微调并重新评估。
 - 当前认证是插槽实现，接口默认开放，暂不适合直接暴露到公网。
 - 标注目前以整图标签为主，病害检测所需的框标注仍在技术债中。
 - 离线地图瓦片只覆盖演示区域，更换演示田需要重新下载瓦片。
