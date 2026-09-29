@@ -144,6 +144,21 @@
 - **落点**：`ml/data/prepare_nwrd.py`、`ml/train_rust.py`、`ml/eval_rust.py`、`ml/export_model.py`、
   `backend/app/services/analysis/disease_classifier.py`、`yolo_detector.py`；计划 0010。
 
+### D15 · 登录认证与角色权限（2026-09-29）
+- **问题**：B4 砍掉登录后接口全开放，答辩与公网演示都无法回答「谁能看、谁能改、结论是谁下的」；插槽设计承诺过「以后只换实现」。
+- **结论**：
+  - 令牌为标准 JWT 格式、HS256 签名，口令用 `hashlib.scrypt` 加盐哈希，均用标准库实现（不引入新依赖），由测试锁住签名、过期、算法字段与篡改；
+    签名密钥 `AUTH_SECRET` 非 dev 环境必填，缺省拒绝启动；令牌有效期 `AUTH_TOKEN_HOURS`（默认 12 小时）；
+  - 所有路由仍挂 `get_current_user` 一个依赖，公开白名单只有健康检查与登录，角色策略集中在 `core/deps.py`；
+    每次请求回库读用户，停用、改角色立即生效；测试按 OpenAPI 逐个匿名调用全部接口，除白名单外必须 401；
+  - 角色三种：admin（全部 + 用户管理）/ operator（业务读写）/ viewer（只读，非 GET 一律 403，仅允许改自己的口令）；
+    至少保留一个启用的管理员，不能停用或降级自己；不设默认账号，首个管理员用 `app.tools.create_user` 建；
+  - 采集端（simulator、rover）用操作员账号或令牌认证（参数或 `AGRISCOUT_*` 环境变量），首次 401 自动登录并重试；
+  - `/media` 照片仍公开（浏览器 `<img>` 无法携带令牌，URL 为内容哈希不可枚举）；复核人、审批人署名仍由前端提交，
+    前端默认填当前登录用户姓名——两项记技术债。
+- **落点**：`core/security.py`、`core/deps.py`、`models/user.py`、迁移 0014、`api/v1/auth.py`、`api/v1/users.py`、
+  `tools/create_user.py`、前端 `stores/auth.ts`、`LoginView`、`UsersView`、路由守卫；计划 0012。
+
 ## B 系列：开发基线（2026-08 定稿，全文见 docs/05「开发基线定稿」）
 
 | 编号 | 决策 | 一句话 |
@@ -151,7 +166,7 @@
 | B1 | 几何存储 | lat/lng 浮点双列 + boundary 存 GeoJSON 文本；PostGIS 真需要时再迁移 |
 | B2 | 前端组件库 | Element Plus + Router + Pinia；Leaflet/ECharts 到可视化里程碑才加 |
 | B3 | 首批作物 | 小麦；规则 YAML 种子库与模拟器垄行均按小麦实现 |
-| B4 | 用户认证 | 砍除 JWT/登录页，全路由挂 `get_current_user` 插槽，未来零改接口 |
+| B4 | 用户认证 | 砍除 JWT/登录页，全路由挂 `get_current_user` 插槽，未来零改接口（**已被 D15 取代**：插槽已接入登录与角色） |
 
 ## 其他在档约束（非编号，但同等级别）
 
@@ -174,3 +189,4 @@
 | 2026-09-25 | D12 | 新增：可训练风险模型 risk-lr 的发布与使用约定（计划 0009） |
 | 2026-09-25 | D13 | 新增：复巡任务信号的口径（risk-lr 高风险区域被归为随机抽查的修复） |
 | 2026-09-27 | D14 | 新增：病害识别模型的数据来源与输出口径（计划 0010） |
+| 2026-09-29 | D15 | 新增：登录认证与角色权限（计划 0012），取代 B4 |

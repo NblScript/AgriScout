@@ -6,8 +6,9 @@
 ## 快速开始
 
 ```bash
-# 前置：平台已启动（backend :8000）
+# 前置：平台已启动（backend :8000），并有一个操作员账号（backend: python -m app.tools.create_user --username sim --role operator）
 cd simulator
+export AGRISCOUT_USERNAME=sim AGRISCOUT_PASSWORD='<口令>'   # 也可用 --username/--password 或 --token
 python run.py --scenario healthy          # 或 dry / patchy_disease
 ```
 
