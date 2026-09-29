@@ -433,3 +433,17 @@
 | updated_at | DateTime | NOT NULL、default=now() | — |
 
 索引 `ix_rule_revisions_rule_key`：(rule_key)
+
+### users
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | Integer | PK | — |
+| username | String(50) | NOT NULL、UNIQUE | — |
+| display_name | String(100) | NOT NULL | — |
+| password_hash | String(255) | NOT NULL | — |
+| role | String(20) | NOT NULL | — |
+| is_active | Boolean | NOT NULL | — |
+| last_login_at | DateTime | — | — |
+| created_at | DateTime | NOT NULL、default=now() | — |
+| updated_at | DateTime | NOT NULL、default=now() | — |

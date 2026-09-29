@@ -48,6 +48,7 @@ AgriScout（巡知）是一套面向病害风险预测与主动学习的农田�
 ## 当前能力
 
 - 基础管理：地块、作物、种植批次、设备的 CRUD。
+- 登录与权限：账号登录（令牌有效期默认 12 小时）；管理员 / 操作员 / 只读三种角色，只读账号不能修改任何数据；管理员在「用户管理」页建号、改角色、停用、重置口令。
 - 巡检接入：巡检包 v1、重复上传保护、照片 SHA-256 内容寻址存储、分页和地理范围查询。
 - 异步分析：上传快速返回，后台逐点执行；支持颜色统计占位分析器、可选 YOLO 麦穗分析器，以及可选条锈病识别模型（NWRD 公开田间数据训练，输出病斑图块位置与风险分）。
 - 规则建议：天气阈值、分析状态、生育期保底三层规则；每点最多保留 Top-3；建议冻结 `rule_snapshot`。
@@ -75,7 +76,8 @@ AgriScout（巡知）是一套面向病害风险预测与主动学习的农田�
 | LLM 报告 | 已完成 | 未配置模型时静默关闭，不阻塞主链路 |
 | 诊断 Agent / 规则修订 Agent | 已完成 | 分别遵守“只读”和“起草-审批”边界 |
 | M7 软件闭环 | 已完成 | 风险、复巡、随访、数据集/模型闸门和设备任务接口已接入 |
-| 真车采集端软件 | 已完成 | `rover/` 可用 `--fake` 无硬件跑通上传，9 项烟测通过 |
+| 登录与角色权限 | 已完成 | 全部接口需登录（健康检查与登录除外），三种角色，测试逐个接口核对匿名访问被拒（D15） |
+| 真车采集端软件 | 已完成 | `rover/` 可用 `--fake` 无硬件跑通上传，烟测覆盖上传、断网续传与登录 |
 | M7 真车接入 | 下一阶段 | 编码器/GPS/天气传感器尚未接入；目标是平台业务代码不因数据源改变而修改 |
 
 需要明确的是：当前模型效果主要由公开数据和模拟数据验证，真实车载照片、农技阈值复核和田间对比实验仍是下一阶段的核心工作。
@@ -130,8 +132,14 @@ python3 -m venv --without-pip .venv
 SITE_PACKAGES=$(.venv/bin/python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')
 python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 .venv/bin/python -m alembic upgrade head
+.venv/bin/python -m app.tools.sync_rules
+# 平台没有默认账号：先建一个管理员（交互输入口令），再建一个给模拟器/小车用的操作员
+.venv/bin/python -m app.tools.create_user --username admin --role admin --name 管理员
+.venv/bin/python -m app.tools.create_user --username sim --role operator --name 模拟器
 .venv/bin/python -m uvicorn app.main:app --port 8000
 ```
+
+非开发环境（`ENVIRONMENT` 不是 `dev`）必须在 `backend/.env` 设置 `AUTH_SECRET`（令牌签名密钥），否则拒绝启动。
 
 启动后可访问接口文档：<http://localhost:8000/docs>
 
@@ -146,14 +154,15 @@ pnpm install
 pnpm dev
 ```
 
-访问 <http://localhost:5173>；独立数据总览页面为 <http://localhost:5173/screen>。
+访问 <http://localhost:5173> 用上一步建的账号登录；独立数据总览页面为 <http://localhost:5173/screen>。
 
 ### 3. 跑一趟虚拟巡田
 
-保持后端运行，另开终端执行：
+保持后端运行，另开终端执行（模拟器会建地块、传巡检包，需要操作员及以上账号）：
 
 ```bash
 cd simulator
+export AGRISCOUT_USERNAME=sim AGRISCOUT_PASSWORD='<上面设置的口令>'
 ../backend/.venv/bin/python run.py --scenario dry
 ```
 
@@ -172,6 +181,7 @@ cd simulator
 ```bash
 cd rover
 python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt
+export AGRISCOUT_USERNAME=<操作员账号> AGRISCOUT_PASSWORD='<口令>'   # 或 --token
 .venv/bin/python run.py --api http://<后端局域网IP>:8000 --fake
 ```
 
@@ -246,7 +256,7 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 2. 照片不进入数据库，数据库只保存内容寻址后的 URL。
 3. 规则从 YAML 同步到数据库，建议必须冻结命中时的规则版本和条件。
 4. 模拟器和真车采集端（`rover/`）都只走 HTTP 协议，不能绕过 HTTP 直接调用后端内部代码。
-5. 认证当前保留 `get_current_user` 插槽；没有 JWT 不代表可以删除依赖边界。
+5. 所有接口统一经过 `get_current_user` 认证，公开白名单只有健康检查与登录，角色规则集中在一处（D15）。
 6. L2 Agent 只读；规则 Agent 没有直接生效权，必须经过影子运行和人工审批。
 7. 模型、数据库、照片和训练产物不进入 Git。
 
@@ -269,7 +279,8 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 - 默认颜色统计是占位算法，绿色覆盖率代理值不能当作真实 NDVI。
 - YOLO 公开数据集与真实车载照片存在域差，真车数据到位后需要重训和重新评估。
 - 条锈病模型只覆盖单一病害，训练数据为巴基斯坦田间近距离叶片图；输出是候选检出，须人工复核，车载照片到位后需微调并重新评估。
-- 当前认证是插槽实现，接口默认开放，暂不适合直接暴露到公网。
+- 照片目录 `/media` 不做登录校验（浏览器图片请求无法携带令牌，照片 URL 为内容哈希）；复核人、审批人署名目前由前端提交并默认填当前用户。
+- 登录暂无失败次数限制，部署到公网前需加限流或放在网关之后。
 - 标注目前以整图标签为主，病害检测所需的框标注仍在技术债中。
 - 离线地图瓦片只覆盖演示区域，更换演示田需要重新下载瓦片。
 - 巡检包还没有稳定的客户端包 ID，重复上传以“地块 + 设备 + 开始时间”判重；rover 收到 409 时保留本地队列等待人工核对。
@@ -291,5 +302,5 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 
 ## 许可与使用
 
-项目当前主要用于课程/竞赛原型和研究验证。部署到真实生产环境前，需要补充身份认证、对象存储、断点续传、
+项目当前主要用于课程/竞赛原型和研究验证。部署到真实生产环境前，需要补充登录限流与操作审计、对象存储、断点续传、
 监控告警、数据合规和农艺验证等能力。

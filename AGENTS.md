@@ -17,12 +17,13 @@ cd backend && .venv/bin/python -m uvicorn app.main:app --port 8000
 cd backend && .venv/bin/python -m pytest            # 提交前必须全绿
 cd backend && .venv/bin/python -m app.tools.sync_rules      # 规则 YAML → 规则表
 cd backend && .venv/bin/python -m app.tools.gen_db_schema   # 改表后重生成 db-schema.md
+cd backend && .venv/bin/python -m app.tools.create_user --username admin --role admin  # 建首个管理员（无默认账号）
 
 # 前端（5173，/api 代理后端）
 cd frontend && pnpm dev                              # 需 export XDG_CACHE/HOME/STATE（见 README）
 cd frontend && pnpm typecheck && pnpm build
 
-# 模拟器（一键闭环：建档→采样→上传→分析→建议）
+# 模拟器（一键闭环：建档→采样→上传→分析→建议）；需 AGRISCOUT_USERNAME/PASSWORD（操作员账号）
 cd simulator && ../backend/.venv/bin/python run.py --scenario dry   # healthy/dry/patchy_disease
 cd simulator && ../backend/.venv/bin/python season.py --seed 7      # 多日期病害扩散模拟季（导出真值）
 cd backend && .venv/bin/python -m app.tools.replay_eval --truth ../simulator/out/season-truth-field1.json  # H1–H3 离线重放
@@ -47,15 +48,15 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 
 | 路径 | 职责 |
 |---|---|
-| `backend/app/models/` | 22 张表，每实体一文件；`timestamps.py` 公共 mixin；`__init__.py` 为注册中心 |
-| `backend/app/api/v1/` | 路由层：CRUD + ingest + 分析 + 建议 + 标注 + stats + 报告 + Agent + 规则修订 + `device_protocol`（注册/心跳/事件/故障注入）+ `software_loop`（风险/复巡/随访/数据集/模型评估）；`deps.py` 公共 404/分页助手 |
+| `backend/app/models/` | 23 张表，每实体一文件；`timestamps.py` 公共 mixin；`__init__.py` 为注册中心 |
+| `backend/app/api/v1/` | 路由层：CRUD + ingest + 分析 + 建议 + 标注 + stats + 报告 + Agent + 规则修订 + `device_protocol`（注册/心跳/事件/故障注入）+ `software_loop`（风险/复巡/随访/数据集/模型评估）+ `auth`/`users`（登录与用户管理，D15） |
 | `backend/app/services/analysis/` | Analyzer 协议（base.py）+ 占位颜色版 + YOLO 版（麦穗，可选）+ disease_classifier（条锈病图块分类，可选）+ 后台 runner |
 | `backend/app/services/` | advice(规则引擎) / agent_chat+agent_tools(L2 诊断) / agent_rule_draft+rule_feedback+shadow_run+rule_revision(L1 起草生效) / llm_report(报告) / ingest / storage / risk_prediction+risk_inputs+region_association+active_learning+evidence_feedback+dataset_governance(M7 研究闭环，纯函数优先) / evaluation_metrics+offline_replay(随访指标与 H1–H3 离线重放) / logistic+risk_features+risk_model(risk-lr 可训练风险模型，D12) |
-| `backend/app/tools/` | `sync_rules`（YAML 同步）、`gen_db_schema`（表结构快照）、`replay_eval`（离线重放报告）、`train_risk_lr`（训练导出风险模型）、`al_replay_images`（H3 真实图像数据选样对比） |
+| `backend/app/tools/` | `sync_rules`（YAML 同步）、`gen_db_schema`（表结构快照）、`replay_eval`（离线重放报告）、`train_risk_lr`（训练导出风险模型）、`al_replay_images`（H3 真实图像数据选样对比）、`create_user`（建号/重置口令） |
 | `backend/rules/wheat.yaml` | 规则种子库 18 条（单一事实源，经 sync_rules 同步入表） |
 | `backend/app/schemas/` | DTO + 巡检包协议 v1 + 设备协议（对采集端的合同） |
-| `backend/migrations/versions/` | 手写 Alembic 迁移，`00NN_主题` 命名（当前 0013） |
-| `frontend/src/views/` | 七个管理页（系统状态/地块/作物/种植/设备/规则修订审批/研究闭环）+ PatrolsView/PatrolDetailView（回放/复核/问一问/报告）+ BigScreenView（/screen 总览） |
+| `backend/migrations/versions/` | 手写 Alembic 迁移，`00NN_主题` 命名（当前 0014） |
+| `frontend/src/views/` | 七个管理页（系统状态/地块/作物/种植/设备/规则修订审批/研究闭环）+ PatrolsView/PatrolDetailView（回放/复核/问一问/报告）+ BigScreenView（/screen 总览）+ LoginView/UsersView（登录、用户管理） |
 | `frontend/src/components/` | MapCanvas（Leaflet 封装，theme=light/dark）、EChart、ScreenPanel |
 | `frontend/src/api/index.ts` · `types.ts` | 每资源一个 api 对象；类型单一事实源，对齐 backend schemas |
 | `simulator/` | 独立虚拟巡田，只走 HTTP（禁止 import 后端内部）；`season.py` 多日期病害扩散模拟季 |
@@ -69,7 +70,7 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 2. **规则单一事实源**：规则改 YAML → sync 入表；Advice 冻结 rule_snapshot，永不回写；审批通过的修订案须回写 YAML，否则 sync 报 conflicts 并跳过（`--force` 以 YAML 覆盖）
 3. **照片不进库**：SHA-256 内容寻址存 `media/`，库内只存 URL（D6）；内容寻址意味着同一文件可能被多个巡检共享，删除前必须确认无引用
 4. **协议即合同**：巡检包/设备协议 schema 变更必须同步 `/api/v1/ingest/patrol-schema` 导出、模拟器与 rover
-5. **认证插槽**：无 JWT，全路由挂 `get_current_user` 插槽依赖，不得绕过（B4）
+5. **认证**：全路由挂 `get_current_user`（令牌校验 + 公开白名单 + 角色策略集中在 `core/deps.py`），不得绕过；新增公开接口须改白名单并过 `test_auth` 全接口匿名 401 检查（D15）
 6. **采集端隔离**：simulator 与 rover 只走 HTTP，禁止 import 后端内部代码（D5）
 7. **产物不入库**：`*.db`、`*.pt`、`backend/models/`、`media/`、`ml/data|runs|.venv`、`.pytest-tmp-*`、`.rover-spool/` 均 gitignore
 8. **测试红线**：backend pytest 全绿才能 commit；协议/引擎改动必须带新测试

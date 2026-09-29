@@ -9,6 +9,7 @@ import MapCanvas from '../components/MapCanvas.vue'
 import EChart from '../components/EChart.vue'
 import { advicesApi, agentApi, annotationsApi, capturePointsApi, fieldsApi, patrolsApi, reportsApi } from '../api'
 import { errMsg } from '../api/http'
+import { useAuthStore } from '../stores/auth'
 import {
   ADVICE_STATUS_LABELS,
   ANNOTATION_LABELS,
@@ -181,7 +182,7 @@ const annotations = ref<Annotation[]>([])
 const annSummary = ref<AnnotationSummary | null>(null)
 const annLabel = ref<AnnotationLabel>('normal')
 const annNote = ref('')
-const annotator = ref(localStorage.getItem(ANNOTATOR_KEY) ?? '')
+const annotator = ref(useAuthStore().user?.display_name ?? localStorage.getItem(ANNOTATOR_KEY) ?? '')
 const annotating = ref(false)
 let annLoadToken = 0
 

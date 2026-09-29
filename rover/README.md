@@ -22,7 +22,12 @@ python3 -m venv .venv
 
 ## 运行
 
-先确认电脑（后端）已启动，并知道它的局域网 IP（例如 `10.104.160.64`）。
+先确认电脑（后端）已启动，并知道它的局域网 IP（例如 `10.104.160.64`）。平台需要登录（决策 D15）：
+请管理员分配一个操作员账号，通过环境变量提供（口令不要写在命令行里）。
+
+```bash
+export AGRISCOUT_USERNAME=rover AGRISCOUT_PASSWORD='<口令>'
+```
 
 ```bash
 # 真车：USB 摄像头，拍 20 个点，间隔 3 秒；断网包保存在 .rover-spool
@@ -62,6 +67,8 @@ python -m unittest rover.test_run_smoke
 | `--upload-retries` | 2 | 网络或 5xx/429 等临时错误的额外重试次数 |
 | `--retry-delay` | 0.5 | 指数退避的基础等待秒数 |
 | `--flush-spool` | 关 | 只补传队列，不启动新的采集 |
+| `--username` / `--password` | 环境变量 `AGRISCOUT_USERNAME` / `AGRISCOUT_PASSWORD` | 平台账号（操作员及以上）；首次访问受保护接口时自动登录，令牌过期自动重登 |
+| `--token` | 环境变量 `AGRISCOUT_TOKEN` | 已签发的访问令牌，与账号口令二选一 |
 
 ## 当前边界（无传感器阶段）
 

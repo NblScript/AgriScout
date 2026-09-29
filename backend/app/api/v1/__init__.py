@@ -1,10 +1,11 @@
-"""API v1 路由聚合。所有业务路由统一挂认证插槽依赖（基线 B4）。"""
+"""API v1 路由聚合。所有路由统一挂认证依赖（基线 B4 → 决策 D15），公开白名单与角色策略见 core/deps.py。"""
 from fastapi import APIRouter, Depends
 
 from app.api.v1 import (
     advices,
     agent,
     annotations,
+    auth,
     capture_points,
     crops,
     device_protocol,
@@ -19,11 +20,14 @@ from app.api.v1 import (
     rules,
     software_loop,
     stats,
+    users,
 )
 from app.core.deps import get_current_user
 
 api_router = APIRouter(dependencies=[Depends(get_current_user)])
 api_router.include_router(health.router)
+api_router.include_router(auth.router)
+api_router.include_router(users.router)
 # Protocol paths such as /devices/register must precede /devices/{device_id}.
 api_router.include_router(device_protocol.router)
 api_router.include_router(fields.router)

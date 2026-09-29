@@ -25,6 +25,9 @@ import type {
   DatasetVersion,
   ModelEvaluation,
   StatsOverview,
+  LoginResult,
+  User,
+  UserRole,
 } from '../types'
 
 export interface FieldCreatePayload {
@@ -270,4 +273,33 @@ export const softwareLoopApi = {
   evaluations: () => request<ModelEvaluation[]>('/model-evaluations'),
   approveEvaluation: (id: number, approved_by: string) =>
     request<ModelEvaluation>(`/model-evaluations/${id}/approve`, { method: 'POST', body: { approved_by } }),
+}
+
+/* ---------- 登录与用户管理（决策 D15） ---------- */
+export const authApi = {
+  login: (username: string, password: string) =>
+    request<LoginResult>('/auth/login', { method: 'POST', body: { username, password } }),
+  me: () => request<User>('/auth/me'),
+  changePassword: (old_password: string, new_password: string) =>
+    request<void>('/auth/change-password', { method: 'POST', body: { old_password, new_password } }),
+}
+
+export interface UserCreatePayload {
+  username: string
+  display_name: string
+  password: string
+  role: UserRole
+}
+export interface UserUpdatePayload {
+  display_name?: string
+  role?: UserRole
+  is_active?: boolean
+  password?: string
+}
+
+export const usersApi = {
+  list: () => request<User[]>('/users'),
+  create: (payload: UserCreatePayload) => request<User>('/users', { method: 'POST', body: payload }),
+  update: (id: number, payload: UserUpdatePayload) =>
+    request<User>(`/users/${id}`, { method: 'PATCH', body: payload }),
 }

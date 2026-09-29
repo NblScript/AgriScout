@@ -4,12 +4,13 @@ import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ruleRevisionApi } from '../api'
 import { errMsg } from '../api/http'
+import { useAuthStore } from '../stores/auth'
 import type { RuleRevision } from '../types'
 
 const revisions = ref<RuleRevision[]>([])
 const loading = ref(true)
 const generating = ref(false)
-const decidedBy = ref(localStorage.getItem('agriscout_annotator') ?? '')
+const decidedBy = ref(useAuthStore().user?.display_name ?? localStorage.getItem('agriscout_annotator') ?? '')
 const statusFilter = ref<'' | 'draft' | 'approved' | 'rejected'>('')
 /** per-revision 操作锁：影子/审批进行中的按钮防重入 */
 const opLoading = ref<Record<number, boolean>>({})

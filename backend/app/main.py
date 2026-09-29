@@ -8,6 +8,10 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
+# 令牌签名密钥：开发环境可缺省（用开发密钥并告警），其余环境缺省即拒绝启动（决策 D15）
+if settings.environment != "dev" and not settings.auth_secret:
+    raise RuntimeError("非开发环境必须设置 AUTH_SECRET")
+
 app = FastAPI(
     title=settings.app_name,
     version=settings.version,

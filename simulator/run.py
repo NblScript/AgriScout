@@ -19,7 +19,7 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 
-from client import ApiClient, ApiError
+from client import ApiClient, ApiError, add_auth_args
 from geo import Layout, area_ha, boundary_geojson, s_path, to_lng_lat
 from photo import make_photo_bytes
 from scenarios import Scenario
@@ -55,6 +55,7 @@ def parse_args() -> argparse.Namespace:
                    help="播种于几天前（50 天前 → 当前处于拔节期）")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--timeout", type=float, default=90.0, help="等待分析完成的秒数")
+    add_auth_args(p)
     return p.parse_args()
 
 
@@ -180,7 +181,7 @@ def main() -> int:
     scenario = Scenario.get(args.scenario)
     print(f"🌾 AgriScout 模拟器 · 场景「{scenario.name}」— {scenario.description}")
 
-    client = ApiClient(args.api)
+    client = ApiClient(args.api, token=args.token, username=args.username, password=args.password)
     try:
         health = client.health()
         print(f"[联通] 平台 v{health['version']} ({health['environment']}) 数据库 {health['database']}")

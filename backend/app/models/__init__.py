@@ -20,6 +20,7 @@ from app.models.revisit_task import RevisitTask
 from app.models.rule import Rule
 from app.models.rule_revision import RuleRevision
 from app.models.risk_prediction import RiskPrediction
+from app.models.user import User
 from app.models.weather import WeatherSample
 
 __all__ = [
@@ -44,5 +45,6 @@ __all__ = [
     "Rule",
     "RuleRevision",
     "RiskPrediction",
+    "User",
     "WeatherSample",
 ]
