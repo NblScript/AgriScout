@@ -111,62 +111,45 @@ const kpis = computed(() => {
   ]
 })
 
-const acceptRate = computed(() => {
+/** 建议处理：用数字而不是环图——演示/初期几乎全是待确认，环图只会显示一个醒目的 0%。 */
+const adviceStats = computed(() => {
   const o = overview.value
-  if (!o || o.advices_total === 0) return '—'
-  return `${Math.round((o.advices_accepted / o.advices_total) * 100)}%`
-})
-
-const adviceRingOption = computed<EChartsOption>(() => {
-  const o = overview.value
+  const total = o?.advices_total ?? 0
+  const decided = (o?.advices_accepted ?? 0) + (o?.advices_rejected ?? 0)
   return {
-    tooltip: { trigger: 'item' },
-    title: {
-      text: `${acceptRate.value}`,
-      subtext: '采纳率',
-      left: 'center', top: '36%',
-      textStyle: { color: '#1f2d1f', fontSize: 20, fontWeight: 600 },
-      subtextStyle: { color: C.text, fontSize: 11 },
-    },
-    series: [{
-      type: 'pie', radius: ['58%', '80%'],
-      label: { show: false },
-      itemStyle: { borderColor: '#fff', borderWidth: 2 },
-      data: [
-        { value: o?.advices_accepted ?? 0, name: '已采纳', itemStyle: { color: C.green } },
-        { value: o?.advices_suggested ?? 0, name: '待处理', itemStyle: { color: C.amber } },
-        { value: o?.advices_rejected ?? 0, name: '已驳回', itemStyle: { color: C.red } },
-      ],
-    }],
+    total,
+    decided,
+    decidedPct: total ? Math.round((decided / total) * 100) : 0,
+    tiles: [
+      { key: 'pending', label: '待人工确认', value: o?.advices_suggested ?? 0 },
+      { key: 'accepted', label: '已采纳', value: o?.advices_accepted ?? 0 },
+      { key: 'rejected', label: '已驳回', value: o?.advices_rejected ?? 0 },
+    ],
   }
 })
 
+/** 近期巡检对比：异常（胁迫/病害色斑）检出点占已分析点的比例，单一坐标轴。 */
 const trendOption = computed<EChartsOption>(() => {
   const list = [...(overview.value?.recent_patrols ?? [])].reverse()
   return {
-    tooltip: { trigger: 'axis' },
-    legend: {
-      data: ['采样点数', '平均NDVI'], top: 0, right: 0,
-      textStyle: { color: C.text, fontSize: 10 }, itemWidth: 14, itemHeight: 8,
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params: unknown) => {
+        const r = list[(params as { dataIndex: number }[])[0]?.dataIndex ?? -1]
+        if (!r) return ''
+        const risk = r.avg_risk_score != null ? Math.round(r.avg_risk_score * 100) : '—'
+        return `巡检 #${r.patrol_id} · ${r.field_name ?? '未命名地块'}<br/>`
+          + `异常检出 ${r.stress_points} / ${r.analyzed_points} 点<br/>平均风险分 ${risk}`
+      },
     },
-    grid: { left: 40, right: 34, top: 26, bottom: 22 },
+    grid: { left: 40, right: 12, top: 16, bottom: 22 },
     xAxis: { type: 'category', data: list.map((r) => `#${r.patrol_id}`), ...AXIS },
-    yAxis: [
-      { type: 'value', ...AXIS },
-      { type: 'value', max: 1, ...AXIS, splitLine: { show: false } },
-    ],
-    series: [
-      {
-        name: '采样点数', type: 'bar', barWidth: 14,
-        itemStyle: { borderRadius: [3, 3, 0, 0], color: C.green },
-        data: list.map((r) => r.point_count),
-      },
-      {
-        name: '平均NDVI', type: 'line', smooth: true, yAxisIndex: 1,
-        lineStyle: { color: C.blue, width: 2 }, itemStyle: { color: C.blue },
-        symbolSize: 5, data: list.map((r) => r.avg_ndvi),
-      },
-    ],
+    yAxis: { type: 'value', ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: '{value}%' } },
+    series: [{
+      name: '异常检出占比', type: 'bar', barWidth: 14,
+      itemStyle: { borderRadius: [3, 3, 0, 0], color: C.amber },
+      data: list.map((r) => (r.analyzed_points ? Math.round((r.stress_points / r.analyzed_points) * 1000) / 10 : 0)),
+    }],
   }
 })
 
@@ -218,7 +201,7 @@ const weatherOption = computed<EChartsOption>(() => {
   return {
     tooltip: { trigger: 'axis' },
     legend: {
-      data: has ? ['气温', '土壤湿度'] : [], top: 0, right: 0,
+      data: has ? ['气温', '土壤湿度'] : [], top: 0, left: 'center',
       textStyle: { color: C.text, fontSize: 10 }, itemWidth: 14, itemHeight: 8,
     },
     grid: { left: 36, right: 40, top: 26, bottom: 22 },
@@ -230,13 +213,13 @@ const weatherOption = computed<EChartsOption>(() => {
     series: [
       {
         name: '气温', type: 'line', smooth: true, showSymbol: false, sampling: 'lttb',
-        lineStyle: { color: C.amber, width: 1.6 },
+        lineStyle: { color: C.amber, width: 1.6 }, itemStyle: { color: C.amber },
         areaStyle: { color: 'rgba(217,119,6,0.07)' },
         data: pts.map((p) => p.weather?.temp_c ?? null),
       },
       {
         name: '土壤湿度', type: 'line', smooth: true, showSymbol: false, yAxisIndex: 1, sampling: 'lttb',
-        lineStyle: { color: C.blue, width: 1.6 },
+        lineStyle: { color: C.blue, width: 1.6 }, itemStyle: { color: C.blue },
         areaStyle: { color: 'rgba(37,99,235,0.07)' },
         data: pts.map((p) => p.weather?.soil_moisture_pct ?? null),
       },
@@ -247,13 +230,44 @@ const weatherOption = computed<EChartsOption>(() => {
 /* ---------- 建议信息流 ---------- */
 const PRIORITY_ORDER: Record<string, number> = { high: 3, medium: 2, low: 1 }
 const seqByPointId = computed(() => new Map(points.value.map((p) => [p.id, p.seq])))
-const adviceFeed = computed(() =>
-  [...advices.value]
+
+/** 同一条规则在很多点命中时文案几乎一样，按规则版本归并成一条，显示涉及点数。 */
+interface FeedItem {
+  key: string
+  priority: string
+  content: string
+  ruleKey: string
+  version: number
+  source: string | null
+  seqs: number[]
+  latest: string
+}
+const adviceFeed = computed<FeedItem[]>(() => {
+  const groups = new Map<string, FeedItem>()
+  for (const a of advices.value) {
+    const key = `${a.rule_snapshot.rule_key}|${a.rule_snapshot.version}`
+    let g = groups.get(key)
+    if (!g) {
+      g = { key, priority: a.priority, content: a.content, ruleKey: a.rule_snapshot.rule_key,
+            version: a.rule_snapshot.version, source: a.rule_snapshot.source, seqs: [], latest: a.created_at }
+      groups.set(key, g)
+    }
+    const seq = a.capture_point_id != null ? seqByPointId.value.get(a.capture_point_id) : undefined
+    if (seq != null) g.seqs.push(seq)
+    if (a.created_at > g.latest) g.latest = a.created_at
+  }
+  for (const g of groups.values()) g.seqs.sort((x, y) => x - y)
+  return [...groups.values()]
     .sort((a, b) =>
       (PRIORITY_ORDER[b.priority] ?? 0) - (PRIORITY_ORDER[a.priority] ?? 0)
-      || b.created_at.localeCompare(a.created_at))
-    .slice(0, 8),
-)
+      || b.seqs.length - a.seqs.length || b.latest.localeCompare(a.latest))
+    .slice(0, 6)
+})
+function feedScope(g: FeedItem): string {
+  if (!g.seqs.length) return '全局'
+  const head = g.seqs.slice(0, 3).map((s) => `#${s}`).join('、')
+  return g.seqs.length > 3 ? `${g.seqs.length} 个采样点（${head}…）` : `采样点 ${head}`
+}
 
 const analysisStatusLabel: Record<string, string> = {
   pending: '待分析', running: '分析中', done: '分析完成', error: '分析失败',
@@ -287,10 +301,21 @@ const analysisStatusLabel: Record<string, string> = {
             </div>
           </div>
         </ScreenPanel>
-        <ScreenPanel title="农事建议处理" :subtitle="`累计 ${overview?.advices_total ?? 0} 条`" class="p-ring">
-          <EChart :option="adviceRingOption" />
+        <ScreenPanel title="农事建议处理" :subtitle="`累计 ${adviceStats.total} 条`" class="p-ring">
+          <div class="advice-stats">
+            <div class="advice-tiles">
+              <div v-for="t in adviceStats.tiles" :key="t.key" :class="['advice-tile', t.key]">
+                <b class="num">{{ t.value }}</b><span>{{ t.label }}</span>
+              </div>
+            </div>
+            <div class="advice-progress">
+              <div class="bar"><i :style="{ width: `${adviceStats.decidedPct}%` }" /></div>
+              <span>已人工处理 {{ adviceStats.decided }} / {{ adviceStats.total }} 条</span>
+            </div>
+            <p class="advice-note">建议由规则引擎生成，须经人工确认后执行，处理结果回流用于规则修订。</p>
+          </div>
         </ScreenPanel>
-        <ScreenPanel title="巡检趋势" subtitle="近 5 次" class="p-trend">
+        <ScreenPanel title="近期巡检对比" subtitle="异常检出占比" class="p-trend">
           <EChart :option="trendOption" />
         </ScreenPanel>
       </div>
@@ -345,16 +370,15 @@ const analysisStatusLabel: Record<string, string> = {
         <ScreenPanel title="沿线环境" subtitle="气温 / 土壤湿度" class="p-weather">
           <EChart :option="weatherOption" />
         </ScreenPanel>
-        <ScreenPanel title="最新农事建议" :subtitle="`采纳率 ${acceptRate}`" class="p-feed">
+        <ScreenPanel title="本次巡检建议" :subtitle="patrol ? `巡检 #${patrol.id} · ${advices.length} 条` : ''" class="p-feed">
           <div class="advice-feed">
-            <div v-for="a in adviceFeed" :key="a.id" class="feed-item">
-              <i :class="['dot', a.priority]" />
+            <div v-for="g in adviceFeed" :key="g.key" class="feed-item">
+              <i :class="['dot', g.priority]" />
               <div class="feed-main">
-                <p class="feed-content">{{ a.content }}</p>
+                <p class="feed-content">{{ g.content }}</p>
                 <p class="feed-meta">
-                  {{ a.capture_point_id != null ? `点#${seqByPointId.get(a.capture_point_id) ?? '?'}` : '全局' }}
-                  · {{ a.rule_snapshot.rule_key }} v{{ a.rule_snapshot.version }}
-                  <template v-if="a.rule_snapshot.source"> · {{ a.rule_snapshot.source }}</template>
+                  {{ feedScope(g) }} · {{ g.ruleKey }} v{{ g.version }}
+                  <template v-if="g.source"> · {{ g.source }}</template>
                 </p>
               </div>
             </div>
@@ -425,8 +449,8 @@ const analysisStatusLabel: Record<string, string> = {
 }
 .col { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 .p-resource { flex: 3; }
-.p-ring { flex: 3.2; }
-.p-trend { flex: 3.2; }
+.p-ring { flex: 2.8; }
+.p-trend { flex: 3.6; }
 .p-map { flex: 1; }
 .p-analysis { flex: 3; }
 .p-weather { flex: 3; }
@@ -451,6 +475,30 @@ const analysisStatusLabel: Record<string, string> = {
 }
 .kpi b { font-size: 20px; font-weight: 600; color: #1f2d1f; }
 .kpi span { font-size: 11px; color: #7a8a7e; }
+
+/* 建议处理 */
+.advice-stats { height: 100%; display: flex; flex-direction: column; justify-content: center; gap: 12px; }
+.advice-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.advice-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 4px;
+  background: #f8faf8;
+  border: 1px solid #e8eee8;
+  border-top: 3px solid #d7dfd8;
+  border-radius: 8px;
+}
+.advice-tile.pending { border-top-color: #d97706; }
+.advice-tile.accepted { border-top-color: #16a34a; }
+.advice-tile.rejected { border-top-color: #9aa79a; }
+.advice-tile b { font-size: 20px; font-weight: 600; color: #1f2d1f; }
+.advice-tile span { font-size: 11px; color: #7a8a7e; }
+.advice-progress { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: #4a5d4e; }
+.advice-progress .bar { height: 6px; border-radius: 3px; background: #edf1ed; overflow: hidden; }
+.advice-progress .bar i { display: block; height: 100%; border-radius: 3px; background: #16a34a; }
+.advice-note { font-size: 10px; color: #9aa79a; line-height: 1.5; }
 
 /* 地图区 */
 .p-map :deep(.ov-body) {

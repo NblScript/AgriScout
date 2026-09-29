@@ -326,6 +326,15 @@ function vigorStars(level: number | null): string {
 function pct(v: number | null): number {
   return v == null ? 0 : Math.round(v * 100)
 }
+const ANALYSIS_STATUS_TEXT: Record<string, string> = {
+  pending: '待分析', running: '分析中', done: '分析完成', error: '分析失败',
+}
+/** 绿色覆盖率（detail.green_ratio）不饱和，比 NDVI 代理更能区分长势；旧数据没有该字段时退回代理值。 */
+function greenCover(analysis: { ndvi: number | null; detail: Record<string, unknown> | null }): string {
+  const ratio = analysis.detail?.green_ratio
+  if (typeof ratio === 'number') return `${Math.round(ratio * 100)}%`
+  return analysis.ndvi != null ? `NDVI代理 ${analysis.ndvi}` : '—'
+}
 const stageName = computed(() =>
   (currentPoint.value?.analysis?.growth_stage?.name as string | undefined) ?? null,
 )
@@ -385,8 +394,8 @@ const weatherOption = computed<EChartsOption>(() => {
       <el-button :icon="ArrowLeft" circle @click="router.push('/patrols')" />
       <h3 class="title">巡检 #{{ patrol.id }} · {{ patrol.field_name ?? `地块#${patrol.field_id}` }}</h3>
       <el-tag effect="plain">{{ patrol.device_code ?? '未知设备' }}</el-tag>
-      <el-tag :type="patrol.analysis_status === 'done' ? 'success' : 'warning'" effect="plain">
-        分析{{ patrol.analysis_status }}
+      <el-tag :type="patrol.analysis_status === 'done' ? 'success' : patrol.analysis_status === 'error' ? 'danger' : 'warning'" effect="plain">
+        {{ ANALYSIS_STATUS_TEXT[patrol.analysis_status] ?? patrol.analysis_status }}
       </el-tag>
       <el-tag
         v-if="annSummary"
@@ -397,7 +406,7 @@ const weatherOption = computed<EChartsOption>(() => {
       </el-tag>
       <span class="meta" v-if="summary">
         点位 {{ summary.total_points }} · 已分析 {{ summary.analyzed_points }}
-        · NDVI代理 {{ summary.avg_ndvi ?? '—' }} · 平均风险 {{ summary.avg_risk_score ?? '—' }}
+        · 平均风险 {{ summary.avg_risk_score != null ? `${pct(summary.avg_risk_score)}%` : '—' }}
         · 胁迫 {{ summary.stress_flagged_points }} 点
       </span>
       <div class="actions">
@@ -488,7 +497,10 @@ const weatherOption = computed<EChartsOption>(() => {
                 </b>
               </div>
               <div class="kv-row">
-                <span>NDVI代理</span><b>{{ currentPoint.analysis.ndvi ?? '—' }}</b>
+                <span>绿色覆盖</span>
+                <b :title="`NDVI 代理值 ${currentPoint.analysis.ndvi ?? '—'}（由绿色占比线性近似，覆盖率约 60% 以上即饱和为 1）`">
+                  {{ greenCover(currentPoint.analysis) }}
+                </b>
               </div>
               <div class="kv-row">
                 <span>风险分</span>

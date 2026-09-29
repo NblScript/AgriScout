@@ -51,6 +51,8 @@ const ANALYSIS_TAG: Record<string, 'info' | 'warning' | 'success' | 'danger'> = 
   done: 'success',
   error: 'danger',
 }
+const ANALYSIS_TEXT: Record<string, string> = { pending: '待分析', running: '分析中', done: '已完成', error: '失败' }
+const DATA_TEXT: Record<string, string> = { received: '已接收' }
 </script>
 
 <template>
@@ -84,7 +86,7 @@ const ANALYSIS_TAG: Record<string, 'info' | 'warning' | 'success' | 'danger'> = 
     <el-table-column label="地块" min-width="150">
       <template #default="{ row }">{{ row.field_name ?? `#${row.field_id}` }}</template>
     </el-table-column>
-    <el-table-column label="设备" width="110">
+    <el-table-column label="设备" width="140">
       <template #default="{ row }">{{ row.device_code ?? '—' }}</template>
     </el-table-column>
     <el-table-column prop="started_at" label="开始时间" min-width="160" :formatter="fmtTime" />
@@ -92,14 +94,14 @@ const ANALYSIS_TAG: Record<string, 'info' | 'warning' | 'success' | 'danger'> = 
     <el-table-column label="数据" width="90">
       <template #default="{ row }">
         <el-tag :type="row.status === 'received' ? 'success' : 'info'" effect="plain">
-          {{ row.status }}
+          {{ DATA_TEXT[row.status] ?? row.status }}
         </el-tag>
       </template>
     </el-table-column>
     <el-table-column label="分析状态" width="100">
       <template #default="{ row }">
         <el-tag :type="ANALYSIS_TAG[row.analysis_status] ?? 'info'" effect="plain">
-          {{ row.analysis_status }}
+          {{ ANALYSIS_TEXT[row.analysis_status] ?? row.analysis_status }}
         </el-tag>
       </template>
     </el-table-column>

@@ -17,10 +17,80 @@ const generating = ref(false)
 const reviewer = ref(localStorage.getItem('agriscout_annotator') ?? '')
 
 const selected = computed(() => patrols.value.find(p => p.id === selectedPatrol.value) ?? null)
+
+/** 后端枚举值 → 界面文案（后端保持英文代码，展示层翻译）。 */
+const LEVEL_TEXT: Record<string, string> = { high: '高风险', medium: '中风险', low: '低风险', unknown: '证据不足' }
+const LEVEL_TAG: Record<string, 'danger' | 'warning' | 'info' | 'success'> = { high: 'danger', medium: 'warning', unknown: 'info', low: 'success' }
+const LEVEL_RANK: Record<string, number> = { high: 3, medium: 2, unknown: 1, low: 0 }
+const TREND_TEXT: Record<string, string> = { rising: '↑ 上升', falling: '↓ 下降', stable: '→ 平稳', unknown: '无历史对比' }
+const TASK_TYPE_TEXT: Record<string, string> = { revisit: '复巡', label: '专家标注', random: '随机抽查' }
+const TASK_STATUS_TEXT: Record<string, string> = { queued: '待派发', assigned: '已派发', running: '执行中', completed: '已完成', cancelled: '已取消' }
+const TASK_STATUS_TAG: Record<string, 'success' | 'warning' | 'info' | 'primary'> = { completed: 'success', running: 'warning', cancelled: 'info' }
+const REASON_TEXT: Record<string, string> = {
+  quality_below_revisit_threshold: '证据质量不足，需补拍',
+  risk_high: '风险高',
+  change_high: '较上次变化大',
+  highest_available_revisit_score: '复巡价值最高',
+  uncertainty_high: '模型把握不大',
+  quality_suitable_for_label: '照片质量适合标注',
+  highest_available_label_score: '标注价值最高',
+  representativeness_high: '代表性强',
+  low_risk_coverage: '抽查低风险区域',
+  highest_available_random_score: '抽查价值最高',
+  cost_penalty_applied: '已计入路程成本',
+}
+const DATASET_STATUS_TEXT: Record<string, string> = { draft: '草稿', frozen: '已冻结' }
+const EVAL_STATUS_TEXT: Record<string, string> = { candidate: '待审批', approved: '已批准', rejected: '已驳回' }
+const SPLIT_TEXT: Record<string, string> = { train: '训练集', val: '验证集', test: '测试集' }
+const text = (map: Record<string, string>, value: string) => map[value] ?? value
+
 function taskReasons(task: RevisitTask) {
   const reasons = task.rationale?.reasons
-  return Array.isArray(reasons) ? reasons.join('、') : '系统排序'
+  return Array.isArray(reasons) ? reasons.map(r => text(REASON_TEXT, String(r))).join('、') : '系统排序'
 }
+
+/** field-5/grid2.5m/3_7 → 网格 3-7（2.5 m）；非网格键原样显示。 */
+function regionLabel(key: string) {
+  const m = /grid([\d.]+)m\/(-?\d+)_(-?\d+)$/.exec(key)
+  return m ? `网格 ${m[2]}-${m[3]}（${m[1]} m）` : key
+}
+
+/**
+ * 预测按采样点落库（复巡要落到具体点位），同一区域的点共享区域级结果；
+ * 表格按「模型版本 + 区域」归并成一行，展开后逐点随访（随访仍是逐点记录，评估口径不变）。
+ */
+interface RegionRow {
+  key: string
+  observation_key: string
+  model_version: string
+  level: string
+  probability: number
+  trend: string
+  points: RiskPrediction[]
+  closed: number
+}
+const regions = computed<RegionRow[]>(() => {
+  const byKey = new Map<string, RegionRow>()
+  for (const p of predictions.value) {
+    const key = `${p.model_version}|${p.observation_key}`
+    let row = byKey.get(key)
+    if (!row) {
+      row = { key, observation_key: p.observation_key, model_version: p.model_version, level: p.level,
+              probability: p.probability, trend: p.trend, points: [], closed: 0 }
+      byKey.set(key, row)
+    }
+    row.points.push(p)
+    if (p.status === 'closed') row.closed++
+  }
+  return [...byKey.values()].sort((a, b) =>
+    (LEVEL_RANK[b.level] ?? 0) - (LEVEL_RANK[a.level] ?? 0) || b.probability - a.probability)
+})
+const levelCounts = computed(() => {
+  const counts: Record<string, number> = { high: 0, medium: 0, unknown: 0, low: 0 }
+  for (const r of regions.value) counts[r.level] = (counts[r.level] ?? 0) + 1
+  return counts
+})
+const fmtTime = (value: string) => new Date(value).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 
 async function load() {
   loading.value = true
@@ -144,29 +214,54 @@ onMounted(load)
 
     <el-row :gutter="14">
       <el-col :span="14">
-        <el-card shadow="never" header="区域风险预测">
-          <el-table :data="predictions" size="small" stripe>
-            <el-table-column prop="observation_key" label="观察区域" min-width="160" />
-            <el-table-column label="风险" width="100">
-              <template #default="{ row }"><el-tag :type="row.level === 'high' ? 'danger' : row.level === 'medium' ? 'warning' : row.level === 'unknown' ? 'info' : 'success'">{{ row.level }} · {{ Math.round(row.probability * 100) }}%</el-tag></template>
-            </el-table-column>
-            <el-table-column prop="trend" label="趋势" width="80" />
-            <el-table-column prop="model_version" label="模型" min-width="150" />
-            <el-table-column label="随访" width="190">
+        <el-card shadow="never">
+          <template #header>
+            <div class="card-head">
+              <span>区域风险预测</span>
+              <span v-if="regions.length" class="dim">
+                {{ regions.length }} 个区域 · 高 {{ levelCounts.high }} · 中 {{ levelCounts.medium }}
+                · 证据不足 {{ levelCounts.unknown }} · 低 {{ levelCounts.low }} · 覆盖 {{ predictions.length }} 个采样点
+              </span>
+            </div>
+          </template>
+          <el-table v-if="regions.length" :data="regions" row-key="key" size="small" stripe max-height="560">
+            <el-table-column type="expand">
               <template #default="{ row }">
-                <el-button size="small" type="danger" plain :disabled="row.status === 'closed'" @click="confirmPrediction(row, 'confirmed_positive')">确认阳性</el-button>
-                <el-button size="small" type="success" plain :disabled="row.status === 'closed' || !windowEnded(row)" :title="windowEnded(row) ? '' : '预测窗口未结束，窗口内未发病不能确认阴性'" @click="confirmPrediction(row, 'confirmed_negative')">确认阴性</el-button>
+                <el-table :data="row.points" size="small" class="points" max-height="260">
+                  <el-table-column label="采样点" width="110"><template #default="{ row: p }">ID {{ p.capture_point_id }}</template></el-table-column>
+                  <el-table-column label="预测窗口" min-width="170"><template #default="{ row: p }">{{ fmtTime(p.forecast_start) }} ~ {{ fmtTime(p.forecast_end) }}</template></el-table-column>
+                  <el-table-column label="随访" width="80"><template #default="{ row: p }"><span :class="p.status === 'closed' ? 'ok' : 'dim'">{{ p.status === 'closed' ? '已随访' : '待随访' }}</span></template></el-table-column>
+                  <el-table-column label="操作" width="190">
+                    <template #default="{ row: p }">
+                      <el-button size="small" type="danger" plain :disabled="p.status === 'closed'" @click="confirmPrediction(p, 'confirmed_positive')">确认阳性</el-button>
+                      <el-button size="small" type="success" plain :disabled="p.status === 'closed' || !windowEnded(p)" :title="windowEnded(p) ? '' : '预测窗口未结束，窗口内未发病不能确认阴性'" @click="confirmPrediction(p, 'confirmed_negative')">确认阴性</el-button>
+                    </template>
+                  </el-table-column>
+                </el-table>
               </template>
             </el-table-column>
+            <el-table-column label="观察区域" min-width="140">
+              <template #default="{ row }"><span :title="row.observation_key">{{ regionLabel(row.observation_key) }}</span></template>
+            </el-table-column>
+            <el-table-column label="风险" width="120">
+              <template #default="{ row }"><el-tag :type="LEVEL_TAG[row.level] ?? 'info'">{{ text(LEVEL_TEXT, row.level) }} · {{ Math.round(row.probability * 100) }}%</el-tag></template>
+            </el-table-column>
+            <el-table-column label="趋势" width="100">
+              <template #default="{ row }"><span :class="row.trend === 'unknown' ? 'dim' : ''" :title="row.trend === 'unknown' ? '回看窗口内该区域只有一次有效观测，无法判断趋势' : ''">{{ text(TREND_TEXT, row.trend) }}</span></template>
+            </el-table-column>
+            <el-table-column label="随访" width="90">
+              <template #default="{ row }"><span :class="row.closed ? 'ok' : 'dim'">{{ row.closed }}/{{ row.points.length }} 点</span></template>
+            </el-table-column>
+            <el-table-column prop="model_version" label="模型" min-width="130" />
           </el-table>
-          <el-empty v-if="!predictions.length" description="尚未生成预测" />
+          <el-empty v-else description="尚未生成预测" />
         </el-card>
       </el-col>
       <el-col :span="10">
-        <el-card shadow="never" header="复巡与主动学习任务">
+        <el-card shadow="never" header="复巡与主动学习任务" class="tasks-card">
           <el-timeline v-if="tasks.length">
             <el-timeline-item v-for="task in tasks" :key="task.id" :type="task.status === 'completed' ? 'success' : 'primary'">
-              <div class="task-row"><b>{{ task.task_type === 'revisit' ? '复巡' : task.task_type === 'label' ? '专家标注' : '随机抽查' }} #{{ task.id }}</b><el-tag size="small">{{ task.status }}</el-tag></div>
+              <div class="task-row"><b>{{ text(TASK_TYPE_TEXT, task.task_type) }} #{{ task.id }}</b><el-tag size="small" :type="TASK_STATUS_TAG[task.status] ?? 'primary'">{{ text(TASK_STATUS_TEXT, task.status) }}</el-tag></div>
               <div class="dim">优先级 {{ Math.round(task.priority * 100) }}% · {{ taskReasons(task) }}</div>
               <el-button v-if="task.status !== 'completed'" size="small" text type="primary" @click="completeTask(task)">标记完成</el-button>
             </el-timeline-item>
@@ -183,7 +278,7 @@ onMounted(load)
           <el-table :data="datasets" size="small">
             <el-table-column label="版本" min-width="150"><template #default="{ row }">{{ row.name }} / {{ row.version }}</template></el-table-column>
             <el-table-column prop="row_count" label="样本" width="70" />
-            <el-table-column prop="status" label="状态" width="80" />
+            <el-table-column label="状态" width="80"><template #default="{ row }">{{ text(DATASET_STATUS_TEXT, row.status) }}</template></el-table-column>
             <el-table-column label="操作" width="90"><template #default="{ row }"><el-button v-if="row.status === 'draft'" size="small" text type="primary" @click="freezeDataset(row)">冻结</el-button></template></el-table-column>
           </el-table>
           <el-empty v-if="!datasets.length" description="暂无数据集版本" />
@@ -193,8 +288,8 @@ onMounted(load)
         <el-card shadow="never" header="模型评估闸门">
           <el-table :data="evaluations" size="small">
             <el-table-column label="模型" min-width="140"><template #default="{ row }">{{ row.model_name }} / {{ row.model_version }}</template></el-table-column>
-            <el-table-column prop="split" label="分割" width="70" />
-            <el-table-column prop="status" label="状态" width="80" />
+            <el-table-column label="数据划分" width="80"><template #default="{ row }">{{ text(SPLIT_TEXT, row.split) }}</template></el-table-column>
+            <el-table-column label="状态" width="80"><template #default="{ row }">{{ text(EVAL_STATUS_TEXT, row.status) }}</template></el-table-column>
             <el-table-column label="操作" width="90"><template #default="{ row }"><el-button v-if="row.status === 'candidate'" size="small" text type="primary" @click="approveEvaluation(row)">批准</el-button></template></el-table-column>
           </el-table>
           <el-empty v-if="!evaluations.length" description="暂无评估记录" />
@@ -211,5 +306,8 @@ onMounted(load)
 .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .task-row { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
 .governance { margin-top: 14px; }
-.card-head { display: flex; justify-content: space-between; align-items: center; }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ok { color: #2f7d32; }
+.points { margin: 0 12px 0 48px; width: auto; }
+.tasks-card :deep(.el-card__body) { max-height: 600px; overflow-y: auto; }
 </style>
