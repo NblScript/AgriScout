@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { patrolsApi, softwareLoopApi } from '../api'
 import { errMsg } from '../api/http'
+import { useAuthStore } from '../stores/auth'
 import type { DatasetVersion, ModelEvaluation, Patrol, RiskPrediction, RevisitTask } from '../types'
 
 const patrols = ref<Patrol[]>([])
@@ -14,7 +15,8 @@ const datasets = ref<DatasetVersion[]>([])
 const evaluations = ref<ModelEvaluation[]>([])
 const loading = ref(false)
 const generating = ref(false)
-const reviewer = ref(localStorage.getItem('agriscout_annotator') ?? '')
+// 复核人默认取当前登录用户（D15）；服务端按登录用户署名记技术债
+const reviewer = ref(useAuthStore().user?.display_name ?? localStorage.getItem('agriscout_annotator') ?? '')
 
 const selected = computed(() => patrols.value.find(p => p.id === selectedPatrol.value) ?? null)
 

@@ -34,8 +34,8 @@ def media_dir(tmp_path) -> Path:
     return tmp_path / "media"
 
 
-@pytest.fixture()
-def client(media_dir: Path):
+def _install_test_app(media_dir: Path):
+    """内存库 + 依赖覆盖，返回 (app, 会话工厂)。"""
     # 延迟导入：保持 test_health「先设环境变量再导入」的语义不被破坏
     from app.core.db import Base, get_db, get_session_factory
     from app.main import app
@@ -59,5 +59,24 @@ def client(media_dir: Path):
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_session_factory] = lambda: TestSession  # 后台任务也写测试库
     app.dependency_overrides[get_storage] = lambda: LocalStorage(media_dir)
+    return app, TestSession
+
+
+@pytest.fixture()
+def client(media_dir: Path):
+    """业务接口测试用：认证依赖覆盖为管理员（认证本身由 test_auth.py 用 auth_env 测）。"""
+    from app.core.deps import CurrentUser, get_current_user
+
+    app, _ = _install_test_app(media_dir)
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        id=None, username="test-admin", display_name="测试管理员", role="admin")
     yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def auth_env(media_dir: Path):
+    """认证测试用：真实的 get_current_user，返回 (客户端, 会话工厂) 以便直接建用户。"""
+    app, session_factory = _install_test_app(media_dir)
+    yield TestClient(app), session_factory
     app.dependency_overrides.clear()

@@ -207,7 +207,7 @@ class _FailingCapture:
 class _FakeClient:
     instance: "_FakeClient | None" = None
 
-    def __init__(self, _base_url: str) -> None:
+    def __init__(self, _base_url: str, **_credentials: object) -> None:
         self.closed = False
         self.ingest_called = False
         type(self).instance = self
@@ -510,6 +510,100 @@ class RoverSmokeTests(unittest.TestCase):
                     [path for method, path in paths if method == "PATCH"],
                     ["/api/v1/revisit-tasks/700"] * 3,
                 )
+
+
+class _AuthPlatform:
+    """最小认证合同（决策 D15）：登录发令牌，其余接口无有效令牌一律 401。"""
+
+    def __init__(self) -> None:
+        self.logins = 0
+        self.auth_headers: list[str | None] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v1/auth/login":
+            body = json.loads(request.content)
+            if body == {"username": "rover", "password": "field-pass-1"}:
+                self.logins += 1
+                return httpx.Response(200, json={"access_token": "good-token", "token_type": "bearer"})
+            return httpx.Response(401, json={"detail": "用户名或口令错误"})
+        header = request.headers.get("Authorization")
+        self.auth_headers.append(header)
+        if header != "Bearer good-token":
+            return httpx.Response(401, json={"detail": "请先登录"}, headers={"WWW-Authenticate": "Bearer"})
+        return httpx.Response(200, json=[])
+
+
+def _with_transport(client, platform: _AuthPlatform, attr: str):
+    original = getattr(client, attr)
+    replacement = httpx.Client(transport=httpx.MockTransport(platform), base_url=client.base_url,
+                               headers=dict(original.headers))
+    original.close()
+    setattr(client, attr, replacement)
+    return client
+
+
+class ClientAuthTests(unittest.TestCase):
+    """rover 与 simulator 的 HTTP 客户端：凭据参数、首次 401 登录重试、无凭据时给出可操作的提示。"""
+
+    def _clients(self, **kwargs):
+        rover = _with_transport(rover_run.ApiClient("http://platform.test", **kwargs), self.rover_platform, "_c")
+        sim = _with_transport(simulator_client.ApiClient("http://platform.test", **kwargs), self.sim_platform,
+                              "_client")
+        return rover, sim
+
+    def setUp(self) -> None:
+        self.rover_platform, self.sim_platform = _AuthPlatform(), _AuthPlatform()
+
+    def test_username_password_logs_in_once_on_first_401(self) -> None:
+        rover, sim = self._clients(username="rover", password="field-pass-1")
+        try:
+            for client, platform in ((rover, self.rover_platform), (sim, self.sim_platform)):
+                self.assertEqual(client.get("/api/v1/fields"), [])
+                self.assertEqual(client.get("/api/v1/crops"), [])
+                self.assertEqual(platform.logins, 1)
+                self.assertEqual(platform.auth_headers, [None, "Bearer good-token", "Bearer good-token"])
+        finally:
+            rover.close()
+            sim.close()
+
+    def test_token_is_sent_without_login(self) -> None:
+        rover, sim = self._clients(token="good-token")
+        try:
+            for client, platform in ((rover, self.rover_platform), (sim, self.sim_platform)):
+                self.assertEqual(client.get("/api/v1/fields"), [])
+                self.assertEqual(platform.logins, 0)
+        finally:
+            rover.close()
+            sim.close()
+
+    def test_missing_credentials_raise_actionable_error(self) -> None:
+        rover, sim = self._clients()
+        try:
+            with self.assertRaisesRegex(rover_run.ApiError, "AGRISCOUT_USERNAME") as caught:
+                rover.get("/api/v1/fields")
+            self.assertEqual(caught.exception.status_code, 401)
+            self.assertFalse(caught.exception.retryable)
+            with self.assertRaisesRegex(simulator_client.ApiError, "AGRISCOUT_USERNAME"):
+                sim.get("/api/v1/fields")
+        finally:
+            rover.close()
+            sim.close()
+
+    def test_wrong_password_reports_login_failure(self) -> None:
+        rover, sim = self._clients(username="rover", password="wrong")
+        try:
+            with self.assertRaisesRegex(rover_run.ApiError, "登录失败"):
+                rover.get("/api/v1/fields")
+            with self.assertRaisesRegex(simulator_client.ApiError, "登录失败"):
+                sim.get("/api/v1/fields")
+        finally:
+            rover.close()
+            sim.close()
+
+    def test_rover_reads_credentials_from_environment(self) -> None:
+        with patch.dict("os.environ", {"AGRISCOUT_USERNAME": "rover", "AGRISCOUT_PASSWORD": "field-pass-1"}):
+            args = rover_run.parse_args(["--fake"])
+        self.assertEqual((args.username, args.password, args.token), ("rover", "field-pass-1", None))
 
 
 if __name__ == "__main__":

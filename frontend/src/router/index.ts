@@ -1,9 +1,22 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', redirect: '/dashboard' },
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('../views/LoginView.vue'),
+      meta: { title: '登录', bare: true, public: true },
+    },
+    {
+      path: '/users',
+      name: 'users',
+      component: () => import('../views/UsersView.vue'),
+      meta: { title: '用户管理', admin: true },
+    },
     {
       path: '/screen',
       name: 'screen',
@@ -66,6 +79,19 @@ const router = createRouter({
     },
     { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
   ],
+})
+
+/* 登录守卫（决策 D15）：未登录一律去登录页并带回跳地址；管理员页面按角色放行。 */
+router.beforeEach((to) => {
+  const auth = useAuthStore()
+  if (to.meta.public) {
+    return to.name === 'login' && auth.isAuthenticated ? '/dashboard' : true
+  }
+  if (!auth.isAuthenticated) {
+    return { name: 'login', query: { redirect: to.fullPath } }
+  }
+  if (to.meta.admin && !auth.isAdmin) return '/dashboard'
+  return true
 })
 
 export default router

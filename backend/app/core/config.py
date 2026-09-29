@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     # 逗号分隔的允许跨域来源
     cors_origins: str = "http://localhost:5173"
 
+    # 登录令牌（决策 D15）：签名密钥非 dev 环境必填；令牌有效期（小时）
+    auth_secret: str = ""
+    auth_token_hours: int = 12
+
     # 识别引擎：placeholder 颜色统计 | yolo 麦穗检测（需 requirements-ml.txt + 模型文件）
     analyzer_backend: str = "placeholder"
     yolo_model_path: str = "./models/wheat-yolo-v1.pt"  # 留空 = 不做数穗，长势沿用颜色统计

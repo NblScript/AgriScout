@@ -142,13 +142,27 @@ class PackageSpool:
 class ApiClient(AbstractContextManager["ApiClient"]):
     """平台 HTTP 客户端（只走 HTTP，不 import 后端内部代码）。"""
 
-    def __init__(self, base_url: str, timeout: float = 120.0):
+    def __init__(self, base_url: str, timeout: float = 120.0, *, token: str | None = None,
+                 username: str | None = None, password: str | None = None):
         if not base_url.startswith(("http://", "https://")):
             raise ValueError("--api 必须是 http:// 或 https:// 地址")
         self.base_url = base_url.rstrip("/")
         # 巡检端通常访问局域网内的后端；不继承主机代理，避免 SOCKS
         # 环境变量把本地请求导向未安装 socksio 的代理适配器。
         self._c = httpx.Client(base_url=self.base_url, timeout=timeout, trust_env=False)
+        # 登录凭据（决策 D15）：令牌直接用；账号口令在首次 401 时登录，令牌过期后自动重登
+        self._username, self._password = username, password
+        if token:
+            self._c.headers["Authorization"] = f"Bearer {token}"
+
+    def login(self) -> None:
+        try:
+            resp = self._c.post("/api/v1/auth/login", json={"username": self._username, "password": self._password})
+        except httpx.RequestError as exc:
+            raise ApiError(f"登录请求失败：{exc}", retryable=True) from exc
+        if resp.status_code != 200:
+            raise ApiError(f"登录失败 HTTP {resp.status_code}: {resp.text[:200]}", status_code=resp.status_code)
+        self._c.headers["Authorization"] = f"Bearer {resp.json()['access_token']}"
 
     def __exit__(self, exc_type, exc, tb) -> None:
         self.close()
@@ -159,10 +173,19 @@ class ApiClient(AbstractContextManager["ApiClient"]):
     def _req(self, method: str, path: str, json_body: Any = None, expect=(200, 201)):
         try:
             resp = self._c.request(method, path, json=json_body)
+            if resp.status_code == 401 and self._username and self._password:
+                self.login()
+                resp = self._c.request(method, path, json=json_body)
         except httpx.RequestError as exc:
             raise ApiError(
                 f"{method} {path} 网络请求失败：{exc}", retryable=True,
             ) from exc
+        if resp.status_code == 401:
+            raise ApiError(
+                f"{method} {path} -> HTTP 401：平台要求登录，用 --username/--password"
+                "（或环境变量 AGRISCOUT_USERNAME/AGRISCOUT_PASSWORD）或 --token 提供凭据",
+                status_code=401,
+            )
         if resp.status_code not in expect:
             detail = resp.text.replace("\n", " ")[:300]
             raise ApiError(
@@ -431,6 +454,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--flush-spool", action="store_true",
         help="只补传本地队列，不启动新的采集",
     )
+    # 登录凭据（决策 D15）：口令建议走环境变量，避免留在命令行历史里
+    parser.add_argument("--username", default=os.environ.get("AGRISCOUT_USERNAME"), help="平台账号（操作员及以上）")
+    parser.add_argument("--password", default=os.environ.get("AGRISCOUT_PASSWORD"), help="口令（建议用环境变量）")
+    parser.add_argument("--token", default=os.environ.get("AGRISCOUT_TOKEN"), help="已签发的访问令牌（与账号二选一）")
     args = parser.parse_args(argv)
     if args.points < 1:
         parser.error("--points 必须大于 0")
@@ -537,7 +564,7 @@ def build_package(
 
 
 def run(args: argparse.Namespace) -> int:
-    client = ApiClient(args.api)
+    client = ApiClient(args.api, token=args.token, username=args.username, password=args.password)
     spool = PackageSpool(args.spool_dir)
     source: CaptureSource | None = None
     try:

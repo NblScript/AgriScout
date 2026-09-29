@@ -5,28 +5,55 @@
 """
 from __future__ import annotations
 
+import argparse
+import os
 from typing import Any
 
 import httpx
+
+AUTH_HINT = "平台要求登录：用 --username/--password（或环境变量 AGRISCOUT_USERNAME/AGRISCOUT_PASSWORD）或 --token 提供凭据"
 
 
 class ApiError(RuntimeError):
     pass
 
 
+def add_auth_args(parser: argparse.ArgumentParser) -> None:
+    """登录凭据参数（决策 D15）。口令建议走环境变量，避免留在命令行历史里。"""
+    parser.add_argument("--username", default=os.environ.get("AGRISCOUT_USERNAME"), help="平台账号（操作员及以上）")
+    parser.add_argument("--password", default=os.environ.get("AGRISCOUT_PASSWORD"), help="口令（建议用环境变量）")
+    parser.add_argument("--token", default=os.environ.get("AGRISCOUT_TOKEN"), help="已签发的访问令牌（与账号二选一）")
+
+
 class ApiClient:
-    def __init__(self, base_url: str, timeout: float = 30.0) -> None:
+    def __init__(self, base_url: str, timeout: float = 30.0, *, token: str | None = None,
+                 username: str | None = None, password: str | None = None) -> None:
         self.base_url = base_url.rstrip("/")
         # 现场平台通常在局域网；不要把本机 SOCKS/HTTP 代理继承到本地协议请求。
         self._client = httpx.Client(base_url=self.base_url, timeout=timeout, trust_env=False)
+        self._username, self._password = username, password
+        if token:
+            self._client.headers["Authorization"] = f"Bearer {token}"
 
     def close(self) -> None:
         self._client.close()
+
+    def login(self) -> None:
+        resp = self._client.post("/api/v1/auth/login", json={"username": self._username, "password": self._password})
+        if resp.status_code != 200:
+            raise ApiError(f"登录失败 HTTP {resp.status_code}: {resp.text[:200]}")
+        self._client.headers["Authorization"] = f"Bearer {resp.json()['access_token']}"
 
     # ---------- 底层 ----------
     def _req(self, method: str, path: str, json_body: Any = None,
              expect: tuple[int, ...] = (200,)) -> Any:
         resp = self._client.request(method, path, json=json_body)
+        # 首次访问受保护接口或令牌过期：有账号口令就登录一次再重试
+        if resp.status_code == 401 and self._username and self._password:
+            self.login()
+            resp = self._client.request(method, path, json=json_body)
+        if resp.status_code == 401:
+            raise ApiError(f"{method} {path} -> HTTP 401：{AUTH_HINT}")
         if resp.status_code not in expect:
             raise ApiError(
                 f"{method} {path} -> HTTP {resp.status_code}: {resp.text[:300]}"

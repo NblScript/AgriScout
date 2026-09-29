@@ -25,7 +25,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from client import ApiClient, ApiError
+from client import ApiClient, ApiError, add_auth_args
 from epidemic import Epidemic, EpidemicConfig, generate_weather
 from geo import Layout, area_ha, boundary_geojson, s_path, to_lng_lat
 from photo import make_photo_bytes
@@ -64,6 +64,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--miss-rate", type=float, default=0.10, help="随访失败（记证据不足）的比例")
     p.add_argument("--truth-out", default=None, help="真值 JSON 输出路径（默认 simulator/out/）")
     p.add_argument("--timeout", type=float, default=180.0, help="每趟等待分析完成的秒数")
+    add_auth_args(p)
     args = p.parse_args(argv)
     if args.days < 2 or args.interval < 1 or args.interval >= args.days:
         p.error("需要 days >= 2 且 1 <= interval < days")
@@ -211,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"🌾 模拟季：{dates[0]} ~ {dates[-1]}，每 {args.interval} 天巡检一次，共 {len(patrol_days)} 趟；"
           f"每趟 {len(xy)} 点；病害侵染 {epi.summary()['infected_cells']}/{epi.summary()['total_cells']} 格")
 
-    client = ApiClient(args.api, timeout=120.0)
+    client = ApiClient(args.api, timeout=120.0, token=args.token, username=args.username, password=args.password)
     try:
         client.health()
         device = client.ensure_device(args.device, f"模拟季巡检车({args.device})")

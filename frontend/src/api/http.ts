@@ -1,4 +1,4 @@
-/** 统一 fetch 封装：JSON 编解码、错误信息提取。 */
+/** 统一 fetch 封装：JSON 编解码、登录令牌、错误信息提取。 */
 import type { Page } from '../types'
 
 const BASE = '/api/v1'
@@ -8,12 +8,27 @@ interface RequestOptions {
   body?: unknown
 }
 
+/* 令牌与 401 处理由 auth store 注入（避免 http ↔ store 循环依赖）。 */
+let authToken: string | null = null
+let onUnauthorized: (() => void) | null = null
+
+export function setAuthToken(token: string | null) {
+  authToken = token
+}
+export function setUnauthorizedHandler(handler: () => void) {
+  onUnauthorized = handler
+}
+
 export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (authToken) headers.Authorization = `Bearer ${authToken}`
   const resp = await fetch(BASE + path, {
     method: opts.method ?? 'GET',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
   })
+  // 令牌失效（过期/账号停用）：清登录态并回登录页；登录接口自己的 401 是「口令错」，不跳转
+  if (resp.status === 401 && path !== '/auth/login') onUnauthorized?.()
   if (!resp.ok) {
     let detail = `HTTP ${resp.status}`
     try {

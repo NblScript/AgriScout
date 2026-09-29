@@ -425,6 +425,27 @@ export interface DeviceHeartbeat {
   updated_at: string
 }
 
+/* ---------- 登录与用户（决策 D15） ---------- */
+export type UserRole = 'admin' | 'operator' | 'viewer'
+export const ROLE_LABELS: Record<UserRole, string> = { admin: '管理员', operator: '操作员', viewer: '只读' }
+
+export interface User {
+  id: number
+  username: string
+  display_name: string
+  role: UserRole
+  is_active: boolean
+  last_login_at: string | null
+  created_at: string
+}
+
+export interface LoginResult {
+  access_token: string
+  token_type: 'bearer'
+  expires_at: string
+  user: User
+}
+
 export interface DeviceEvent {
   id: number
   device_id: number | null
