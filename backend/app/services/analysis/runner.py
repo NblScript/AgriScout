@@ -113,7 +113,7 @@ def run_patrol_analysis(
             # 一张都没解开更像是系统性问题（编码器/依赖异常），不当作正常完成
             raise RuntimeError(f"巡检 {patrol_id} 的 {bad_image} 张照片全部无法解码")
 
-        # 分析完成 → 先生成建议（任务流水线阶段⑥，docs/05），再对外宣告 done：
+        # 分析完成 → 先生成建议（任务流水线阶段⑥，ARCHITECTURE.md「数据流」），再对外宣告 done：
         # 客户端（模拟器/前端）以 analysis_status=done 为「结果齐了」的信号，
         # 旧顺序先提交 done 再生成建议，轮询方会读到空建议列表。
         try:

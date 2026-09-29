@@ -26,7 +26,7 @@ from scenarios import Scenario
 from weather import weather_at
 
 TZ_CN = timezone(timedelta(hours=8))
-SECONDS_PER_STEP = 3  # 0.5m ÷ ~0.17m/s，与真实小车节拍一致（主计划 §9）
+SECONDS_PER_STEP = 3  # 0.5m ÷ ~0.17m/s，行间巡检车车速常取 0.1–0.3 m/s
 
 WHEAT_STAGES = [
     {"name": "出苗期", "days": 15},

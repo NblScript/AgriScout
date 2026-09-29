@@ -2,17 +2,18 @@
 
 | 文档 | 定位 | 何时读 |
 |---|---|---|
-| [decision-registry.md](decision-registry.md) | 编号决策唯一注册点（D/B/T/L），永不删档 | 查任何编号决策；做新决策登记时 |
+| [decision-registry.md](decision-registry.md) | 编号决策唯一注册点（D/B/T/L）、规则引擎生命周期，永不删档 | 查任何编号决策；做新决策登记时 |
 | [core-beliefs.md](core-beliefs.md) | 代理优先操作原则（怎么干活） | 接手项目、做技术选型、起争议时 |
-| ../01-reference-research.md | 立项调研：3 案例精读 + 论文要点 + 设计启示 | 写申报书/PPT、讲故事时 |
-| ../04-master-plan.md | **唯一权威计划**：架构/契约/分级/里程碑 | 任何设计与实现之前（§7 契约、§8 分级） |
-| ../05-discussion-decisions.md | 决策讨论全文：问题→选项→权衡→结论 | 追溯某个决策为什么这么定 |
-| ../06-embedded-learning-roadmap.txt | 成员 A 嵌入式学习路线（P0/P1） | 硬件线相关分工 |
-| ../07-project-introduction.md | 项目详细介绍（申报书/PPT 底稿） | 对外介绍、比赛材料 |
+| [../../ARCHITECTURE.md](../../ARCHITECTURE.md) | 分层、数据流、契约、能力分级 | 任何设计与实现之前 |
+| [../09-project-application.md](../09-project-application.md) | 申报书底稿：三项创新、H1–H4、实验与标签设计（项目叙事以此为准） | 对外介绍、比赛材料、判断工作是否对题 |
+| [../08-system-solution.md](../08-system-solution.md) | 目标系统方案：硬件分工、巡检包 v2、边缘推理、部署 | 硬件联调、协议升级、部署 |
+| [../01-reference-research.md](../01-reference-research.md) | 立项调研：同类案例与论文精读 | 答辩时对比已有方案 |
 
-## 新增文档规则
+## 文档规则
 
-1. 编号文档（01-07）**不改号不删除**——代码注释引用 §7.2/§8.1 等小节号作为契约锚点
-2. 新设计文档放本目录，描述性命名（如 `annotation-loop.md`），并在上表登记一行
-3. 决策类内容不新开文档，追加进 [decision-registry.md](decision-registry.md)
-4. 文档校验由 `backend/tests/test_docs.py` 机械执行：内部链接必须可解析
+1. 项目叙事（定位、创新点、硬件口径）以 docs/09、docs/08 为准；README、AGENTS、ARCHITECTURE 与之保持一致
+2. 编号文档可以删除，但删除前要把仍被代码或其他文档引用的内容迁到活文档、改掉引用，
+   并在 `docs/exec-plans/README.md` 记下原文所在 commit
+3. 新设计文档放本目录，描述性命名（如 `annotation-loop.md`），并在上表登记一行
+4. 决策类内容不新开文档，追加进 [decision-registry.md](decision-registry.md)
+5. 文档校验由 `backend/tests/test_docs.py` 机械执行：内部链接必须可解析

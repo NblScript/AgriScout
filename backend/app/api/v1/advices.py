@@ -61,7 +61,7 @@ def list_advices(
 
 @router.patch("/advices/{advice_id}", response_model=AdviceOut)
 def update_advice_status(advice_id: int, payload: AdviceStatusUpdate, db: Session = Depends(get_db)):
-    """采纳/驳回建议——这些决策同时是自我优化闭环的反馈信号（docs/05）。"""
+    """采纳/驳回建议——这些决策同时是自我优化闭环的反馈信号（决策注册表 L 系列）。"""
     advice = db.get(Advice, advice_id)
     if advice is None:
         raise HTTPException(status_code=404, detail="建议不存在")

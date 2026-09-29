@@ -1,8 +1,9 @@
 # AGENTS.md — AgriScout 代理地图
 
-农田巡检平台：巡检小车每 0.5m 拍照+采天气 → 平台异步逐点分析（生育期/长势/穗数）→
-规则引擎产出可溯源农事建议 → 人工复核标注回流训练集 → 风险预测/复巡/数据集与模型闸门。
-2027 大挑比赛项目（科技发明 A 类）。当前阶段：软件线 M0–M6 与 M7 软件闭环已完成，下一步是 M7 真车接入。
+巡知（AgriScout）：面向病害风险预测与主动学习的农田智能巡检系统。小车沿垄近地拍照 → 平台异步逐点分析 →
+区域风险预测 → 复巡/标注任务 → 人工随访与复核 → 数据集冻结与模型闸门；规则引擎给出可溯源农事建议。
+2027 挑战杯科技发明 A 类，叙事以 docs/09 申报书为准。当前阶段：平台软件闭环、模拟季离线重放（H1–H3）、
+risk-lr-v1、条锈病识别 rust-cls-v1 已完成；进行中的是计划 0007（真车采数前置改造）。
 
 **本文件是地图不是说明书**——约束看红线节，细节按「文档导航」按需读。
 所有跨会话知识必须落在仓库文件里，聊天记录等于不存在。
@@ -59,7 +60,7 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 | `frontend/src/api/index.ts` · `types.ts` | 每资源一个 api 对象；类型单一事实源，对齐 backend schemas |
 | `simulator/` | 独立虚拟巡田，只走 HTTP（禁止 import 后端内部）；`season.py` 多日期病害扩散模拟季 |
 | `rover/` | 真车采集端：拍照→攒点→打包上传，本地 spool 断网续传；只走 HTTP |
-| `ml/` | YOLO 训练环境（与后端运行时分离）：麦穗检测（GWD）、条锈病图块分类（NWRD，计划 0010） |
+| `ml/` | YOLO 训练环境（与后端运行时分离）：麦穗检测（GWD）、条锈病图块分类（NWRD，D14） |
 | `tools/` | download_tiles.py 离线瓦片下载（高德源） |
 
 ## 不可变红线（违反=返工）
@@ -78,8 +79,8 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 ## 工作约定
 
 - **里程碑 = commit 单元**，中文消息 `M{n}: 主题——交付物`；文档变更单独 `docs:` 前缀 commit
-- **执行计划先行**：非常规改动先在 `docs/exec-plans/active/` 建计划（模板见其 README），
-  完成移 `completed/`；决策（编号 D/B/T）登记 `docs/design-docs/decision-registry.md`
+- **执行计划先行**：非常规改动先在 `docs/exec-plans/active/` 建计划（模板见其 README），完成后结论
+  并入注册表/README、计划文件删除；决策（编号 D/B/T/L）登记 `docs/design-docs/decision-registry.md`
 - **机械校验**：`backend/tests/test_docs.py` 守护文档新鲜度（链接/行数≤120/db-schema 快照），
   改表结构后运行 `python -m app.tools.gen_db_schema` 重新生成
 - **测试临时目录**：pytest 用 `--basetemp` 时放到系统临时目录，不要在仓库根目录堆 `.pytest-tmp-*`
@@ -92,12 +93,13 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 | 何时 | 读 |
 |---|---|
 | 改数据库 / 看表结构 | `docs/generated/db-schema.md`（生成物，勿手改） |
-| 动 Analyzer 或接入新识别模型 | 主计划 §7.2（协议契约）、`services/analysis/base.py` |
-| 动规则/建议逻辑 | 主计划 §7.3（YAML 格式）、`services/advice.py`、docs/05 规则生命周期节 |
-| 动风险预测/复巡/数据集闸门 | `docs/exec-plans/completed/0005-software-completion.md`、`api/v1/software_loop.py` |
+| 动 Analyzer 或接入新识别模型 | `ARCHITECTURE.md`「契约」「能力分级」、`services/analysis/base.py`、决策 D14 |
+| 动规则/建议逻辑 | `backend/rules/wheat.yaml` 文件头（格式）、`services/advice.py`、注册表「规则引擎生命周期」 |
+| 动风险预测/复巡/数据集闸门 | 决策 D10–D13、`api/v1/software_loop.py`、`services/offline_replay.py` |
 | 查某个编号决策（D/B/T/L） | `docs/design-docs/decision-registry.md` |
 | 理解整体架构 | `ARCHITECTURE.md`（本仓库） |
 | 看当前在做什么 / 接手未完工作 | `docs/exec-plans/active/`（空则看 README「下一阶段」） |
-| 已知问题 / 技术债 | `docs/exec-plans/tech-debt-tracker.md`、`docs/reviews/`（代码审查记录、申报书方案评审） |
-| 立项背景 / 比赛叙事 | docs/01（调研）、docs/07（介绍）、docs/08（系统方案）、docs/09（申报书） |
-| 硬件 / 小车对接 | `rover/README.md`、docs/04 §9（硬件路线）、docs/06（嵌入式路线） |
+| 已知问题 / 技术债 | `docs/exec-plans/tech-debt-tracker.md` |
+| 立项背景 / 比赛叙事 | docs/09（申报书，口径以此为准）、docs/08（系统方案）、docs/01（同类案例调研） |
+| 硬件 / 小车对接 | `rover/README.md`、docs/08 §5–§7（硬件分工、Pi 端软件、TX2 推理）、注册表 T 系列 |
+| 查已删除的旧文档（已完成计划、审查记录、主计划等） | `docs/exec-plans/README.md`「已删除的历史文档」 |

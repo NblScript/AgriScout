@@ -4,7 +4,7 @@
     cd backend && .venv/bin/python -m app.tools.sync_rules
 也可经接口触发：POST /api/v1/rules/sync-yaml
 
-纪律（docs/05）：只停用不删除；内容变更 version 自增；解析失败的文件整体拒绝。
+纪律（决策注册表「规则引擎生命周期」）：只停用不删除；内容变更 version 自增；解析失败的文件整体拒绝。
 
 与规则修订审批的衔接：审批通过的修订案直接写规则表（rule_revision.apply_draft_to_rule）。
 若 YAML 尚未回写同样的改动，常规同步会把审批结果悄悄覆盖回旧内容——因此
