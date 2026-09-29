@@ -3,7 +3,7 @@
 巡知（AgriScout）：面向病害风险预测与主动学习的农田智能巡检系统。小车沿垄近地拍照 → 平台异步逐点分析 →
 区域风险预测 → 复巡/标注任务 → 人工随访与复核 → 数据集冻结与模型闸门；规则引擎给出可溯源农事建议。
 2027 挑战杯科技发明 A 类，叙事以 docs/09 申报书为准。当前阶段：平台软件闭环、模拟季离线重放（H1–H3）、
-risk-lr-v1、条锈病识别 rust-cls-v1 已完成；进行中的是计划 0007（真车采数前置改造）。
+risk-lr-v1、条锈病识别 rust-cls-v1、登录与角色权限（D15）已完成；进行中的是计划 0007（真车采数前置改造）。
 
 **本文件是地图不是说明书**——约束看红线节，细节按「文档导航」按需读。
 所有跨会话知识必须落在仓库文件里，聊天记录等于不存在。
@@ -98,6 +98,7 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 | 动规则/建议逻辑 | `backend/rules/wheat.yaml` 文件头（格式）、`services/advice.py`、注册表「规则引擎生命周期」 |
 | 动风险预测/复巡/数据集闸门 | 决策 D10–D13、`api/v1/software_loop.py`、`services/offline_replay.py` |
 | 查某个编号决策（D/B/T/L） | `docs/design-docs/decision-registry.md` |
+| 动认证 / 角色 / 公开接口 | 决策 D15、`core/deps.py`、`core/security.py`、`tests/test_auth.py` |
 | 理解整体架构 | `ARCHITECTURE.md`（本仓库） |
 | 看当前在做什么 / 接手未完工作 | `docs/exec-plans/active/`（空则看 README「下一阶段」） |
 | 已知问题 / 技术债 | `docs/exec-plans/tech-debt-tracker.md` |

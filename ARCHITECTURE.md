@@ -41,7 +41,8 @@ services/        业务：ingest / analysis / advice / storage / 风险与主动
   ↓
 models/ + schemas/   ORM 实体 与 DTO/协议（schemas 是对采集端的合同面）
   ↓
-core/            config(pydantic-settings) / db(Session) / deps(认证插槽) / timeutil(UTC 约定，D9)
+core/            config(pydantic-settings) / db(Session) / deps(认证与角色策略，D15) / security(口令哈希、令牌签发)
+                 / timeutil(UTC 约定，D9)
 ```
 
 跨层约定：

@@ -43,14 +43,16 @@ docs/exec-plans/active/<编号>-<主题>.md   ← 开工时创建，随进展更
 
 ## 已删除的历史文档（2026-09-29 清理）
 
-代码注释和决策注册表里仍会出现「计划 00NN」「审查第 N 项」等编号。原文的最后版本都在 commit `5ab7309`，用
-`git show 5ab7309:<路径>` 查看：
+代码注释和决策注册表里仍会出现「计划 00NN」「审查第 N 项」等编号。原文的最后版本在下表所列 commit，用
+`git show <commit>:<路径>` 查看：
 
-| 文档 | 路径 |
-|---|---|
-| 执行计划 0001–0006、0008–0011（M0–M6 回填、YOLO 管线、rover、软件闭环、审查修复、模拟季与离线重放、risk-lr-v1、rust-cls-v1、H3 真实数据） | `docs/exec-plans/completed/<编号>-<主题>.md` |
-| 代码审查记录（三轮）、申报书方案评审 | `docs/reviews/2026-09-25-code-review.md`、`docs/reviews/2026-09-25-application-review.md` |
-| 主计划 v1.0、讨论决策日志、嵌入式学习路线、项目介绍 v1.0、产品规格索引 | `docs/04-master-plan.md`、`docs/05-discussion-decisions.md`、`docs/06-embedded-learning-roadmap.txt`、`docs/07-project-introduction.md`、`docs/product-specs/index.md` |
+| 文档 | commit | 路径 |
+|---|---|---|
+| 执行计划 0001–0006、0008–0011（M0–M6 回填、YOLO 管线、rover、软件闭环、审查修复、模拟季与离线重放、risk-lr-v1、rust-cls-v1、H3 真实数据） | `5ab7309` | `docs/exec-plans/completed/<编号>-<主题>.md` |
+| 执行计划 0012（登录与角色权限） | `ae22fb6` | `docs/exec-plans/completed/0012-user-auth.md` |
+| 代码审查记录（三轮）、申报书方案评审 | `5ab7309` | `docs/reviews/2026-09-25-code-review.md`、`docs/reviews/2026-09-25-application-review.md` |
+| 主计划 v1.0、讨论决策日志、嵌入式学习路线、项目介绍 v1.0、产品规格索引 | `5ab7309` | `docs/04-master-plan.md`、`docs/05-discussion-decisions.md`、`docs/06-embedded-learning-roadmap.txt`、`docs/07-project-introduction.md`、`docs/product-specs/index.md` |
 
 仍有效的内容已迁出：未修的审查项 → `tech-debt-tracker.md`；方案评审的 P0–P2 与时间线 → 计划 0007；
-基线、规则生命周期与分级 → 决策注册表与 ARCHITECTURE.md。
+基线、规则生命周期与分级 → 决策注册表与 ARCHITECTURE.md；计划 0012 → 决策 D15、README（运行与登录说明）、
+技术债台账（照片目录公开、署名由前端提交、登录限流、只读账号写按钮、设备级凭据）。
