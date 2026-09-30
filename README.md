@@ -1,20 +1,26 @@
-# AgriScout 农田巡检平台
+# AgriScout 巡知
 
-AgriScout（农田哨兵）是一个面向农作物全生命周期的近地智能巡检平台。
-巡检小车每 0.5 米拍摄一张照片并采集天气数据，平台异步完成逐点分析，
-再用可追溯的规则生成农事建议，最后由人工复核并把标注回流为训练数据。
+AgriScout（巡知）是一套面向病害风险预测与主动学习的农田智能巡检系统。
+巡检小车沿垄行近地拍照，平台异步完成逐点分析，把同一观察区域的多日期观测串起来预测病害风险，
+再据此安排复巡和专家标注；每条预警、建议和人工结论都可以追溯到原图、模型版本和规则快照。
 
-一句话概括：**把一次巡田变成一条可回放、可解释、可持续改进的数据链路。**
+一句话概括：**用有限的巡检和人工投入，获得更有助于判断病害风险的证据，并通过可验证的反馈持续改进。**
 
-> 项目面向 2027 年“挑战杯”科技发明制作 A 类，当前首批作物为小麦。
+> 项目面向 2027 年“挑战杯”科技发明制作 A 类，首批作物为小麦。
+> 项目定位、创新点和实验设计以 [docs/09 申报书](docs/09-project-application.md) 为准，硬件与部署以 [docs/08 系统方案](docs/08-system-solution.md) 为准。
 
 ## 为什么做
 
-传统巡田依赖人工经验，覆盖密度低、结果难量化，也很难复盘“某个异常到底出现在田里的什么位置”。
-卫星和无人机能提供大范围信息，却容易受云层、重访周期和冠层遮挡影响；固定传感器则只能观察少数点位。
+小地块病害管理的难点不在“拍更多照片”，而在四件事（申报书第二节）：
 
-AgriScout 的切入点是低成本、高密度的近地采样：让小车沿垄行移动，在统一协议下记录照片、天气、位置和里程，
-将“看一眼田”变成可以查询、比较和追责的结构化巡检任务。
+- 观察不足：知道地块有风险，却难以确定先检查哪里；
+- 判断不足：一次识别说明不了未来会怎样变化；
+- 学习成本高：大量相似照片不等于有效标注，专家时间有限；
+- 反馈不足：预警发出后，是否被证实难以追踪，误报漏报原因说不清。
+
+项目据此研究三项相互关联的创新：以区域连续观察为基础的多源时空风险预测；主动复巡与主动学习联动的预算分配；
+贯穿预警、复核和学习的证据反馈。系统输出具体区域的风险等级、预测时间窗、依据和复查任务，由农技人员确认关键结论。
+采样间距、视角和复访间隔通过试验确定（0.5 米只是候选间距）。
 
 ## 核心闭环
 
@@ -25,13 +31,15 @@ AgriScout 的切入点是低成本、高密度的近地采样：让小车沿垄�
         ↓
 照片内容寻址存储 + 采样点/天气入库
         ↓
-后台逐点分析（生育期、长势、风险）
+后台逐点分析（生育期、长势、病害候选）
         ↓
-规则引擎生成带快照的农事建议
+规则引擎生成带快照的农事建议 → 地图回放、时间轴复盘、人工采纳/驳回
         ↓
-地图回放、时间轴复盘、人工采纳/驳回
+按观察区域串联历史 → 风险预测（时间窗 + 依据）
         ↓
-人工标注导出训练集，反哺识别模型
+复巡 / 专家标注任务 → 人工随访结论
+        ↓
+数据集冻结 → 模型评估闸门 → 受控更新识别与风险模型
 ```
 
 系统不把识别结果当成不可质疑的结论：每条建议都保留命中的规则版本，
@@ -51,7 +59,7 @@ AgriScout 的切入点是低成本、高密度的近地采样：让小车沿垄�
 - 研究闭环：按逐点分析生成带时间窗和证据的风险预测，主动排序复巡/标注任务，记录人工随访结论，并以冻结数据集和模型评估闸门管理发布。
 - 设备协议：设备幂等注册、心跳、设备/任务事件、可回放故障注入，以及设备领取复巡任务（`/devices/{id}/tasks/next`）。
 - 虚拟巡田：独立模拟器提供 `healthy`、`dry`、`patchy_disease` 三种可复现场景；`season.py` 模拟整季多日期巡检，病害按潜伏期、天气和空间扩散发展，并模拟农技员随访。
-- 实验评估：风险预测按观察区域串联历史巡检；`GET /risk-predictions/metrics` 从随访结果计算 PR-AUC、Brier、固定误报负担下的召回率和提前量；`replay_eval` 离线重放 H1 特征消融、H2 复巡策略、H3 标注选样。H3 另在 NWRD 真实图块上验证（`al_replay_images`，计划 0011）：阳性稀少（≤10%）时平台联合选样达到随机选样 200 个标注的效果只需 100–120 个。
+- 实验评估：风险预测按观察区域串联历史巡检；`GET /risk-predictions/metrics` 从随访结果计算 PR-AUC、Brier、固定误报负担下的召回率和提前量；`replay_eval` 离线重放 H1 特征消融、H2 复巡策略、H3 标注选样。H3 另在 NWRD 真实图块上验证（`al_replay_images`）：候选池阳性比例抽稀到 ≤10% 时，平台联合选样达到随机选样 200 个标注的效果只需 100–120 个；NWRD 原始比例（约 1/3 阳性）下三种策略没有差别。抽稀条件是看到原始结果后追加的对照，结论需在试验田数据上复验。
 - 可训练风险模型：`train_risk_lr` 用逻辑回归训练 `risk-lr-v1`（本区域图像、历史、邻近区域 5 个特征），生成预测时指定 `model_version=risk-lr-v1` 使用；训练与线上共用同一特征实现。
 - 真车采集端：`rover/` 支持 USB 摄像头或合成图采集、本地 spool 断网续传、临时错误指数退避重试。
 
@@ -109,7 +117,7 @@ AgriScout 的切入点是低成本、高密度的近地采样：让小车沿垄�
 | `simulator/` | 只走 HTTP 的独立虚拟巡田模拟器 |
 | `rover/` | 真车采集端（树莓派 + USB 摄像头），只走 HTTP，带断网队列 |
 | `ml/` | 独立的 YOLO 数据准备、训练和模型导出环境 |
-| `docs/` | 主计划、设计决策、执行计划、数据库结构快照和项目介绍 |
+| `docs/` | 申报书与系统方案、设计决策、执行计划、技术债、数据库结构快照 |
 | `tools/` | 离线地图瓦片等辅助工具 |
 
 ## 快速运行
@@ -219,7 +227,7 @@ DISEASE_MODEL_PATH=./models/rust-cls-v1.pt     # 条锈病识别：病斑图块�
 ```
 
 后端推理需要 `pip install -r requirements-ml.txt`。条锈病模型的数据来源、测试指标与局限见
-`backend/models/rust-cls-v1.json` 和 [计划 0010](docs/exec-plans/completed/0010-rust-classifier.md)。
+`backend/models/rust-cls-v1.json` 和决策 D14（[决策注册表](docs/design-docs/decision-registry.md)）。
 
 训练环境与后端分离：
 
@@ -254,14 +262,17 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 
 ## 下一阶段
 
-下一阶段是 **M7：真实采集接入与数据实验准备**，软件闭环已具备，重点转为获得真实证据：
+下一阶段是 **M7：真实采集接入与数据实验准备**，软件闭环已具备，重点转为获得真实证据（执行计划见
+[0007](docs/exec-plans/active/0007-application-alignment.md)）：
 
-- 让采集端按现有协议生成真实巡检包，完成一趟真车联调；
+- 播种前完成试验地准备：预留小车通道、确定病种与合作地块、布设气象站、给观察区域编号；
+- 补齐真车采数的前置改造：观察区域身份（垄号 + 桩号）、时钟同步、逐点落盘与分步上传、连续环境记录；
+- 让采集端按协议生成真实巡检包，完成一趟真车联调；
 - 对 200、1300、2600 点规模做上传、重试和断网压力测试；
 - 用真实车载照片建立标注集、训练集和独立测试集；
 - 用 precision、recall、mAP、漏报率等指标评估识别，而不是只看演示效果；
 - 让农技人员复核小麦规则阈值和建议出处；
-- 做 0.5 米、2 米、5 米采样密度对比实验，验证高密度采样的实际收益。
+- 做采样间距（0.5 米为候选）、视角和复访间隔的对比实验，确定实际采用的采样策略。
 
 ## 已知边界
 
@@ -278,15 +289,15 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 ## 文档入口
 
 - [AGENTS.md](AGENTS.md)：代码地图、不可变红线和协作约定。
-- [ARCHITECTURE.md](ARCHITECTURE.md)：分层架构、数据流和扩展点。
-- [docs/04-master-plan.md](docs/04-master-plan.md)：项目主计划和里程碑。
-- [docs/07-project-introduction.md](docs/07-project-introduction.md)：比赛叙事和项目介绍底稿。
-- [docs/08-system-solution.md](docs/08-system-solution.md)、[docs/09-project-application.md](docs/09-project-application.md)：系统方案与申报书底稿。
+- [ARCHITECTURE.md](ARCHITECTURE.md)：分层架构、数据流、契约与能力分级。
+- [docs/09-project-application.md](docs/09-project-application.md)：申报书底稿（项目叙事以此为准）。
+- [docs/08-system-solution.md](docs/08-system-solution.md)：目标系统方案（硬件分工、协议 v2、部署）。
+- [docs/01-reference-research.md](docs/01-reference-research.md)：同类案例与论文调研。
 - [rover/README.md](rover/README.md)：真车采集端安装、参数与失败行为。
-- [docs/design-docs/decision-registry.md](docs/design-docs/decision-registry.md)：编号决策注册表。
-- [docs/exec-plans/tech-debt-tracker.md](docs/exec-plans/tech-debt-tracker.md)：技术债台账。
-- [docs/reviews/2026-09-25-code-review.md](docs/reviews/2026-09-25-code-review.md)：最近一次代码审查结论与待修清单。
-- [docs/reviews/2026-09-25-application-review.md](docs/reviews/2026-09-25-application-review.md)：申报书方案评审（实现差距、创新可行性、时间线）。
+- [docs/design-docs/decision-registry.md](docs/design-docs/decision-registry.md)：编号决策注册表与规则引擎生命周期。
+- [docs/exec-plans/active/0007-application-alignment.md](docs/exec-plans/active/0007-application-alignment.md)：进行中的执行计划（真车采数前置改造、时间线）。
+- [docs/exec-plans/tech-debt-tracker.md](docs/exec-plans/tech-debt-tracker.md)：技术债台账（含历次审查未修项）。
+- [docs/exec-plans/README.md](docs/exec-plans/README.md)：执行计划约定；已删除历史文档的取回方式。
 - [docs/generated/db-schema.md](docs/generated/db-schema.md)：自动生成的数据库结构快照。
 
 ## 许可与使用

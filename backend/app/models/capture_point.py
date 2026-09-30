@@ -1,4 +1,4 @@
-"""CapturePoint 采样点：每 0.5m 一个点，系统的一等公民（基线 B1：lng/lat 浮点双列）。"""
+"""CapturePoint 采样点：每个采样间距（候选 0.5 m）一个点，系统的一等公民（基线 B1：lng/lat 浮点双列）。"""
 from datetime import datetime
 
 from sqlalchemy import Float, ForeignKey, Integer, String, UniqueConstraint

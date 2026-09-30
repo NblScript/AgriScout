@@ -88,7 +88,7 @@ def update_rule(rule_id: int, payload: RuleUpdate, db: Session = Depends(get_db)
 
 @router.delete("/{rule_id}", response_model=RuleOut)
 def deactivate_rule(rule_id: int, db: Session = Depends(get_db)):
-    """软下线（只停用不删除，docs/05 纪律）：历史 Advice 的快照不受影响。"""
+    """软下线（只停用不删除，规则引擎生命周期纪律）：历史 Advice 的快照不受影响。"""
     obj = db.get(Rule, rule_id)
     if obj is None:
         raise HTTPException(status_code=404, detail="规则不存在")

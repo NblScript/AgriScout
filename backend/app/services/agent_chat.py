@@ -1,4 +1,4 @@
-"""建议线 L2：对话式诊断 Agent（主计划 §8.2）。
+"""建议线 L2：对话式诊断 Agent（ARCHITECTURE.md「能力分级」）。
 
 function-calling 循环 + 只读工具箱（agent_tools.py）。红线：只读不写——
 工具全为 SELECT 查询；每轮工具调用记录入 trace，问答与调用链落库可溯源。

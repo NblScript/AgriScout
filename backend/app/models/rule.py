@@ -1,4 +1,4 @@
-"""Rule 规则库：YAML 为源、Rule 表为运行时副本（docs/05 生命周期）。"""
+"""Rule 规则库：YAML 为源、Rule 表为运行时副本（决策注册表「规则引擎生命周期」）。"""
 from typing import Any
 
 from sqlalchemy import Boolean, ForeignKey, Integer, JSON, String, Text

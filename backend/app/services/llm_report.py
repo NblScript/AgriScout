@@ -1,4 +1,4 @@
-"""建议线 L1：巡检 AI 农事报告（规则兜底 + LLM 解释层，主计划 §8.2）。
+"""建议线 L1：巡检 AI 农事报告（规则兜底 + LLM 解释层，ARCHITECTURE.md「能力分级」）。
 
 数据流：分析+建议完成后 → 组结构化上下文 → OpenAI 兼容 /chat/completions →
 报告落 patrol_reports（一巡检一份 upsert，model/prompt_version/input_digest 冻结溯源）。

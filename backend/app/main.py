@@ -15,7 +15,7 @@ if settings.environment != "dev" and not settings.auth_secret:
 app = FastAPI(
     title=settings.app_name,
     version=settings.version,
-    description="农作物全生命周期管理系统后端",
+    description="巡知（AgriScout）农田智能巡检系统后端",
 )
 
 app.add_middleware(

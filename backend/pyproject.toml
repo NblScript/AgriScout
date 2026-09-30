@@ -1,7 +1,7 @@
 [project]
 name = "agriscout-backend"
 version = "0.1.0"
-description = "AgriScout 农作物全生命周期管理系统 - 后端"
+description = "AgriScout（巡知）农田智能巡检系统 - 后端"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",

@@ -18,7 +18,8 @@ LINK_CHECK_FILES = [
     DOCS / "design-docs" / "core-beliefs.md",
     DOCS / "design-docs" / "decision-registry.md",
     DOCS / "exec-plans" / "README.md",
-    DOCS / "product-specs" / "index.md",
+    DOCS / "exec-plans" / "active" / "0007-application-alignment.md",
+    REPO / "README.md",
 ]
 
 MD_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
