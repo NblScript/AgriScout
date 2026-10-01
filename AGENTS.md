@@ -102,6 +102,7 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 | 理解整体架构 | `ARCHITECTURE.md`（本仓库） |
 | 看当前在做什么 / 接手未完工作 | `docs/exec-plans/active/`（空则看 README「下一阶段」） |
 | 已知问题 / 技术债 | `docs/exec-plans/tech-debt-tracker.md` |
+| 比赛规则 / 参赛定位 / 合规 | `docs/design-docs/competition-rules.md`（大挑科技发明制作 A 类，带条款号） |
 | 立项背景 / 比赛叙事 | docs/09（申报书，口径以此为准）、docs/08（系统方案）、docs/01（同类案例调研） |
 | 硬件 / 小车对接 | `rover/README.md`、docs/08 §5–§7（硬件分工、Pi 端软件、TX2 推理）、注册表 T 系列 |
 | 查已删除的旧文档（已完成计划、审查记录、主计划等） | `docs/exec-plans/README.md`「已删除的历史文档」 |

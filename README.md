@@ -6,7 +6,8 @@ AgriScout（巡知）是一套面向病害风险预测与主动学习的农田�
 
 一句话概括：**用有限的巡检和人工投入，获得更有助于判断病害风险的证据，并通过可验证的反馈持续改进。**
 
-> 项目面向 2027 年“挑战杯”科技发明制作 A 类，首批作物为小麦。
+> 项目面向 2027 年第二十届“挑战杯”全国大学生课外学术科技作品竞赛（大挑）科技发明制作 A 类，首批作物为小麦。
+> 规则要点、参赛定位与合规清单见 [competition-rules](docs/design-docs/competition-rules.md)。
 > 项目定位、创新点和实验设计以 [docs/09 申报书](docs/09-project-application.md) 为准，硬件与部署以 [docs/08 系统方案](docs/08-system-solution.md) 为准。
 
 ## 为什么做
@@ -290,6 +291,7 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 
 - [AGENTS.md](AGENTS.md)：代码地图、不可变红线和协作约定。
 - [ARCHITECTURE.md](ARCHITECTURE.md)：分层架构、数据流、契约与能力分级。
+- [docs/design-docs/competition-rules.md](docs/design-docs/competition-rules.md)：大挑规则要点、参赛定位与合规清单。
 - [docs/09-project-application.md](docs/09-project-application.md)：申报书底稿（项目叙事以此为准）。
 - [docs/08-system-solution.md](docs/08-system-solution.md)：目标系统方案（硬件分工、协议 v2、部署）。
 - [docs/01-reference-research.md](docs/01-reference-research.md)：同类案例与论文调研。
