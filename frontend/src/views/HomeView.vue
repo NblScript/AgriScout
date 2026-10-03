@@ -3,7 +3,7 @@
  * 工作台（计划 0018，阶段 A 骨架）：打开系统第一眼看「哪个棚环境风险高、今天要补拍哪些、哪些株等人确认」。
  * 数据全部来自 0014/0015 的现有接口，逐个大棚调用；env_index 为空时写「环境数据不足」，不当成低风险。
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowRight, House, Refresh, Sunrise } from '@element-plus/icons-vue'
@@ -13,97 +13,38 @@ import SectionCard from '../components/ui/SectionCard.vue'
 import StatCard from '../components/ui/StatCard.vue'
 import StateTag from '../components/ui/StateTag.vue'
 import TaskTypeTag from '../components/ui/TaskTypeTag.vue'
-import { greenhouseApi, patrolsApi, softwareLoopApi } from '../api'
 import { errMsg } from '../api/http'
+import { PLAN_LISTS as LISTS, PLANT_STATES as STATES, stateCounts, useGreenhouseBoard } from '../composables/useGreenhouseBoard'
 import { fieldHomePath } from '../layouts/nav'
 import { useFieldsStore } from '../stores/fields'
 import { useUiStore } from '../stores/ui'
 import {
-  ANALYSIS_STATUS_LABELS, FACILITY_LABELS, PLAN_TRIGGER_LABELS, PLANT_STATE_LABELS, isGreenhouse,
-  type EnvSummary, type Field, type PatrolPlan, type Patrol, type PlanListName, type PlantState, type PlantStateValue,
-  type RevisitTask,
+  ANALYSIS_STATUS_LABELS, FACILITY_LABELS, PLAN_TRIGGER_LABELS, PLANT_STATE_LABELS,
+  type Field, type PlantStateValue, type RevisitTask,
 } from '../types'
-import { fieldClock, fieldDate, fieldDateLabel, relativeTime } from '../utils/fieldTime'
-
-interface GreenhouseCard {
-  field: Field
-  env: EnvSummary | null
-  plan: PatrolPlan | null
-  states: PlantState[]
-  lastPatrol: Patrol | null
-}
+import { fieldClock, fieldDateLabel, relativeTime } from '../utils/fieldTime'
 
 const router = useRouter()
 const fieldsStore = useFieldsStore()
 const ui = useUiStore()
 
-const LISTS: PlanListName[] = ['confirm', 'reshoot', 'coverage', 'random']
-const STATES: PlantStateValue[] = ['healthy', 'early', 'symptomatic', 'unknown']
-
-const loading = ref(false)
-const loaded = ref(false)
-const cards = ref<GreenhouseCard[]>([])
-const openFields = ref<{ field: Field; lastPatrol: Patrol | null }[]>([])
-const confirmTasks = ref<RevisitTask[]>([])
-const confirmCapped = ref(false)
-const recent = ref<Patrol[]>([])
-const today = ref(fieldDate())
-
-const lastPatrolOf = (fieldId: number) =>
-  patrolsApi.list({ field_id: fieldId, limit: 1 }).then((page) => page.items[0] ?? null).catch(() => null)
+const {
+  loading, loaded, cards, openFields, confirmTasks, confirmCapped, recent, confirmByField, todayPlan, load: loadBoard,
+} = useGreenhouseBoard()
 
 async function load() {
-  loading.value = true
-  today.value = fieldDate()
   try {
-    const fields = await fieldsStore.load(true)
-    const [confirm, latest, greenhouses, others] = await Promise.all([
-      softwareLoopApi.openTasks('label', { limit: 500 }),
-      patrolsApi.list({ limit: 5 }),
-      Promise.all(fields.filter((f) => isGreenhouse(f)).map(async (field): Promise<GreenhouseCard> => {
-        const [env, plan, states, lastPatrol] = await Promise.all([
-          greenhouseApi.env(field.id).catch(() => null),
-          greenhouseApi.latestPlan(field.id).catch(() => null), // 404 = 还没生成过计划
-          greenhouseApi.plantStates(field.id).catch(() => [] as PlantState[]),
-          lastPatrolOf(field.id),
-        ])
-        return { field, env, plan, states, lastPatrol }
-      })),
-      Promise.all(fields.filter((f) => !isGreenhouse(f)).map(async (field) => ({ field, lastPatrol: await lastPatrolOf(field.id) }))),
-    ])
-    confirmTasks.value = confirm.tasks
-    confirmCapped.value = confirm.capped
-    recent.value = latest.items
-    // 环境风险高的棚排前面；环境数据不足的排最后（不是低风险，只是没法比）
-    cards.value = greenhouses.sort((a, b) =>
-      (b.env?.index.env_index ?? -1) - (a.env?.index.env_index ?? -1) || a.field.name.localeCompare(b.field.name, 'zh-CN'))
-    openFields.value = others
-    loaded.value = true
+    await loadBoard()
     void ui.refreshConfirmCount(true)
   } catch (e) {
     ElMessage.error(errMsg(e))
-  } finally {
-    loading.value = false
   }
 }
 onMounted(load)
 
 /* ---------- 每张大棚卡 ---------- */
-const confirmByField = computed(() => {
-  const counts = new Map<number, number>()
-  for (const task of confirmTasks.value) counts.set(task.field_id, (counts.get(task.field_id) ?? 0) + 1)
-  return counts
-})
 const fieldNames = computed(() => new Map(fieldsStore.list.map((f) => [f.id, f.name])))
 
-function todayPlan(card: GreenhouseCard): PatrolPlan | null {
-  return card.plan?.plan_date === today.value ? card.plan : null
-}
-function stateCounts(states: PlantState[]): Record<PlantStateValue, number> {
-  const counts: Record<PlantStateValue, number> = { healthy: 0, early: 0, symptomatic: 0, unknown: 0 }
-  for (const s of states) counts[s.state] += 1
-  return counts
-}
 function share(count: number, total: number): string {
   return total ? `${(count / total) * 100}%` : '0%'
 }

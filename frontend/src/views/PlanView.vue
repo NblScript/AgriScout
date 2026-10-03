@@ -19,11 +19,12 @@ import { errMsg } from '../api/http'
 import { useBreadcrumb } from '../composables/useBreadcrumb'
 import { useAuthStore } from '../stores/auth'
 import { cssVar } from '../styles/tokens'
+import { chartBase, hourlyEnvOption } from '../utils/envChart'
 import {
   FACILITY_LABELS, PLAN_LIST_LABELS, PLAN_TRIGGER_LABELS, PLANT_STATE_LABELS, TASK_STATUS_LABELS,
   type EnvSummary, type Field, type PatrolPlan, type PlanItem, type PlanListName, type PlantStateValue,
 } from '../types'
-import { fieldClock, fieldDate, fieldParts } from '../utils/fieldTime'
+import { fieldClock, fieldDate } from '../utils/fieldTime'
 
 const route = useRoute()
 const router = useRouter()
@@ -89,56 +90,12 @@ async function generate() {
 }
 
 /* ---------- 环境 ---------- */
-function hourLabel(iso: string): string {
-  const { day, hour } = fieldParts(iso)
-  return `${day} ${String(hour).padStart(2, '0')}时`
-}
 function pct(value: number | null | undefined): string {
   return value == null ? '—' : `${Math.round(value * 100)}%`
 }
 const hasReadings = computed(() => !!env.value && env.value.hourly.some((h) => !h.missing))
 
-/** 坐标轴、网格、提示框的公共样式（颜色取令牌） */
-function chartBase() {
-  const axis = cssVar('--chart-axis', '#66726b')
-  const grid = cssVar('--chart-grid', '#e3e8e5')
-  return {
-    textStyle: { fontFamily: cssVar('--font-sans', 'sans-serif') },
-    axisLine: { lineStyle: { color: grid } },
-    axisLabel: { color: axis },
-    splitLine: { lineStyle: { color: grid } },
-    legend: { top: 0, icon: 'roundRect', itemWidth: 12, itemHeight: 8, textStyle: { color: axis } },
-  }
-}
-
-const hourlyOption = computed<EChartsOption>(() => {
-  const hours = env.value?.hourly ?? []
-  const base = chartBase()
-  return {
-    textStyle: base.textStyle,
-    tooltip: { trigger: 'axis' },
-    legend: { ...base.legend, data: ['温度 ℃', '相对湿度 %', '露点差 ℃'] },
-    grid: { left: 44, right: 44, top: 36, bottom: 28 },
-    xAxis: {
-      type: 'category',
-      data: hours.map((h) => hourLabel(h.hour)),
-      axisLine: base.axisLine,
-      axisTick: { show: false },
-      // 只在田间日期的零点标刻度
-      axisLabel: { ...base.axisLabel, interval: (index: number) => fieldParts(hours[index].hour).hour === 0, formatter: (v: string) => v.slice(0, 5) },
-    },
-    yAxis: [
-      { type: 'value', name: '℃', nameTextStyle: base.axisLabel, axisLabel: base.axisLabel, splitLine: base.splitLine },
-      { type: 'value', name: '%', min: 0, max: 100, nameTextStyle: base.axisLabel, axisLabel: base.axisLabel, splitLine: { show: false } },
-    ],
-    series: [
-      // 缺测小时为 null，曲线断开而不是插值
-      { name: '温度 ℃', type: 'line', showSymbol: false, data: hours.map((h) => h.temp_c), color: cssVar('--chart-warm', '#c8691f') },
-      { name: '相对湿度 %', type: 'line', showSymbol: false, yAxisIndex: 1, data: hours.map((h) => h.humidity_pct), color: cssVar('--chart-wet', '#2f6fb0') },
-      { name: '露点差 ℃', type: 'line', showSymbol: false, data: hours.map((h) => h.dewpoint_depression_min), color: cssVar('--chart-neutral', '#7a857f'), lineStyle: { type: 'dashed' } },
-    ],
-  }
-})
+const hourlyOption = computed<EChartsOption>(() => hourlyEnvOption(env.value?.hourly ?? []))
 
 const dailyOption = computed<EChartsOption>(() => {
   const days = env.value?.daily ?? []
@@ -241,7 +198,7 @@ function detailRows(item: PlanItem): { name: string; value: string }[] {
     </StatCard>
   </div>
 
-  <SectionCard title="棚内环境" subtitle="近 72 小时逐时读数与按田间日期汇总的时长（缺测不插值，曲线断开）" class="block">
+  <SectionCard title="棚内环境" subtitle="近 7 天逐时读数与按田间日期汇总的时长（缺测不插值，曲线断开）；环境风险只看最近 72 小时" class="block">
     <div v-if="hasReadings" class="charts">
       <div class="chart"><EChart :option="hourlyOption" /></div>
       <div class="chart narrow"><EChart :option="dailyOption" /></div>

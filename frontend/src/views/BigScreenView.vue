@@ -1,590 +1,344 @@
 <script setup lang="ts">
-/** /screen 数据总览：亮色专业工具风。中央地图 + 左右图表，数据全部来自平台真实接口。 */
+/**
+ * 展示屏 /screen（计划 0018）：工作台的全屏放大版，给答辩投影和棚口大屏用；与全站同一套浅色视觉，宽屏时字号放大一档。
+ * 顶部是全部大棚的概况，下面逐个大棚轮播：「垄 × 株」状态网格（含今日计划描边与进度）+ 棚内环境 + 等人确认；大田只列最近巡检。
+ * 数据与工作台同源（useGreenhouseBoard），每分钟自动刷新；刷新失败保留上一次的数据并写明是几点的。
+ */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import type { EChartsOption } from 'echarts'
-import MapCanvas from '../components/MapCanvas.vue'
-import ScreenPanel from '../components/ScreenPanel.vue'
-import EChart from '../components/EChart.vue'
-import { advicesApi, capturePointsApi, fieldsApi, patrolsApi, statsApi } from '../api'
-import { errMsg } from '../api/http'
-import {
-  VIGOR_COLORS,
-  type Advice,
-  type CapturePointFull,
-  type PatrolDetail,
-  type RecentPatrolStat,
-  type StatsOverview,
-} from '../types'
+import { useRoute, useRouter } from 'vue-router'
+import { FullScreen, House, VideoPause, VideoPlay } from '@element-plus/icons-vue'
+import PlantGrid from '../components/PlantGrid.vue'
+import ScreenConfirmPanel from '../components/screen/ScreenConfirmPanel.vue'
+import ScreenEnvPanel from '../components/screen/ScreenEnvPanel.vue'
+import EmptyState from '../components/ui/EmptyState.vue'
+import SectionCard from '../components/ui/SectionCard.vue'
+import StatCard from '../components/ui/StatCard.vue'
+import { PLAN_LISTS, latestReadingAt, stateCounts, statesUpdatedAt, useGreenhouseBoard } from '../composables/useGreenhouseBoard'
+import { ANALYSIS_STATUS_LABELS, FACILITY_LABELS, type Patrol } from '../types'
+import { fieldClock, fieldDateLabel, fieldTimeHms, relativeTime } from '../utils/fieldTime'
 
+/** 每个大棚停留秒数、自动刷新间隔 */
+const ROTATE_SECONDS = 20
+const REFRESH_SECONDS = 60
+
+const route = useRoute()
 const router = useRouter()
+const board = useGreenhouseBoard()
+const { loaded, loadedAt, cards, openFields, confirmTasks, confirmCapped, confirmByField, todayPlan } = board
 
-const overview = ref<StatsOverview | null>(null)
-const patrol = ref<PatrolDetail | null>(null)
-const points = ref<CapturePointFull[]>([])
-const advices = ref<Advice[]>([])
-const fieldBoundary = ref<{ type: string; coordinates: number[][][] } | null>(null)
-const selectedPatrolId = ref<number | null>(null)
-const switching = ref(false)
+const now = ref(Date.now())
+const failed = ref(false)
 
-/* ---------- 实时时钟 ---------- */
-const now = ref(new Date())
-let clockTimer: ReturnType<typeof setInterval> | null = null
-const clock = computed(() =>
-  now.value.toLocaleTimeString('zh-CN', { hour12: false }),
-)
-const dateStr = computed(() =>
-  now.value.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'long' }),
-)
-
-/* ---------- 数据加载 ---------- */
-async function loadOverview() {
-  overview.value = await statsApi.overview()
-  const first = overview.value.recent_patrols[0]
-  if (first && selectedPatrolId.value === null) {
-    await selectPatrol(first.patrol_id)
-  }
-}
-
-async function selectPatrol(id: number) {
-  if (switching.value) return
-  switching.value = true
-  selectedPatrolId.value = id
+async function refresh() {
   try {
-    const detail = await patrolsApi.get(id)
-    patrol.value = detail
-    const [pts, adv, field] = await Promise.all([
-      capturePointsApi.listByPatrol(id),
-      advicesApi.list(id).catch(() => ({ items: [] as Advice[] })),
-      fieldsApi.get(detail.field_id).catch(() => null),
-    ])
-    points.value = pts.items
-    advices.value = adv.items
-    fieldBoundary.value = (field?.boundary as typeof fieldBoundary.value) ?? null
-  } catch (e) {
-    ElMessage.error(errMsg(e))
-  } finally {
-    switching.value = false
+    await board.load()
+    failed.value = false
+  } catch {
+    failed.value = true
   }
 }
 
-const currentStat = computed<RecentPatrolStat | null>(() =>
-  overview.value?.recent_patrols.find((r) => r.patrol_id === selectedPatrolId.value) ?? null,
-)
+/* ---------- 轮播：按地块 id 记当前棚（每次刷新会按环境风险重排） ---------- */
+const currentId = ref<number | null>(Number(route.query.field) || null)
+const current = computed(() => cards.value.find((c) => c.field.id === currentId.value) ?? cards.value[0] ?? null)
+const playing = ref(true)
+const hovering = ref(false)
+const elapsed = ref(0)
+const canRotate = computed(() => cards.value.length > 1)
 
-onMounted(async () => {
-  clockTimer = setInterval(() => { now.value = new Date() }, 1000)
-  try {
-    await loadOverview()
-  } catch { /* 后端未就绪时总览保持空态，不崩溃 */ }
-})
-onBeforeUnmount(() => { if (clockTimer) clearInterval(clockTimer) })
-
-/* ---------- 图表：亮色统一色板 ---------- */
-const C = {
-  green: '#16a34a',
-  blue: '#2563eb',
-  amber: '#d97706',
-  red: '#dc2626',
-  text: '#7a8a7e',
-  axisLine: '#d7dfd8',
-  splitLine: '#edf1ed',
+function select(id: number) {
+  currentId.value = id
+  elapsed.value = 0
 }
-const AXIS = {
-  axisLine: { lineStyle: { color: C.axisLine } },
-  axisLabel: { color: C.text, fontSize: 10 },
-  splitLine: { lineStyle: { color: C.splitLine } },
+function step(delta: number) {
+  const list = cards.value
+  if (!list.length) return
+  const index = Math.max(list.findIndex((c) => c.field.id === current.value?.field.id), 0)
+  select(list[(index + delta + list.length) % list.length].field.id)
 }
 
-const kpis = computed(() => {
-  const o = overview.value
-  return [
-    { label: '地块', value: o?.fields ?? '—' },
-    { label: '作物', value: o?.crops ?? '—' },
-    { label: '种植批次', value: o?.plantings ?? '—' },
-    { label: '设备', value: o?.devices ?? '—' },
-    { label: '巡检任务', value: o?.patrols ?? '—' },
-    { label: '采样点', value: o?.capture_points ?? '—' },
-    { label: '已分析点', value: o?.analyzed_points ?? '—' },
-    { label: '人工标注', value: o?.annotations ?? '—' },
-  ]
-})
-
-/** 建议处理：用数字而不是环图——演示/初期几乎全是待确认，环图只会显示一个醒目的 0%。 */
-const adviceStats = computed(() => {
-  const o = overview.value
-  const total = o?.advices_total ?? 0
-  const decided = (o?.advices_accepted ?? 0) + (o?.advices_rejected ?? 0)
-  return {
-    total,
-    decided,
-    decidedPct: total ? Math.round((decided / total) * 100) : 0,
-    tiles: [
-      { key: 'pending', label: '待人工确认', value: o?.advices_suggested ?? 0 },
-      { key: 'accepted', label: '已采纳', value: o?.advices_accepted ?? 0 },
-      { key: 'rejected', label: '已驳回', value: o?.advices_rejected ?? 0 },
-    ],
+let ticker: ReturnType<typeof setInterval> | null = null
+let sinceRefresh = 0
+function tick() {
+  now.value = Date.now()
+  sinceRefresh += 1
+  if (sinceRefresh >= REFRESH_SECONDS) {
+    sinceRefresh = 0
+    void refresh()
   }
-})
-
-/** 近期巡检对比：异常（胁迫/病害色斑）检出点占已分析点的比例，单一坐标轴。 */
-const trendOption = computed<EChartsOption>(() => {
-  const list = [...(overview.value?.recent_patrols ?? [])].reverse()
-  return {
-    tooltip: {
-      trigger: 'axis',
-      formatter: (params: unknown) => {
-        const r = list[(params as { dataIndex: number }[])[0]?.dataIndex ?? -1]
-        if (!r) return ''
-        const risk = r.avg_risk_score != null ? Math.round(r.avg_risk_score * 100) : '—'
-        return `巡检 #${r.patrol_id} · ${r.field_name ?? '未命名地块'}<br/>`
-          + `异常检出 ${r.stress_points} / ${r.analyzed_points} 点<br/>平均风险分 ${risk}`
-      },
-    },
-    grid: { left: 40, right: 12, top: 16, bottom: 22 },
-    xAxis: { type: 'category', data: list.map((r) => `#${r.patrol_id}`), ...AXIS },
-    yAxis: { type: 'value', ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: '{value}%' } },
-    series: [{
-      name: '异常检出占比', type: 'bar', barWidth: 14,
-      itemStyle: { borderRadius: [3, 3, 0, 0], color: C.amber },
-      data: list.map((r) => (r.analyzed_points ? Math.round((r.stress_points / r.analyzed_points) * 1000) / 10 : 0)),
-    }],
+  if (playing.value && !hovering.value && canRotate.value && document.visibilityState === 'visible') {
+    elapsed.value += 1
+    if (elapsed.value >= ROTATE_SECONDS) step(1)
   }
-})
-
-const vigorOption = computed<EChartsOption>(() => {
-  const dist = currentStat.value?.vigor_distribution ?? {}
-  return {
-    tooltip: { trigger: 'axis' },
-    grid: { left: 26, right: 8, top: 16, bottom: 20 },
-    xAxis: { type: 'category', data: ['1', '2', '3', '4', '5'], ...AXIS },
-    yAxis: { type: 'value', ...AXIS },
-    series: [{
-      type: 'bar', barWidth: 12,
-      data: ['1', '2', '3', '4', '5'].map((lv) => ({
-        value: dist[lv] ?? 0,
-        itemStyle: { color: VIGOR_COLORS[Number(lv)], borderRadius: [2, 2, 0, 0] },
-      })),
-    }],
-  }
-})
-
-const riskGaugeOption = computed<EChartsOption>(() => {
-  const risk = currentStat.value?.avg_risk_score ?? 0
-  const pctv = Math.round(risk * 100)
-  return {
-    series: [{
-      type: 'gauge', radius: '95%', center: ['50%', '58%'],
-      startAngle: 210, endAngle: -30, min: 0, max: 100,
-      progress: {
-        show: true, width: 8,
-        itemStyle: { color: pctv > 60 ? C.red : pctv > 30 ? C.amber : C.green },
-      },
-      axisLine: { lineStyle: { width: 8, color: [[1, '#edf1ed']] } },
-      axisTick: { show: false }, splitLine: { show: false },
-      axisLabel: { show: false }, pointer: { show: false },
-      title: { show: true, offsetCenter: [0, '38%'], color: C.text, fontSize: 11 },
-      detail: {
-        valueAnimation: true, offsetCenter: [0, '2%'],
-        formatter: `${pctv}`, color: '#1f2d1f', fontSize: 22, fontWeight: 600,
-      },
-      data: [{ value: pctv, name: '平均风险分' }],
-    }],
-  }
-})
-
-const weatherOption = computed<EChartsOption>(() => {
-  const pts = points.value
-  const has = pts.some((p) => p.weather)
-  const xLabels = pts.map((p) => `${p.distance_m.toFixed(1)}m`)
-  return {
-    tooltip: { trigger: 'axis' },
-    legend: {
-      data: has ? ['气温', '土壤湿度'] : [], top: 0, left: 'center',
-      textStyle: { color: C.text, fontSize: 10 }, itemWidth: 14, itemHeight: 8,
-    },
-    grid: { left: 36, right: 40, top: 26, bottom: 22 },
-    xAxis: { type: 'category', data: xLabels, boundaryGap: false, ...AXIS },
-    yAxis: [
-      { type: 'value', ...AXIS, name: '℃', nameTextStyle: { color: C.text } },
-      { type: 'value', ...AXIS, name: '%', nameTextStyle: { color: C.text }, splitLine: { show: false } },
-    ],
-    series: [
-      {
-        name: '气温', type: 'line', smooth: true, showSymbol: false, sampling: 'lttb',
-        lineStyle: { color: C.amber, width: 1.6 }, itemStyle: { color: C.amber },
-        areaStyle: { color: 'rgba(217,119,6,0.07)' },
-        data: pts.map((p) => p.weather?.temp_c ?? null),
-      },
-      {
-        name: '土壤湿度', type: 'line', smooth: true, showSymbol: false, yAxisIndex: 1, sampling: 'lttb',
-        lineStyle: { color: C.blue, width: 1.6 }, itemStyle: { color: C.blue },
-        areaStyle: { color: 'rgba(37,99,235,0.07)' },
-        data: pts.map((p) => p.weather?.soil_moisture_pct ?? null),
-      },
-    ],
-  }
-})
-
-/* ---------- 建议信息流 ---------- */
-const PRIORITY_ORDER: Record<string, number> = { high: 3, medium: 2, low: 1 }
-const seqByPointId = computed(() => new Map(points.value.map((p) => [p.id, p.seq])))
-
-/** 同一条规则在很多点命中时文案几乎一样，按规则版本归并成一条，显示涉及点数。 */
-interface FeedItem {
-  key: string
-  priority: string
-  content: string
-  ruleKey: string
-  version: number
-  source: string | null
-  seqs: number[]
-  latest: string
 }
-const adviceFeed = computed<FeedItem[]>(() => {
-  const groups = new Map<string, FeedItem>()
-  for (const a of advices.value) {
-    const key = `${a.rule_snapshot.rule_key}|${a.rule_snapshot.version}`
-    let g = groups.get(key)
-    if (!g) {
-      g = { key, priority: a.priority, content: a.content, ruleKey: a.rule_snapshot.rule_key,
-            version: a.rule_snapshot.version, source: a.rule_snapshot.source, seqs: [], latest: a.created_at }
-      groups.set(key, g)
+
+function onKey(event: KeyboardEvent) {
+  if (event.key === 'ArrowRight') step(1)
+  else if (event.key === 'ArrowLeft') step(-1)
+}
+
+/* ---------- 全屏 ---------- */
+const fullscreen = ref(false)
+function toggleFullscreen() {
+  if (document.fullscreenElement) void document.exitFullscreen()
+  else void document.documentElement.requestFullscreen?.().catch(() => undefined)
+}
+function onFullscreenChange() {
+  fullscreen.value = !!document.fullscreenElement
+}
+
+onMounted(() => {
+  void refresh()
+  ticker = setInterval(tick, 1000)
+  window.addEventListener('keydown', onKey)
+  document.addEventListener('fullscreenchange', onFullscreenChange)
+})
+onBeforeUnmount(() => {
+  if (ticker) clearInterval(ticker)
+  window.removeEventListener('keydown', onKey)
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
+})
+
+/* ---------- 全部大棚的概况 ---------- */
+const totals = computed(() => {
+  const sum = { plants: 0, early: 0, symptomatic: 0, reshoot: 0, planned: 0 }
+  for (const card of cards.value) {
+    const counts = stateCounts(card.states)
+    sum.plants += card.states.length
+    sum.early += counts.early
+    sum.symptomatic += counts.symptomatic
+    const plan = todayPlan(card)
+    if (plan) {
+      sum.planned += 1
+      sum.reshoot += plan.reshoot.length
     }
-    const seq = a.capture_point_id != null ? seqByPointId.value.get(a.capture_point_id) : undefined
-    if (seq != null) g.seqs.push(seq)
-    if (a.created_at > g.latest) g.latest = a.created_at
   }
-  for (const g of groups.values()) g.seqs.sort((x, y) => x - y)
-  return [...groups.values()]
-    .sort((a, b) =>
-      (PRIORITY_ORDER[b.priority] ?? 0) - (PRIORITY_ORDER[a.priority] ?? 0)
-      || b.seqs.length - a.seqs.length || b.latest.localeCompare(a.latest))
-    .slice(0, 6)
+  return sum
 })
-function feedScope(g: FeedItem): string {
-  if (!g.seqs.length) return '全局'
-  const head = g.seqs.slice(0, 3).map((s) => `#${s}`).join('、')
-  return g.seqs.length > 3 ? `${g.seqs.length} 个采样点（${head}…）` : `采样点 ${head}`
-}
+const topRisk = computed(() => cards.value.find((c) => c.env?.index.env_index != null) ?? null)
 
-const analysisStatusLabel: Record<string, string> = {
-  pending: '待分析', running: '分析中', done: '分析完成', error: '分析失败',
+/* ---------- 当前大棚 ---------- */
+const currentPlan = computed(() => (current.value ? todayPlan(current.value) : null))
+const currentTasks = computed(() => confirmTasks.value.filter((t) => t.field_id === current.value?.field.id))
+const statesAt = computed(() => (current.value ? statesUpdatedAt(current.value.states) : null))
+/** 今日计划进度：不算已作废的任务 */
+const planProgress = computed(() => {
+  const plan = currentPlan.value
+  if (!plan) return null
+  const items = PLAN_LISTS.flatMap((name) => plan[name]).filter((item) => item.task_status !== 'cancelled')
+  return { total: items.length, done: items.filter((item) => item.task_status === 'completed').length }
+})
+const chartFont = window.innerWidth >= 1600 ? 13 : 12
+
+function patrolText(patrol: Patrol | null): string {
+  if (!patrol) return '还没有巡检'
+  return `#${patrol.id} · ${fieldClock(patrol.started_at)} · ${ANALYSIS_STATUS_LABELS[patrol.analysis_status] ?? patrol.analysis_status}`
 }
 </script>
 
 <template>
-  <div class="overview">
-    <!-- 顶栏 -->
-    <header class="ov-head-bar">
-      <div class="clock-box">
-        <b class="num">{{ clock }}</b>
-        <span>{{ dateStr }}</span>
+  <div class="screen">
+    <header class="top">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">巡</span>
+        <span class="brand-text"><b>大棚实时状态</b><small>巡知 · 设施大棚病害主动巡检</small></span>
       </div>
-      <div class="title-text">
-        <h1>农田巡检数据总览</h1>
+      <div class="clock">
+        <b>{{ fieldTimeHms(now) }}</b>
+        <span>{{ fieldDateLabel(now) }}</span>
       </div>
-      <div class="head-right">
-        <button class="ghost-btn" @click="router.push('/home')">进入工作台 →</button>
+      <div class="top-right">
+        <span class="sync" :class="{ failed }" aria-live="polite">
+          <i class="dot" aria-hidden="true" />
+          <template v-if="failed && loadedAt">刷新失败，显示的是 {{ fieldClock(loadedAt) }} 的数据</template>
+          <template v-else-if="failed">加载失败，每分钟自动重试</template>
+          <template v-else-if="loadedAt">数据 {{ fieldClock(loadedAt) }} 更新 · 每分钟自动刷新</template>
+          <template v-else>正在加载…</template>
+        </span>
+        <el-button v-if="canRotate" :icon="playing ? VideoPause : VideoPlay" @click="playing = !playing">
+          {{ playing ? '暂停轮播' : '继续轮播' }}
+        </el-button>
+        <el-button :icon="FullScreen" @click="toggleFullscreen">{{ fullscreen ? '退出全屏' : '全屏' }}</el-button>
+        <el-button :icon="House" @click="router.push('/home')">工作台</el-button>
       </div>
     </header>
 
-    <!-- 三栏主体 -->
-    <main class="ov-main">
-      <!-- 左列 -->
-      <div class="col">
-        <ScreenPanel title="平台资源" class="p-resource">
-          <div class="kpi-grid">
-            <div v-for="k in kpis" :key="k.label" class="kpi">
-              <b class="num">{{ k.value }}</b><span>{{ k.label }}</span>
-            </div>
-          </div>
-        </ScreenPanel>
-        <ScreenPanel title="农事建议处理" :subtitle="`累计 ${adviceStats.total} 条`" class="p-ring">
-          <div class="advice-stats">
-            <div class="advice-tiles">
-              <div v-for="t in adviceStats.tiles" :key="t.key" :class="['advice-tile', t.key]">
-                <b class="num">{{ t.value }}</b><span>{{ t.label }}</span>
-              </div>
-            </div>
-            <div class="advice-progress">
-              <div class="bar"><i :style="{ width: `${adviceStats.decidedPct}%` }" /></div>
-              <span>已人工处理 {{ adviceStats.decided }} / {{ adviceStats.total }} 条</span>
-            </div>
-            <p class="advice-note">建议由规则引擎生成，须经人工确认后执行，处理结果回流用于规则修订。</p>
-          </div>
-        </ScreenPanel>
-        <ScreenPanel title="近期巡检对比" subtitle="异常检出占比" class="p-trend">
-          <EChart :option="trendOption" />
-        </ScreenPanel>
-      </div>
+    <section class="kpis">
+      <StatCard compact label="大棚" :value="loaded ? cards.length : null" unit="个"
+                :hint="`在册 ${totals.plants} 株 · 大田 ${openFields.length} 块`" />
+      <StatCard compact label="最高环境风险（近 72 小时）" :value="topRisk?.env?.index.env_index ?? null" :precision="2"
+                :empty-text="loaded ? '环境数据不足' : '—'"
+                :hint="topRisk ? `${topRisk.field.name} · 读数 ${relativeTime(latestReadingAt(topRisk.env), now)}` : '没有大棚有足够的温湿度读数'" />
+      <StatCard compact label="今日叶背补拍" :value="loaded ? totals.reshoot : null" unit="株"
+                :hint="`${totals.planned} / ${cards.length} 个大棚已生成今日计划`" />
+      <StatCard compact label="等人确认" :value="loaded ? confirmTasks.length : null" :unit="confirmCapped ? '株以上' : '株'"
+                hint="模型推荐、等人确认的株" />
+      <StatCard compact label="需关注的株" :value="loaded ? totals.early + totals.symptomatic : null" unit="株"
+                :hint="`早期 ${totals.early} · 明显 ${totals.symptomatic}（含模型占位）`" />
+    </section>
 
-      <!-- 中央地图 -->
-      <div class="col center">
-        <ScreenPanel title="巡检地图" subtitle="选择巡检查看轨迹与长势" class="p-map">
-          <div class="map-toolbar">
-            <button
-              v-for="r in overview?.recent_patrols ?? []" :key="r.patrol_id"
-              class="chip" :class="{ active: r.patrol_id === selectedPatrolId }"
-              @click="selectPatrol(r.patrol_id)"
-            >
-              巡检 #{{ r.patrol_id }} · {{ r.field_name ?? '未命名地块' }}
-            </button>
-            <span v-if="!overview?.recent_patrols.length" class="empty-tip">暂无巡检数据——先运行模拟器生成</span>
+    <nav v-if="cards.length" class="tabs" aria-label="大棚">
+      <button v-for="card in cards" :key="card.field.id" type="button" class="tab"
+              :class="{ on: card.field.id === current?.field.id }"
+              :aria-current="card.field.id === current?.field.id ? 'true' : undefined" @click="select(card.field.id)">
+        <span class="tab-name">{{ card.field.name }}</span>
+        <span class="tab-meta">
+          <template v-if="card.env?.index.env_index != null">环境风险 <b>{{ card.env.index.env_index.toFixed(2) }}</b></template>
+          <template v-else>环境数据不足</template>
+          · 待确认 <b>{{ confirmByField.get(card.field.id) ?? 0 }}</b>
+        </span>
+        <i v-if="canRotate && card.field.id === current?.field.id" class="tab-progress" aria-hidden="true"
+           :style="{ width: `${(elapsed / ROTATE_SECONDS) * 100}%` }" />
+      </button>
+    </nav>
+
+    <main v-if="current" class="main" @mouseenter="hovering = true" @mouseleave="hovering = false">
+      <SectionCard class="grid-card">
+        <template #title>
+          <div class="gh-title">
+            <h2>{{ current.field.name }}</h2>
+            <p>
+              {{ FACILITY_LABELS[current.field.facility_type ?? 'open_field'] }} · 在册 {{ current.states.length }} 株 ·
+              <template v-if="statesAt">株状态依据 {{ fieldClock(statesAt) }}（{{ relativeTime(statesAt, now) }}）的巡检与人工确认</template>
+              <template v-else>还没有巡检结果</template>
+            </p>
           </div>
-          <div class="map-wrap">
-            <MapCanvas
-              theme="light"
-              :boundary="fieldBoundary"
-              :track="patrol?.track ?? null"
-              :points="points"
-              :selected-index="null"
-            />
-          </div>
-          <div class="map-strip" v-if="patrol">
-            <span>巡检 #{{ patrol.id }}</span>
-            <span>{{ patrol.field_name ?? `地块#${patrol.field_id}` }}</span>
-            <span>{{ patrol.device_code ?? '未知设备' }}</span>
-            <span>{{ patrol.point_count }} 点</span>
-            <span :class="patrol.analysis_status === 'done' ? 'ok' : 'warn'">
-              {{ analysisStatusLabel[patrol.analysis_status] ?? patrol.analysis_status }}
+        </template>
+        <template #actions>
+          <div class="gh-meta">
+            <span v-if="planProgress && currentPlan">
+              今日计划 {{ fieldClock(currentPlan.generated_at) }} 生成 · <b>{{ planProgress.total }}</b> 株 · 已完成 <b>{{ planProgress.done }}</b>
             </span>
-            <span class="strip-time">{{ new Date(patrol.started_at).toLocaleString('zh-CN', { hour12: false }) }}</span>
+            <span v-else>今日计划未生成<template v-if="current.plan">（最近一次 {{ current.plan.plan_date }}）</template></span>
+            <span>最近巡检 {{ patrolText(current.lastPatrol) }}</span>
           </div>
-        </ScreenPanel>
-      </div>
-
-      <!-- 右列 -->
-      <div class="col">
-        <ScreenPanel title="最新巡检分析" :subtitle="patrol ? `巡检 #${patrol.id}` : ''" class="p-analysis">
-          <div class="analysis-row">
-            <div class="half"><EChart :option="vigorOption" /></div>
-            <div class="half"><EChart :option="riskGaugeOption" /></div>
-          </div>
-          <div class="analysis-caption">
-            <span>长势分布（1 差 → 5 旺）</span>
-            <span v-if="currentStat" class="stress">胁迫检出 {{ currentStat.stress_points }} 点</span>
-          </div>
-        </ScreenPanel>
-        <ScreenPanel title="沿线环境" subtitle="气温 / 土壤湿度" class="p-weather">
-          <EChart :option="weatherOption" />
-        </ScreenPanel>
-        <ScreenPanel title="本次巡检建议" :subtitle="patrol ? `巡检 #${patrol.id} · ${advices.length} 条` : ''" class="p-feed">
-          <div class="advice-feed">
-            <div v-for="g in adviceFeed" :key="g.key" class="feed-item">
-              <i :class="['dot', g.priority]" />
-              <div class="feed-main">
-                <p class="feed-content">{{ g.content }}</p>
-                <p class="feed-meta">
-                  {{ feedScope(g) }} · {{ g.ruleKey }} v{{ g.version }}
-                  <template v-if="g.source"> · {{ g.source }}</template>
-                </p>
-              </div>
-            </div>
-            <p v-if="!adviceFeed.length" class="empty-tip">暂无建议——完成一次巡检分析后自动生成</p>
-          </div>
-        </ScreenPanel>
+        </template>
+        <PlantGrid :key="current.field.id" :states="current.states" :plan="currentPlan" fit="both" :max-cell="72" />
+      </SectionCard>
+      <div class="side">
+        <ScreenEnvPanel :env="current.env" :now="now" :font-size="chartFont" class="side-env" />
+        <ScreenConfirmPanel :tasks="currentTasks" :limit="4" />
       </div>
     </main>
+    <SectionCard v-else-if="loaded" class="main">
+      <EmptyState title="还没有大棚" description="在「大棚与地块」里新建地块，设施类型选日光温室或塑料大棚，再批量建株档案。" />
+    </SectionCard>
+    <div v-else class="main"><el-skeleton animated :rows="10" /></div>
+
+    <footer class="foot">
+      <span class="foot-title">大田</span>
+      <span v-for="item in openFields" :key="item.field.id" class="foot-item">
+        <b>{{ item.field.name }}</b> 最近巡检 {{ patrolText(item.lastPatrol) }}
+      </span>
+      <span v-if="loaded && !openFields.length" class="foot-item">没有大田地块</span>
+      <span class="foot-hint">鼠标停在大棚内容上暂停轮播 · 键盘 ← → 切换大棚</span>
+    </footer>
   </div>
 </template>
 
 <style scoped>
-.overview {
-  width: 100vw;
+.screen {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  gap: var(--space-4);
   height: 100vh;
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-page);
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  color: #1f2d1f;
-  background: #f5f7f5;
-  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+/* 宽屏（投影 1920）字号整体放大一档：只覆盖本页的字号令牌，组件随之放大 */
+@media (min-width: 1600px) {
+  .screen {
+    --fs-12: 13px; --lh-12: 20px;
+    --fs-13: 15px; --lh-13: 22px;
+    --fs-14: 16px; --lh-14: 24px;
+    --fs-16: 18px; --lh-16: 26px;
+    --fs-20: 24px; --lh-20: 32px;
+    --fs-24: 30px; --lh-24: 38px;
+    --fs-30: 36px; --lh-30: 44px;
+  }
 }
 
-/* ---------- 顶栏 ---------- */
-.ov-head-bar {
-  height: 60px;
-  flex: 0 0 60px;
-  display: flex;
-  align-items: center;
-  padding: 0 18px;
-  background: #fff;
-  border-bottom: 1px solid #e2e8e2;
-}
-.clock-box { display: flex; flex-direction: column; min-width: 170px; }
-.clock-box b { font-size: 20px; font-weight: 600; color: #1f2d1f; }
-.clock-box span { font-size: 11px; color: #7a8a7e; }
-.title-text { flex: 1; text-align: center; }
-.title-text h1 {
-  font-size: 19px;
-  font-weight: 600;
-  color: #1f2d1f;
-  letter-spacing: 2px;
-}
-.head-right { min-width: 170px; text-align: right; }
-.ghost-btn {
-  background: #fff;
-  border: 1px solid #d7dfd8;
-  color: #4a5d4e;
-  border-radius: 6px;
-  padding: 5px 12px;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.ghost-btn:hover {
-  color: var(--el-color-primary, #15803d);
-  border-color: var(--el-color-primary, #15803d);
-}
-
-/* ---------- 三栏 ---------- */
-.ov-main {
-  flex: 1;
-  min-height: 0;
+.top { display: flex; align-items: center; gap: var(--space-6); min-width: 0; }
+.brand { display: flex; align-items: center; gap: var(--space-3); }
+.logo {
   display: grid;
-  grid-template-columns: minmax(360px, 23.5%) 1fr minmax(360px, 23.5%);
-  gap: 12px;
-  padding: 12px;
-}
-.col { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
-.p-resource { flex: 3; }
-.p-ring { flex: 2.8; }
-.p-trend { flex: 3.6; }
-.p-map { flex: 1; }
-.p-analysis { flex: 3; }
-.p-weather { flex: 3; }
-.p-feed { flex: 3.4; }
-
-/* KPI */
-.kpi-grid {
-  height: 100%;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-}
-.kpi {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  background: #f8faf8;
-  border: 1px solid #e8eee8;
-  border-radius: 8px;
-}
-.kpi b { font-size: 20px; font-weight: 600; color: #1f2d1f; }
-.kpi span { font-size: 11px; color: #7a8a7e; }
-
-/* 建议处理 */
-.advice-stats { height: 100%; display: flex; flex-direction: column; justify-content: center; gap: 12px; }
-.advice-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.advice-tile {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 12px 4px;
-  background: #f8faf8;
-  border: 1px solid #e8eee8;
-  border-top: 3px solid #d7dfd8;
-  border-radius: 8px;
-}
-.advice-tile.pending { border-top-color: #d97706; }
-.advice-tile.accepted { border-top-color: #16a34a; }
-.advice-tile.rejected { border-top-color: #9aa79a; }
-.advice-tile b { font-size: 20px; font-weight: 600; color: #1f2d1f; }
-.advice-tile span { font-size: 11px; color: #7a8a7e; }
-.advice-progress { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: #4a5d4e; }
-.advice-progress .bar { height: 6px; border-radius: 3px; background: #edf1ed; overflow: hidden; }
-.advice-progress .bar i { display: block; height: 100%; border-radius: 3px; background: #16a34a; }
-.advice-note { font-size: 10px; color: #9aa79a; line-height: 1.5; }
-
-/* 地图区 */
-.p-map :deep(.ov-body) {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.map-toolbar {
-  flex: 0 0 auto;
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-.chip {
-  background: #fff;
-  border: 1px solid #d7dfd8;
-  color: #4a5d4e;
-  border-radius: 14px;
-  font-size: 11px;
-  padding: 3px 10px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.chip.active {
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: var(--brand-600);
   color: #fff;
-  background: var(--el-color-primary, #15803d);
-  border-color: var(--el-color-primary, #15803d);
+  font-size: var(--fs-20);
+  font-weight: var(--fw-semibold);
 }
-.map-wrap { flex: 1; min-height: 0; border-radius: 8px; overflow: hidden; border: 1px solid #e8eee8; }
-.map-strip {
-  flex: 0 0 auto;
-  display: flex;
-  gap: 16px;
-  align-items: center;
-  font-size: 12px;
-  color: #4a5d4e;
-  background: #f8faf8;
-  border: 1px solid #e8eee8;
-  border-radius: 8px;
-  padding: 6px 12px;
-}
-.map-strip .ok { color: #16a34a; font-weight: 600; }
-.map-strip .warn { color: #d97706; font-weight: 600; }
-.strip-time { margin-left: auto; color: #7a8a7e; }
+.brand-text { display: flex; flex-direction: column; }
+.brand-text b { font-size: var(--fs-20); line-height: var(--lh-20); font-weight: var(--fw-semibold); color: var(--text-primary); }
+.brand-text small { font-size: var(--fs-12); line-height: var(--lh-12); color: var(--text-secondary); }
+.clock { display: flex; align-items: baseline; gap: var(--space-3); }
+.clock b { font-size: var(--fs-24); line-height: var(--lh-24); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; }
+.clock span { font-size: var(--fs-14); color: var(--text-secondary); }
+.top-right { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
+.top-right :deep(.el-button + .el-button) { margin-left: 0; }
+.sync { display: inline-flex; align-items: center; gap: 6px; margin-right: var(--space-3); font-size: var(--fs-13); color: var(--text-secondary); }
+.sync .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+.sync.failed { color: var(--danger-ink); }
+.sync.failed .dot { background: var(--danger); }
 
-/* 分析行 */
-.analysis-row { height: calc(100% - 26px); display: flex; gap: 8px; }
-.half { flex: 1; min-width: 0; }
-.analysis-caption {
-  height: 18px;
-  display: flex;
-  justify-content: space-between;
-  font-size: 10px;
-  color: #7a8a7e;
-}
-.analysis-caption .stress { color: #d97706; }
+.kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-4); }
 
-/* 建议信息流 */
-.advice-feed { height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
-.feed-item {
+.tabs { display: flex; gap: var(--space-3); overflow-x: auto; padding-bottom: 2px; }
+.tab {
+  position: relative;
   display: flex;
-  gap: 8px;
+  flex-direction: column;
   align-items: flex-start;
-  background: #f8faf8;
-  border-left: 3px solid #d7dfd8;
-  border-radius: 4px;
-  padding: 7px 10px;
-}
-.dot { flex: 0 0 6px; width: 6px; height: 6px; border-radius: 50%; margin-top: 6px; background: #16a34a; }
-.dot.high { background: #dc2626; }
-.dot.medium { background: #d97706; }
-.feed-content {
-  font-size: 12px;
-  color: #1f2d1f;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  gap: 2px;
+  flex: 0 1 300px;
+  min-width: 220px;
+  padding: var(--space-2) var(--space-4) var(--space-3);
   overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
-.feed-meta { font-size: 10px; color: #7a8a7e; margin-top: 3px; }
+.tab:hover { border-color: var(--brand-300); }
+.tab.on { border-color: var(--brand-600); box-shadow: inset 0 0 0 1px var(--brand-600); background: var(--brand-50); }
+.tab-name { font-size: var(--fs-16); line-height: var(--lh-16); font-weight: var(--fw-semibold); color: var(--text-primary); }
+.tab-meta { font-size: var(--fs-13); line-height: var(--lh-13); color: var(--text-secondary); white-space: nowrap; }
+.tab-meta b { font-variant-numeric: tabular-nums; color: var(--text-primary); font-weight: var(--fw-semibold); }
+.tab-progress { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--brand-600); transition: width 1s linear; }
 
-.empty-tip {
-  color: #9aa79a;
-  font-size: 12px;
-  text-align: center;
-  margin: auto;
+.main { display: grid; grid-template-columns: minmax(0, 1fr) clamp(420px, 31vw, 600px); gap: var(--space-4); min-height: 0; }
+.grid-card { display: flex; flex-direction: column; min-height: 0; }
+.grid-card :deep(.sc-body) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.grid-card :deep(.plant-grid) { flex: 1; }
+.gh-title h2 { margin: 0; font-size: var(--fs-20); line-height: var(--lh-20); font-weight: var(--fw-semibold); color: var(--text-primary); }
+.gh-title p { margin: 2px 0 0; font-size: var(--fs-13); line-height: var(--lh-13); color: var(--text-secondary); }
+.gh-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: var(--fs-13); line-height: var(--lh-13); color: var(--text-secondary); white-space: nowrap; }
+.gh-meta b { font-variant-numeric: tabular-nums; font-weight: var(--fw-semibold); color: var(--text-primary); }
+/* 右栏：环境卡吃掉剩余高度（曲线随之伸缩），确认卡按内容高 */
+.side { display: flex; flex-direction: column; gap: var(--space-4); min-height: 0; }
+.side > * { flex: none; }
+.side > .side-env { flex: 1 1 auto; min-height: 0; }
+
+.foot { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-5); font-size: var(--fs-13); color: var(--text-secondary); }
+.foot-title { font-weight: var(--fw-semibold); color: var(--text-primary); }
+.foot-item b { font-weight: var(--fw-medium); color: var(--text-primary); margin-right: var(--space-1); }
+.foot-hint { margin-left: auto; color: var(--text-placeholder); }
+
+/* 矮屏或窄屏：不再锁一屏高，改为整页纵向滚动，网格卡给固定高度 */
+@media (max-height: 760px), (max-width: 1199px) {
+  .screen { height: auto; min-height: 100vh; overflow: visible; }
+  .main { grid-template-columns: minmax(0, 1fr); }
+  .grid-card { height: 520px; }
+  .side > .side-env { flex: none; }
+}
+@media (max-width: 1199px) {
+  .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .top { flex-wrap: wrap; gap: var(--space-3); }
 }
 </style>

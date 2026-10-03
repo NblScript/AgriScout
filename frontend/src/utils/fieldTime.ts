@@ -32,6 +32,12 @@ export function fieldClock(at: Instant | null | undefined): string {
   return `${day} ${pad(hour)}:${pad(minute)}`
 }
 
+/** 「HH:mm:ss」（展示屏时钟） */
+export function fieldTimeHms(at: Instant = Date.now()): string {
+  const d = shifted(at)
+  return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`
+}
+
 /** 「2026-10-03 星期六」 */
 export function fieldDateLabel(at: Instant = Date.now()): string {
   const d = shifted(at)
