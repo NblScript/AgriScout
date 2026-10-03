@@ -29,15 +29,25 @@
 
 - 同步段：建档、上传（秒级）、查询、采纳/驳回；异步段：分析（分钟级）、规则匹配、训练与规则修订（天级）。
 - 红线：大巡检包（2600 张照片）绝不在上传请求里同步识别；⑥ 完成后才对外发布 `analysis_status=done`。
-- 研究闭环接在 ⑤ 之后：区域风险预测（D11/D12）→ 复巡与标注任务（D13）→ 随访结论（D10）→
-  数据集冻结 → 模型评估闸门（只能绑定已冻结数据集的 test split 审批）。
+- 研究闭环接在 ⑤ 之后：区域风险预测（D11/D12）→ 复巡与标注任务（D13/D17）→ 随访结论（D10）→
+  数据集冻结 → 模型评估闸门（只能绑定已冻结数据集的 test split 审批）。线上复巡生成与离线重放 H2 共用同一联合策略实现（D17）。
+- 大棚巡检计划（计划 0015，D18）是另一条入口，接在 ④⑤ 和环境读数之后：
+
+```
+温湿度记录仪 CSV ─ rover/env_upload.py ─→ env_readings ─→ greenhouse_env（小时聚合、逐日指标、环境指数、清晨窗口）─┐
+株档案 + 叶背照片 + 质量 + 人工确认标注 ─→ plant_state（每株状态：人工优先，模型分占位）──────────────────────┤
+                                                                     patrol_planner（planner-v0，纯函数）←┘
+                                         → 四张名单写成 revisit_tasks（确认/补拍/全覆盖/抽查）→ 车领任务 / 人在时间线确认
+```
+
+  三个计算服务都是纯函数，`greenhouse_plans` 负责取数和落库；计划头存在任务 `parameters` 里，重新生成时作废上一版排队任务。
 
 ## backend 分层与依赖方向（自上而下，禁止反向）
 
 ```
-api/v1/          薄路由：参数校验、404/422 映射，不含业务逻辑（software_loop.py 例外，见技术债）
+api/v1/          薄路由：参数校验、404/422 映射，不含业务逻辑（software_loop.py 的预测与随访部分例外，见技术债）
   ↓ 依赖注入
-services/        业务：ingest / analysis / advice / storage / 风险与主动学习 / 评估指标
+services/        业务：ingest / analysis / advice / storage / 风险与主动学习 / 评估指标 / 大棚环境与巡检计划
   ↓
 models/ + schemas/   ORM 实体 与 DTO/协议（schemas 是对采集端的合同面）
   ↓
@@ -69,6 +79,10 @@ core/            config(pydantic-settings) / db(Session) / deps(认证与角色�
       def analyze(self, image: bytes, context: CaptureContext) -> AnalysisResult: ...
   ```
 - **规则 YAML**：格式以 `backend/rules/wheat.yaml` 文件头为准（条件键、算子、三层）；生命周期见决策注册表「规则引擎生命周期」。
+- **环境读数上报**（计划 0015）：`POST /fields/{id}/env-readings`，`{sensor_key, device?, source?, readings[≤5000]}`；
+  同一（地块, 传感器, 时刻）只存一条，重复跳过并计入 `skipped`；不带时区的时间按 UTC（D9），记录仪的当地时间由 `env_upload.py` 先换算。
+- **巡检计划任务**：`task_type` 为 label（推给人确认）/ revisit（叶背补拍，`parameters.views` 给多角度序列）/ coverage / random，
+  `parameters` 带 `observation_key`、`chainage_m`、`window`（清晨窗口）、`plan_version`、`plan_date`，rationale 带各项分量。
 
 ## 关键扩展点
 
@@ -78,6 +92,7 @@ core/            config(pydantic-settings) / db(Session) / deps(认证与角色�
 | 照片存储 | `Storage` | LocalStorage 内容寻址 | 生产换对象存储只改实现类 |
 | 规则源 | wheat.yaml | 18 条 | sync-yaml 幂等 upsert，version 自增 |
 | 风险模型 | `model_version` | risk-heuristic-v2 / risk-lr-v1（模型文件） | 生成预测时指定版本，D12 |
+| 巡检计划 | `PlannerParams` / `DownyMildewEnvParams` | planner-v0 / dm-env-v0（启发式，D18） | 请求里 `overrides` 调参；换策略改 `patrol_planner`，版本号写进每条任务 |
 | 数据库 | SQLAlchemy | SQLite 开发 / PostgreSQL 生产 | DATABASE_URL 切换 + Alembic 迁移 |
 
 ## 能力分级
@@ -110,5 +125,6 @@ core/            config(pydantic-settings) / db(Session) / deps(认证与角色�
 ## frontend 结构
 
 - 管理台（Element Plus 亮色）：地块/作物/种植/设备 CRUD + 系统状态 + 规则修订审批 + 研究闭环（风险/复巡/随访/数据集/模型评估）+ 巡检回放（地图/时间轴/复核/建议）
+  + 大棚：株档案、单株时间线（含「确认状态」）、巡检计划页（环境曲线 + 四张名单）
 - `/screen` 数据总览：白卡片仪表盘，ECharts 亮色配色，中央 Leaflet 地图（theme 切换）
 - 数据层：`api/index.ts` 每资源一个 api 对象；类型单一事实源 `types.ts` 对齐 backend schemas

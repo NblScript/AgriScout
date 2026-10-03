@@ -55,12 +55,27 @@ export AGRISCOUT_USERNAME=rover AGRISCOUT_PASSWORD='<口令>'
 阶段 A 上传的仍是 v1 包：株号、行内位置、视角和质量记录只留在本地 `points.jsonl`，阶段 B（协议 v2）才上传；
 平台另对每张照片按同一公式算一遍质量，写进分析结果的 `detail.image_quality`。
 
+## 温湿度记录仪 CSV 上传（计划 0015）
+
+棚内冠层温湿度记录仪通常只能导出 CSV。`env_upload.py` 按参数读列名、时区和编码，分批调用
+`POST /api/v1/fields/{field_id}/env-readings`（每批最多 5000 条），用的账号和令牌参数与 `run.py` 相同：
+
+```bash
+.venv/bin/python env_upload.py --api http://<后端IP>:8000 --field-id 3 --csv th-01.csv --sensor-key th-01 \
+  --time-col 时间 --temp-col 温度 --rh-col 湿度 --tz +08:00 --encoding gbk
+```
+
+- 时间不带时区时按 `--tz` 解释（默认东八区），自带时区的保持不变；格式特殊时用 `--time-format`（strptime 写法）。
+- 湿度列允许带 `%`；叶面湿度列可选（`--wetness-col`，0–1）。
+- 有解析不了的行时默认整份文件不上传，并打印行号；确认后加 `--skip-bad` 跳过坏行。
+- 平台按「传感器 + 时刻」去重，同一个文件重复上传是安全的，已成功的批次重传时会被跳过。
+
 ## 无硬件烟测
 
 安装 `requirements.txt` 后，可从仓库根目录运行最小闭环与失败路径检查：
 
 ```bash
-python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_store
+python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_store rover.test_env_upload
 ```
 
 烟测使用本地 HTTP mock，不导入后端内部模块，也不需要摄像头；它覆盖 `--fake` 上传、巡检包时间顺序、非 JSON/网络错误，以及采集失败时的资源清理。
