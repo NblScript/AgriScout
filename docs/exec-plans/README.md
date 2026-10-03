@@ -38,7 +38,7 @@ docs/exec-plans/active/<编号>-<主题>.md   ← 开工时创建，随进展更
 
 ## 在档计划
 
-- active：见目录（当前为 0007、0013、0015–0018；0007 只剩与作物无关的项；0013 是温室方向软件线总览，0015–0018 是可分头交给代理执行的子计划）
+- active：见目录（当前为 0007、0013、0016–0018；0007 只剩与作物无关的项；0013 是温室方向软件线总览，0016–0018 是可分头交给代理执行的子计划）
 - 技术债与可选打磨统一记 `tech-debt-tracker.md`，不单独开计划
 
 ## 已删除的历史文档（2026-09-29 清理）
@@ -51,6 +51,7 @@ docs/exec-plans/active/<编号>-<主题>.md   ← 开工时创建，随进展更
 | 执行计划 0001–0006、0008–0011（M0–M6 回填、YOLO 管线、rover、软件闭环、审查修复、模拟季与离线重放、risk-lr-v1、rust-cls-v1、H3 真实数据） | `5ab7309` | `docs/exec-plans/completed/<编号>-<主题>.md` |
 | 执行计划 0012（登录与角色权限） | `ae22fb6` | `docs/exec-plans/completed/0012-user-auth.md` |
 | 执行计划 0014（按株建档、协议 v2 最小子集、单株时间线；含执行中的决策记录） | 「docs: 计划 0014 完成」commit（`git log --grep "计划 0014 完成"` 查哈希） | `docs/exec-plans/active/0014-plant-identity-protocol-v2.md` |
+| 执行计划 0015（棚内环境、每株状态、风险驱动巡检计划、旧复巡下沉；含执行中的决策记录） | 「docs: 计划 0015 完成」commit（`git log --grep "计划 0015 完成"` 查哈希） | `docs/exec-plans/active/0015-env-risk-patrol-planner.md` |
 | 代码审查记录（三轮）、申报书方案评审 | `5ab7309` | `docs/reviews/2026-09-25-code-review.md`、`docs/reviews/2026-09-25-application-review.md` |
 | 主计划 v1.0、讨论决策日志、嵌入式学习路线、项目介绍 v1.0、产品规格索引 | `5ab7309` | `docs/04-master-plan.md`、`docs/05-discussion-decisions.md`、`docs/06-embedded-learning-roadmap.txt`、`docs/07-project-introduction.md`、`docs/product-specs/index.md` |
 
@@ -59,3 +60,5 @@ docs/exec-plans/active/<编号>-<主题>.md   ← 开工时创建，随进展更
 技术债台账（照片目录公开、署名由前端提交、登录限流、只读账号写按钮、设备级凭据）。
 计划 0014 → ARCHITECTURE「契约」（v2 子集、重传幂等、株号关联）、README「当前能力」、计划 0013「进度」、
 技术债台账（坐标不可为空、rover 重传遇 409）。
+计划 0015 → 决策 D17、D18，ARCHITECTURE「数据流」「契约」，README「当前能力」与已知边界，rover/README，计划 0013「进度」，
+技术债台账（计划任务唯一约束、计划不单独成表、设备领任务不分类型、确认任务不随人工确认完成、多记录仪平均）。
