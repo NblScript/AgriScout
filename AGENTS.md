@@ -33,7 +33,8 @@ python -m unittest simulator.test_epidemic         # 仓库根目录运行，病
 
 # 真车采集端（树莓派 + USB 摄像头；--fake 无摄像头测链路）
 cd rover && .venv/bin/python run.py --api http://<后端IP>:8000 --fake
-python -m unittest rover.test_run_smoke             # 仓库根目录运行，无硬件烟测
+cd rover && .venv/bin/python run.py --api http://<后端IP>:8000 --fake --mode stops --fake-script normal,blurry  # 停车补拍模式（0016-A）
+python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_store  # 仓库根目录运行，无硬件
 
 # ML 训练（独立环境）
 cd ml && .venv/bin/python data/prepare_gwd.py && .venv/bin/python train.py
@@ -51,7 +52,7 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 |---|---|
 | `backend/app/models/` | 23 张表，每实体一文件；`timestamps.py` 公共 mixin；`__init__.py` 为注册中心 |
 | `backend/app/api/v1/` | 路由层：CRUD + ingest + 分析 + 建议 + 标注 + stats + 报告 + Agent + 规则修订 + `device_protocol`（注册/心跳/事件/故障注入）+ `software_loop`（风险/复巡/随访/数据集/模型评估）+ `auth`/`users`（登录与用户管理，D15） |
-| `backend/app/services/analysis/` | Analyzer 协议（base.py）+ 占位颜色版 + YOLO 版（麦穗，可选）+ disease_classifier（条锈病图块分类，可选）+ 后台 runner |
+| `backend/app/services/analysis/` | Analyzer 协议（base.py）+ 占位颜色版 + YOLO 版（麦穗，可选）+ disease_classifier（条锈病图块分类，可选）+ image_quality（iq-rule-v1，每点写 detail）+ 后台 runner |
 | `backend/app/services/` | advice(规则引擎) / agent_chat+agent_tools(L2 诊断) / agent_rule_draft+rule_feedback+shadow_run+rule_revision(L1 起草生效) / llm_report(报告) / ingest / storage / risk_prediction+risk_inputs+region_association+active_learning+evidence_feedback+dataset_governance(M7 研究闭环，纯函数优先) / evaluation_metrics+offline_replay(随访指标与 H1–H3 离线重放) / logistic+risk_features+risk_model(risk-lr 可训练风险模型，D12) |
 | `backend/app/tools/` | `sync_rules`（YAML 同步）、`gen_db_schema`（表结构快照）、`replay_eval`（离线重放报告）、`train_risk_lr`（训练导出风险模型）、`al_replay_images`（H3 真实图像数据选样对比）、`create_user`（建号/重置口令） |
 | `backend/rules/wheat.yaml` | 规则种子库 18 条（单一事实源，经 sync_rules 同步入表） |
@@ -61,7 +62,7 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 | `frontend/src/components/` | MapCanvas（Leaflet 封装，theme=light/dark）、EChart、ScreenPanel |
 | `frontend/src/api/index.ts` · `types.ts` | 每资源一个 api 对象；类型单一事实源，对齐 backend schemas |
 | `simulator/` | 独立虚拟巡田，只走 HTTP（禁止 import 后端内部）；`season.py` 多日期病害扩散模拟季 |
-| `rover/` | 真车采集端：拍照→攒点→打包上传，本地 spool 断网续传；只走 HTTP |
+| `rover/` | 真车采集端：`run.py` 编排上传与 spool 断网续传；`hardware`（硬件接口+假实现）/`quality`（iq-rule-v1）/`acquire`（视角补拍）/`point_store`（逐点落盘）；只走 HTTP |
 | `ml/` | YOLO 训练环境（与后端运行时分离）：麦穗检测（GWD）、条锈病图块分类（NWRD，D14） |
 | `tools/` | download_tiles.py 离线瓦片下载（高德源） |
 
