@@ -1,18 +1,29 @@
 <script setup lang="ts">
-/** 巡检计划（计划 0015）：棚内环境曲线 + 今日四张名单（推给人确认 / 叶背补拍 / 低频全覆盖 / 随机抽查），每条可展开看打分分量。 */
+/**
+ * 巡检计划（计划 0015；0018 换新样式）：棚内环境曲线 + 今日四张名单（推给人确认 / 叶背补拍 / 低频全覆盖 / 随机抽查），
+ * 每条可展开看打分分量。阶段 B 挪进大棚详情的「巡检计划」标签页。
+ */
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Refresh } from '@element-plus/icons-vue'
+import { Files, Refresh } from '@element-plus/icons-vue'
 import type { EChartsOption } from 'echarts'
 import EChart from '../components/EChart.vue'
+import EmptyState from '../components/ui/EmptyState.vue'
+import PageHeader from '../components/ui/PageHeader.vue'
+import SectionCard from '../components/ui/SectionCard.vue'
+import StatCard from '../components/ui/StatCard.vue'
+import TaskTypeTag from '../components/ui/TaskTypeTag.vue'
 import { fieldsApi, greenhouseApi } from '../api'
 import { errMsg } from '../api/http'
+import { useBreadcrumb } from '../composables/useBreadcrumb'
 import { useAuthStore } from '../stores/auth'
+import { cssVar } from '../styles/tokens'
 import {
-  PLAN_LIST_LABELS, PLANT_STATE_LABELS,
+  FACILITY_LABELS, PLAN_LIST_LABELS, PLAN_TRIGGER_LABELS, PLANT_STATE_LABELS, TASK_STATUS_LABELS,
   type EnvSummary, type Field, type PatrolPlan, type PlanItem, type PlanListName, type PlantStateValue,
 } from '../types'
+import { fieldClock, fieldDate, fieldParts } from '../utils/fieldTime'
 
 const route = useRoute()
 const router = useRouter()
@@ -26,12 +37,13 @@ const planNote = ref('')
 const loading = ref(false)
 const generating = ref(false)
 const activeList = ref<PlanListName>('confirm')
+const planDate = ref(fieldDate())
 
-/** 田间日期（UTC+8），与后端 field_date 同口径 */
-function fieldToday(): string {
-  return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10)
-}
-const planDate = ref(fieldToday())
+useBreadcrumb(() => [
+  { label: '大棚与地块', to: '/fields' },
+  { label: field.value?.name ?? `地块 #${fieldId}` },
+  { label: '巡检计划' },
+])
 
 async function load() {
   loading.value = true
@@ -77,52 +89,62 @@ async function generate() {
 }
 
 /* ---------- 环境 ---------- */
-/** 田间时区（UTC+8）的「月/日 时」，不随浏览器时区漂移 */
-function localParts(iso: string): { day: string; hour: number; minute: number } {
-  const d = new Date(Date.parse(iso) + 8 * 3600 * 1000)
-  return { day: `${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCDate()).padStart(2, '0')}`,
-           hour: d.getUTCHours(), minute: d.getUTCMinutes() }
-}
 function hourLabel(iso: string): string {
-  const { day, hour } = localParts(iso)
+  const { day, hour } = fieldParts(iso)
   return `${day} ${String(hour).padStart(2, '0')}时`
-}
-function clockText(iso: string): string {
-  const { day, hour, minute } = localParts(iso)
-  return `${day} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
 }
 function pct(value: number | null | undefined): string {
   return value == null ? '—' : `${Math.round(value * 100)}%`
 }
+const hasReadings = computed(() => !!env.value && env.value.hourly.some((h) => !h.missing))
+
+/** 坐标轴、网格、提示框的公共样式（颜色取令牌） */
+function chartBase() {
+  const axis = cssVar('--chart-axis', '#66726b')
+  const grid = cssVar('--chart-grid', '#e3e8e5')
+  return {
+    textStyle: { fontFamily: cssVar('--font-sans', 'sans-serif') },
+    axisLine: { lineStyle: { color: grid } },
+    axisLabel: { color: axis },
+    splitLine: { lineStyle: { color: grid } },
+    legend: { top: 0, icon: 'roundRect', itemWidth: 12, itemHeight: 8, textStyle: { color: axis } },
+  }
+}
 
 const hourlyOption = computed<EChartsOption>(() => {
   const hours = env.value?.hourly ?? []
+  const base = chartBase()
   return {
+    textStyle: base.textStyle,
     tooltip: { trigger: 'axis' },
-    legend: { data: ['温度 ℃', '相对湿度 %', '露点差 ℃'], top: 0 },
-    grid: { left: 48, right: 48, top: 32, bottom: 28 },
+    legend: { ...base.legend, data: ['温度 ℃', '相对湿度 %', '露点差 ℃'] },
+    grid: { left: 44, right: 44, top: 36, bottom: 28 },
     xAxis: {
       type: 'category',
       data: hours.map((h) => hourLabel(h.hour)),
+      axisLine: base.axisLine,
+      axisTick: { show: false },
       // 只在田间日期的零点标刻度
-      axisLabel: { interval: (index: number) => localParts(hours[index].hour).hour === 0, formatter: (v: string) => v.slice(0, 5) },
+      axisLabel: { ...base.axisLabel, interval: (index: number) => fieldParts(hours[index].hour).hour === 0, formatter: (v: string) => v.slice(0, 5) },
     },
     yAxis: [
-      { type: 'value', name: '℃', splitLine: { lineStyle: { type: 'dashed' } } },
-      { type: 'value', name: '%', min: 0, max: 100 },
+      { type: 'value', name: '℃', nameTextStyle: base.axisLabel, axisLabel: base.axisLabel, splitLine: base.splitLine },
+      { type: 'value', name: '%', min: 0, max: 100, nameTextStyle: base.axisLabel, axisLabel: base.axisLabel, splitLine: { show: false } },
     ],
     series: [
       // 缺测小时为 null，曲线断开而不是插值
-      { name: '温度 ℃', type: 'line', showSymbol: false, data: hours.map((h) => h.temp_c), color: '#c0392b' },
-      { name: '相对湿度 %', type: 'line', showSymbol: false, yAxisIndex: 1, data: hours.map((h) => h.humidity_pct), color: '#2c7be5' },
-      { name: '露点差 ℃', type: 'line', showSymbol: false, data: hours.map((h) => h.dewpoint_depression_min), color: '#7f8c8d' },
+      { name: '温度 ℃', type: 'line', showSymbol: false, data: hours.map((h) => h.temp_c), color: cssVar('--chart-warm', '#c8691f') },
+      { name: '相对湿度 %', type: 'line', showSymbol: false, yAxisIndex: 1, data: hours.map((h) => h.humidity_pct), color: cssVar('--chart-wet', '#2f6fb0') },
+      { name: '露点差 ℃', type: 'line', showSymbol: false, data: hours.map((h) => h.dewpoint_depression_min), color: cssVar('--chart-neutral', '#7a857f'), lineStyle: { type: 'dashed' } },
     ],
   }
 })
 
 const dailyOption = computed<EChartsOption>(() => {
   const days = env.value?.daily ?? []
+  const base = chartBase()
   return {
+    textStyle: base.textStyle,
     tooltip: {
       trigger: 'axis',
       // 当天读数不全时（比如今天才过了几个小时）一并写出覆盖率，免得把半天的数当成一整天
@@ -134,39 +156,27 @@ const dailyOption = computed<EChartsOption>(() => {
         return [`${day.field_date}（读数覆盖 ${pct(day.coverage)}）`, ...lines].join('<br/>')
       },
     },
-    legend: { data: ['适宜时长', '湿润时长', '夜间湿润'], top: 0 },
-    grid: { left: 40, right: 16, top: 32, bottom: 28 },
-    xAxis: { type: 'category', data: days.map((d) => d.field_date.slice(5)) },
-    yAxis: { type: 'value', name: '小时', max: 24 },
+    legend: { ...base.legend, data: ['适宜时长', '湿润时长', '夜间湿润'] },
+    grid: { left: 36, right: 12, top: 36, bottom: 28 },
+    xAxis: { type: 'category', data: days.map((d) => d.field_date.slice(5)), axisLine: base.axisLine, axisTick: { show: false }, axisLabel: base.axisLabel },
+    yAxis: { type: 'value', name: '小时', max: 24, nameTextStyle: base.axisLabel, axisLabel: base.axisLabel, splitLine: base.splitLine },
     series: [
-      { name: '适宜时长', type: 'bar', data: days.map((d) => d.favorable_hours), color: '#e67e22' },
-      { name: '湿润时长', type: 'bar', data: days.map((d) => d.wet_hours), color: '#2c7be5' },
-      { name: '夜间湿润', type: 'bar', data: days.map((d) => d.night_wet_hours), color: '#16a085' },
+      { name: '适宜时长', type: 'bar', barMaxWidth: 14, data: days.map((d) => d.favorable_hours), color: cssVar('--chart-warm', '#c8691f') },
+      { name: '湿润时长', type: 'bar', barMaxWidth: 14, data: days.map((d) => d.wet_hours), color: cssVar('--chart-wet', '#2f6fb0') },
+      { name: '夜间湿润', type: 'bar', barMaxWidth: 14, data: days.map((d) => d.night_wet_hours), color: cssVar('--chart-night', '#1f8a83') },
     ],
   }
 })
 
 /* ---------- 计划 ---------- */
 const LISTS: PlanListName[] = ['confirm', 'reshoot', 'coverage', 'random']
-const TRIGGER_LABELS: Record<string, string> = {
-  model_early: '模型判早期',
-  model_score_over_confirm_threshold: '模型分超确认阈值',
-  top_reshoot_score: '补拍分靠前',
-  last_under_rejected: '上次叶背不合格',
-  morning_window: '清晨窗口',
-  coverage_due: '超过全覆盖周期',
-  never_seen: '从未拍到',
-  random_spot_check: '随机抽查',
-}
 const PART_LABELS: Record<string, string> = {
   model: '模型分', neighbor: '邻株', env: '环境', stale: '叶背陈旧', bad_quality: '上次不合格',
 }
-const STATUS_LABELS: Record<string, string> = {
-  queued: '待领取', assigned: '已分配', running: '执行中', completed: '已完成', cancelled: '已取消',
-}
+const isToday = computed(() => plan.value?.plan_date === fieldDate())
 const items = computed<PlanItem[]>(() => (plan.value ? plan.value[activeList.value] : []))
 function triggers(item: PlanItem): string[] {
-  return ((item.rationale.triggers as string[] | undefined) ?? []).map((t) => TRIGGER_LABELS[t] ?? t)
+  return ((item.rationale.triggers as string[] | undefined) ?? []).map((t) => PLAN_TRIGGER_LABELS[t] ?? t)
 }
 function parts(item: PlanItem): { name: string; value: number }[] {
   const raw = (item.rationale.parts as Record<string, number> | undefined) ?? {}
@@ -180,7 +190,7 @@ function detailRows(item: PlanItem): { name: string; value: string }[] {
     return [
       { name: '模型分', value: fmt(inputs.model_score) },
       { name: '邻株最高分', value: fmt(inputs.neighbor_max_score) },
-      { name: '环境指数', value: inputs.env_missing ? '无环境信息（按 0.5 计）' : fmt(inputs.env_index) },
+      { name: '环境指数', value: inputs.env_missing ? '环境数据不足（按 0.5 计）' : fmt(inputs.env_index) },
       { name: '距上次合格叶背（天）', value: fmt(inputs.days_since_under_ok) },
     ]
   }
@@ -199,56 +209,57 @@ function detailRows(item: PlanItem): { name: string; value: string }[] {
 </script>
 
 <template>
-  <div class="head">
-    <el-button :icon="ArrowLeft" text @click="router.push({ name: 'fields' })">地块</el-button>
-    <span class="title">{{ field?.name ?? `地块 #${fieldId}` }} · 巡检计划</span>
-    <span class="spacer" />
-    计划日
-    <el-date-picker v-model="planDate" type="date" value-format="YYYY-MM-DD" size="small" style="width: 140px" :clearable="false" />
-    <el-button type="primary" size="small" :loading="generating" :disabled="auth.isViewer" @click="generate">生成计划</el-button>
-    <el-button :icon="Refresh" circle size="small" title="刷新" @click="load" />
+  <PageHeader :title="field?.name ?? `地块 #${fieldId}`"
+              subtitle="巡检计划：按环境风险和每株状态排出今天推给人确认、叶背补拍、低频全覆盖、随机抽查的株">
+    <template #meta>
+      <el-tag v-if="field" size="small" effect="plain">{{ FACILITY_LABELS[field.facility_type ?? 'open_field'] }}</el-tag>
+      <span v-if="plan" class="meta-text">在册 {{ plan.units }} 株</span>
+      <span v-if="plan?.generated_at" class="meta-text">
+        {{ plan.plan_date }} 的计划 · 第 {{ plan.generation }} 次生成于 {{ fieldClock(plan.generated_at) }}
+      </span>
+      <el-tag v-if="plan && !isToday" size="small" type="warning" effect="plain">不是今天的计划</el-tag>
+    </template>
+    <template #actions>
+      <el-button :icon="Files" @click="router.push({ name: 'field-units', params: { id: fieldId } })">株档案</el-button>
+      <el-date-picker v-model="planDate" type="date" value-format="YYYY-MM-DD" :clearable="false" style="width: 150px"
+                      aria-label="计划日" />
+      <el-button v-if="!auth.isViewer" type="primary" :loading="generating" @click="generate">生成计划</el-button>
+      <el-button :icon="Refresh" :loading="loading" aria-label="刷新" @click="load" />
+    </template>
+  </PageHeader>
+
+  <div class="kpis">
+    <StatCard compact label="环境风险 · 近 72 小时" :value="env?.index.env_index ?? null" :precision="2" :loading="loading && !env"
+              :empty-text="env ? '环境数据不足' : '—'"
+              :hint="env ? `适宜 ${env.index.favorable_hours} h · 湿润 ${env.index.wet_hours} h · 覆盖 ${pct(env.index.coverage)}` : ''" />
+    <StatCard compact label="清晨叶背窗口" :value="env?.morning_window ? `${env.morning_window.start}–${env.morning_window.end}` : null"
+              :empty-text="env ? '今天没有' : '—'" :loading="loading && !env"
+              :hint="env?.morning_window ? `前夜湿润 ${env.morning_window.night_wet_hours} 小时` : '前夜湿润不足 4 小时'" />
+    <StatCard v-for="name in LISTS" :key="name" compact :label="PLAN_LIST_LABELS[name]" :value="plan ? plan[name].length : null" unit="株"
+              :hint="name === 'reshoot' && plan ? `预算 ${plan.reshoot_budget} 株` : name === 'confirm' ? '每天人工预算内' : ''">
+      <template #label><TaskTypeTag :type="name" long /></template>
+    </StatCard>
   </div>
 
-  <div v-loading="loading" class="env">
-    <el-descriptions :column="4" border size="small" class="summary">
-      <el-descriptions-item label="环境指数（近 72 小时）">
-        <template v-if="env?.index.env_index != null">{{ env.index.env_index.toFixed(2) }}</template>
-        <el-tooltip v-else :content="env?.index.reason ?? '没有读数'" placement="top">
-          <el-tag type="info" size="small" effect="plain">无环境信息</el-tag>
-        </el-tooltip>
-      </el-descriptions-item>
-      <el-descriptions-item label="适宜 / 湿润时长">
-        {{ env ? `${env.index.favorable_hours} / ${env.index.wet_hours} 小时` : '—' }}
-      </el-descriptions-item>
-      <el-descriptions-item label="读数覆盖率">{{ pct(env?.index.coverage) }}</el-descriptions-item>
-      <el-descriptions-item label="清晨窗口">
-        <template v-if="env?.morning_window">
-          {{ env.morning_window.date }} {{ env.morning_window.start }}–{{ env.morning_window.end }}
-          <div class="sub">{{ env.morning_window.reason }}</div>
-        </template>
-        <span v-else class="empty">无</span>
-      </el-descriptions-item>
-    </el-descriptions>
-    <div v-if="env && env.hourly.some((h) => !h.missing)" class="charts">
+  <SectionCard title="棚内环境" subtitle="近 72 小时逐时读数与按田间日期汇总的时长（缺测不插值，曲线断开）" class="block">
+    <div v-if="hasReadings" class="charts">
       <div class="chart"><EChart :option="hourlyOption" /></div>
       <div class="chart narrow"><EChart :option="dailyOption" /></div>
     </div>
-    <el-empty v-else description="这块地还没有温湿度读数（记录仪 CSV 可用 rover/env_upload.py 上传）" :image-size="60" />
-  </div>
+    <EmptyState v-else-if="!loading" compact title="还没有温湿度读数"
+                description="记录仪导出的 CSV 可用 rover/env_upload.py 上传；没有读数时环境风险按「环境数据不足」处理，不当成低风险。" />
+  </SectionCard>
 
-  <template v-if="plan">
-    <div class="plan-meta">
-      {{ plan.plan_date }} 的计划 · 在册 {{ plan.units }} 株 · 补拍预算 {{ plan.reshoot_budget }} 株
-      <template v-if="plan.window"> · 叶背补拍建议 {{ plan.window.start }}–{{ plan.window.end }}</template>
-      <span class="muted">
-        · {{ plan.plan_version }}（启发式，参数待田间试用后调整）
-        <template v-if="plan.generated_at"> · 第 {{ plan.generation }} 次生成于 {{ clockText(plan.generated_at) }}</template>
-      </span>
-    </div>
-    <el-tabs v-model="activeList">
-      <el-tab-pane v-for="name in LISTS" :key="name" :name="name" :label="`${PLAN_LIST_LABELS[name]}（${plan[name].length}）`" />
+  <SectionCard v-if="plan" title="今日名单" :subtitle="`${plan.plan_version}（启发式，参数待田间试用后调整）`" flush class="block">
+    <template #actions>
+      <span v-if="plan.window" class="muted text-13">叶背补拍建议 {{ plan.window.start }}–{{ plan.window.end }}</span>
+    </template>
+    <el-tabs v-model="activeList" class="list-tabs">
+      <el-tab-pane v-for="name in LISTS" :key="name" :name="name">
+        <template #label><TaskTypeTag :type="name" long :count="plan[name].length" /></template>
+      </el-tab-pane>
     </el-tabs>
-    <el-table :data="items" border size="small" row-key="task_id" :empty-text="`今天没有${PLAN_LIST_LABELS[activeList]}`">
+    <el-table :data="items" row-key="task_id">
       <el-table-column type="expand">
         <template #default="{ row }">
           <div class="expand">
@@ -256,45 +267,60 @@ function detailRows(item: PlanItem): { name: string; value: string }[] {
               <el-descriptions-item v-for="d in detailRows(row)" :key="d.name" :label="d.name">{{ d.value }}</el-descriptions-item>
             </el-descriptions>
             <div v-if="parts(row).length" class="parts">
-              分量：<span v-for="p in parts(row)" :key="p.name" class="part">{{ p.name }} {{ p.value.toFixed(3) }}</span>
+              分量：<span v-for="p in parts(row)" :key="p.name" class="part">{{ p.name }} <b class="tabular">{{ p.value.toFixed(3) }}</b></span>
             </div>
           </div>
         </template>
       </el-table-column>
       <el-table-column label="株号" width="120">
         <template #default="{ row }">
-          <el-link type="primary" @click="router.push({ name: 'unit-timeline', params: { id: row.unit_id } })">{{ row.key }}</el-link>
+          <router-link :to="{ name: 'unit-timeline', params: { id: row.unit_id } }" class="mono">{{ row.key }}</router-link>
         </template>
       </el-table-column>
-      <el-table-column label="分数" width="80" align="right">
-        <template #default="{ row }">{{ row.score.toFixed(3) }}</template>
+      <el-table-column label="分数" width="90" align="right">
+        <template #default="{ row }"><span class="tabular">{{ row.score.toFixed(3) }}</span></template>
       </el-table-column>
-      <el-table-column label="原因" min-width="220">
+      <el-table-column label="原因" min-width="240">
         <template #default="{ row }">
-          <el-tag v-for="t in triggers(row)" :key="t" size="small" effect="plain" class="trigger">{{ t }}</el-tag>
+          <el-tag v-for="t in triggers(row)" :key="t" size="small" type="info" effect="plain" class="trigger">{{ t }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="任务" width="110">
-        <template #default="{ row }">#{{ row.task_id }} · {{ STATUS_LABELS[row.task_status] ?? row.task_status }}</template>
+      <el-table-column label="任务" width="140">
+        <template #default="{ row }"><span class="muted">#{{ row.task_id }}</span> · {{ TASK_STATUS_LABELS[row.task_status] ?? row.task_status }}</template>
       </el-table-column>
+      <template #empty><EmptyState compact :title="`今天没有${PLAN_LIST_LABELS[activeList]}`" /></template>
     </el-table>
-  </template>
-  <el-empty v-else :description="planNote || '还没有计划'" :image-size="60" />
+  </SectionCard>
+  <SectionCard v-else-if="!loading" title="今日名单" class="block">
+    <EmptyState :title="planNote || '还没有计划'"
+                :description="auth.isViewer ? '由操作员或管理员生成计划。' : '选好计划日，点右上角「生成计划」。'" />
+  </SectionCard>
 </template>
 
 <style scoped>
-.head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 13px; color: var(--el-text-color-regular); }
-.title { font-size: 16px; font-weight: 600; color: var(--el-text-color-primary); }
-.spacer { flex: 1; }
-.env { margin-bottom: 16px; }
-.summary { margin-bottom: 12px; }
-.charts { display: flex; gap: 12px; }
-.chart { flex: 2; height: 240px; border: 1px solid var(--el-border-color-lighter); border-radius: 4px; padding: 8px; }
+.meta-text { font-size: var(--fs-13); color: var(--text-secondary); }
+.kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--space-3); margin-bottom: var(--space-5); }
+.block { margin-bottom: var(--space-5); }
+.charts { display: flex; gap: var(--space-4); }
+.chart { flex: 2; min-width: 0; height: 260px; }
 .chart.narrow { flex: 1; }
-.plan-meta { font-size: 13px; color: var(--el-text-color-regular); margin-bottom: 4px; }
-.muted, .sub, .empty { color: var(--el-text-color-secondary); font-size: 12px; }
-.trigger { margin-right: 4px; }
-.expand { padding: 4px 48px; }
-.parts { margin-top: 8px; font-size: 12px; color: var(--el-text-color-regular); }
-.part { margin-right: 12px; }
+.list-tabs { padding: 0 var(--space-5); }
+.list-tabs :deep(.el-tabs__header) { margin-bottom: 0; }
+.list-tabs :deep(.el-tabs__nav-wrap::after) { height: 1px; background: var(--border); }
+.list-tabs :deep(.el-tabs__item) { height: 48px; }
+.mono { font-family: var(--font-mono); font-size: var(--fs-13); }
+.trigger { margin: 2px 4px 2px 0; }
+.expand { padding: var(--space-2) var(--space-6); }
+.parts { margin-top: var(--space-2); font-size: var(--fs-12); color: var(--text-regular); }
+.part { margin-right: var(--space-3); }
+@media (max-width: 1279px) {
+  .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 1023px) {
+  .charts { flex-direction: column; }
+  .chart.narrow { height: 220px; }
+}
+@media (max-width: 767px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 </style>

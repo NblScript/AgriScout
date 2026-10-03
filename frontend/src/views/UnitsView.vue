@@ -6,12 +6,16 @@ import { ElMessage } from 'element-plus'
 import { ArrowLeft, Plus, Refresh } from '@element-plus/icons-vue'
 import { fieldsApi, observationUnitsApi, type UnitBulkRow } from '../api'
 import { errMsg } from '../api/http'
+import { useBreadcrumb } from '../composables/useBreadcrumb'
+import { fieldHomePath } from '../layouts/nav'
 import { useAuthStore } from '../stores/auth'
+import { useFieldsStore } from '../stores/fields'
 import type { FacilityType, Field, ObservationUnit, UnitSource, UnitStatus } from '../types'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const fieldsStore = useFieldsStore()
 const fieldId = Number(route.params.id)
 
 const FACILITY_LABELS: Record<FacilityType, string> = {
@@ -26,6 +30,12 @@ const field = ref<Field | null>(null)
 const units = ref<ObservationUnit[]>([])
 const loading = ref(false)
 const filters = reactive({ row_no: undefined as number | undefined, status: '' as UnitStatus | '', created_from: '' as UnitSource | '' })
+
+useBreadcrumb(() => [
+  { label: '大棚与地块', to: '/fields' },
+  { label: field.value?.name ?? `地块 #${fieldId}`, to: field.value ? fieldHomePath(field.value) : undefined },
+  { label: '株档案' },
+])
 
 async function load() {
   loading.value = true
@@ -62,6 +72,7 @@ async function saveFacility(value: FacilityType | null) {
   try {
     field.value = await fieldsApi.update(fieldId, { facility_type: value })
     ElMessage.success('设施类型已更新')
+    void fieldsStore.load(true).catch(() => { /* 只影响顶栏切换器的分组 */ })
   } catch (e) {
     ElMessage.error(errMsg(e))
   }
@@ -136,7 +147,7 @@ async function submitCreate() {
 
 <template>
   <div class="head">
-    <el-button :icon="ArrowLeft" text @click="router.push({ name: 'fields' })">地块管理</el-button>
+    <el-button :icon="ArrowLeft" text @click="router.push({ name: 'fields' })">大棚与地块</el-button>
     <span class="title">{{ field?.name ?? `地块 #${fieldId}` }} · 株档案</span>
     <span class="facility">
       设施类型

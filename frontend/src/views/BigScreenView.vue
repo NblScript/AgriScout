@@ -286,7 +286,7 @@ const analysisStatusLabel: Record<string, string> = {
         <h1>农田巡检数据总览</h1>
       </div>
       <div class="head-right">
-        <button class="ghost-btn" @click="router.push('/dashboard')">进入工作台 →</button>
+        <button class="ghost-btn" @click="router.push('/home')">进入工作台 →</button>
       </div>
     </header>
 

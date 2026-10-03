@@ -1,17 +1,28 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { fieldsApi, patrolsApi } from '../api'
 import { errMsg } from '../api/http'
 import type { Field, Patrol } from '../types'
 
+const route = useRoute()
 const router = useRouter()
 const list = ref<Patrol[]>([])
 const fields = ref<Field[]>([])
 const loading = ref(false)
-const filterFieldId = ref<number | null>(null)
+/** 地址栏带 ?field_id= 时预选该地块（工作台、顶栏地块切换器跳过来） */
+function queryFieldId(): number | null {
+  const value = Number(route.query.field_id)
+  return Number.isInteger(value) && value > 0 ? value : null
+}
+const filterFieldId = ref<number | null>(queryFieldId())
+watch(() => route.query.field_id, () => {
+  if (route.name !== 'patrols') return // 正在离开本页
+  filterFieldId.value = queryFieldId()
+  void load()
+})
 const filterAnalysis = ref<string>('')
 
 async function load() {

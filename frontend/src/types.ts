@@ -25,6 +25,17 @@ export interface Field {
 /** 设施类型（计划 0014）；空视为大田 */
 export type FacilityType = 'open_field' | 'solar_greenhouse' | 'plastic_tunnel'
 
+export const FACILITY_LABELS: Record<FacilityType, string> = {
+  open_field: '大田',
+  solar_greenhouse: '日光温室',
+  plastic_tunnel: '塑料大棚',
+}
+
+/** 大棚类地块（日光温室、塑料大棚）走按株巡检的页面；其余按大田处理 */
+export function isGreenhouse(field: Pick<Field, 'facility_type'> | null | undefined): boolean {
+  return field?.facility_type === 'solar_greenhouse' || field?.facility_type === 'plastic_tunnel'
+}
+
 export interface Crop {
   id: number
   name: string
@@ -164,6 +175,14 @@ export interface ViewMeta {
   quality: ImageQuality | null
 }
 
+/** iq-rule-v1 的不合格原因 */
+export const QUALITY_REASON_LABELS: Record<string, string> = {
+  blurry: '模糊',
+  overexposed: '过曝',
+  underexposed: '欠曝',
+  backlit: '逆光',
+}
+
 /** 图像质量 iq-rule-v1（车端 view.quality 与平台 analysis.detail.image_quality 同结构） */
 export interface ImageQuality {
   method: string
@@ -254,6 +273,13 @@ export interface Patrol {
   ended_at: string | null
   status: string
   analysis_status: 'pending' | 'running' | 'done' | 'error'
+}
+
+export const ANALYSIS_STATUS_LABELS: Record<Patrol['analysis_status'], string> = {
+  pending: '待分析',
+  running: '分析中',
+  done: '已完成',
+  error: '失败',
 }
 
 export interface PatrolDetail extends Patrol {
@@ -490,6 +516,14 @@ export interface RevisitTask {
   updated_at: string
 }
 
+export const TASK_STATUS_LABELS: Record<string, string> = {
+  queued: '待领取',
+  assigned: '已分配',
+  running: '执行中',
+  completed: '已完成',
+  cancelled: '已取消',
+}
+
 export interface DatasetVersion {
   id: number
   name: string
@@ -665,6 +699,34 @@ export const PLAN_LIST_LABELS: Record<PlanListName, string> = {
   reshoot: '叶背补拍',
   coverage: '低频全覆盖',
   random: '随机抽查',
+}
+
+/** 名单的短名（标签、图例用） */
+export const PLAN_LIST_SHORT_LABELS: Record<PlanListName, string> = {
+  confirm: '确认',
+  reshoot: '补拍',
+  coverage: '全覆盖',
+  random: '抽查',
+}
+
+/** 任务类型 → 名单（计划 0015：确认→label、补拍→revisit、全覆盖→coverage、抽查→random） */
+export const TASK_TYPE_LIST: Record<RevisitTask['task_type'], PlanListName> = {
+  label: 'confirm',
+  revisit: 'reshoot',
+  coverage: 'coverage',
+  random: 'random',
+}
+
+/** 计划理由里的触发原因 */
+export const PLAN_TRIGGER_LABELS: Record<string, string> = {
+  model_early: '模型判早期',
+  model_score_over_confirm_threshold: '模型分超确认阈值',
+  top_reshoot_score: '补拍分靠前',
+  last_under_rejected: '上次叶背不合格',
+  morning_window: '清晨窗口',
+  coverage_due: '超过全覆盖周期',
+  never_seen: '从未拍到',
+  random_spot_check: '随机抽查',
 }
 
 export interface PlanItem {

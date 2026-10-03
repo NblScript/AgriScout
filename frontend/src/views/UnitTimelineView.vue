@@ -7,23 +7,45 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Refresh } from '@element-plus/icons-vue'
+import QualityBadge from '../components/ui/QualityBadge.vue'
+import StateTag from '../components/ui/StateTag.vue'
 import { annotationsApi, greenhouseApi, observationUnitsApi } from '../api'
 import { errMsg } from '../api/http'
+import { useBreadcrumb } from '../composables/useBreadcrumb'
+import { fieldHomePath } from '../layouts/nav'
 import { useAuthStore } from '../stores/auth'
+import { useFieldsStore } from '../stores/fields'
+import { useUiStore } from '../stores/ui'
 import {
-  ANNOTATION_LABELS, PLANT_STATE_LABELS,
-  type AnnotationLabel, type ImageQuality, type PlantState, type PlantStateValue, type TimelineDay, type TimelinePhoto, type UnitTimeline,
+  ANNOTATION_LABELS,
+  type AnnotationLabel, type ImageQuality, type PlantState, type TimelineDay, type TimelinePhoto, type UnitTimeline,
 } from '../types'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const fieldsStore = useFieldsStore()
+const ui = useUiStore()
 const unitId = Number(route.params.id)
 
 const timeline = ref<UnitTimeline | null>(null)
 const plantState = ref<PlantState | null>(null)
 const loading = ref(false)
 const days = ref(30)
+
+// 面包屑能一键回到所属大棚（计划 0018 设计 3）
+useBreadcrumb(() => {
+  const unit = timeline.value?.unit
+  const field = unit ? fieldsStore.byId.get(unit.field_id) : undefined
+  return [
+    { label: '大棚与地块', to: '/fields' },
+    ...(unit ? [
+      { label: field?.name ?? `地块 #${unit.field_id}`, to: field ? fieldHomePath(field) : undefined },
+      { label: '株档案', to: `/fields/${unit.field_id}/units` },
+    ] : []),
+    { label: unit?.key ?? `株 #${unitId}` },
+  ]
+})
 
 async function load() {
   loading.value = true
@@ -34,7 +56,11 @@ async function load() {
   } finally {
     loading.value = false
   }
-  if (timeline.value) await loadState(timeline.value.unit.field_id)
+  if (timeline.value) {
+    ui.setCurrentField(timeline.value.unit.field_id)
+    void fieldsStore.load().catch(() => { /* 面包屑退回显示地块编号 */ })
+    await loadState(timeline.value.unit.field_id)
+  }
 }
 
 /** 当前状态是按整块地算的（与计划同一口径），这里只取本株；拿不到不影响时间线 */
@@ -53,12 +79,6 @@ onMounted(() => {
   void load()
 })
 
-const REASON_LABELS: Record<string, string> = {
-  blurry: '模糊',
-  overexposed: '过曝',
-  underexposed: '欠曝',
-  backlit: '逆光',
-}
 const LEVEL_TAG: Record<string, 'danger' | 'warning' | 'info'> = { high: 'danger', medium: 'warning', low: 'info' }
 const LEVEL_LABELS: Record<string, string> = { high: '高', medium: '中', low: '低', unknown: '不明' }
 const FOLLOW_LABELS: Record<string, string> = {
@@ -77,10 +97,6 @@ function qualityOf(photo: TimelinePhoto): ImageQuality | null {
 function badQuality(photo: TimelinePhoto): boolean {
   const q = qualityOf(photo)
   return q != null && q.ok === false
-}
-function reasonText(photo: TimelinePhoto): string {
-  const q = qualityOf(photo)
-  return (q?.reasons ?? []).map((r) => REASON_LABELS[r] ?? r).join('、')
 }
 function sideOf(photo: TimelinePhoto): 'under' | 'upper' {
   return photo.view?.side === 'under' ? 'under' : 'upper'
@@ -130,9 +146,6 @@ const CONFIRM_OPTIONS: { label: AnnotationLabel; text: string }[] = [
   { label: 'downy_mildew_symptomatic', text: '明显' },
   { label: 'other', text: '其他' },
 ]
-const STATE_TAG: Record<PlantStateValue, 'success' | 'warning' | 'danger' | 'info'> = {
-  healthy: 'success', early: 'warning', symptomatic: 'danger', unknown: 'info',
-}
 const confirmLabel = ref<AnnotationLabel | ''>('')
 const confirmNote = ref('')
 const annotator = ref(auth.user?.display_name ?? '')
@@ -187,6 +200,7 @@ async function submitConfirm() {
     ElMessage.success(`已确认为「${CONFIRM_OPTIONS.find((o) => o.label === label)?.text}」`)
     confirmLabel.value = ''
     confirmNote.value = ''
+    void ui.refreshConfirmCount(true)
     await load()
   } catch (e) {
     ElMessage.error(errMsg(e))
@@ -221,7 +235,7 @@ async function submitConfirm() {
     <span class="confirm-title">确认状态</span>
     <template v-if="plantState">
       当前
-      <el-tag :type="STATE_TAG[plantState.state]" size="small" effect="plain">{{ PLANT_STATE_LABELS[plantState.state] }}</el-tag>
+      <StateTag :state="plantState.state" size="small" />
       <span class="sub">{{ stateSource(plantState) }}</span>
     </template>
     <span class="divider" />
@@ -257,7 +271,7 @@ async function submitConfirm() {
               <span v-if="photo.view?.pitch_deg != null"> · {{ photo.view.pitch_deg }}°</span>
               <el-tag v-if="(photo.view?.attempt ?? 1) > 1" size="small" effect="plain" type="info">第 {{ photo.view?.attempt }} 次</el-tag>
             </div>
-            <div v-if="badQuality(photo)" class="reason">不合格：{{ reasonText(photo) }}</div>
+            <QualityBadge :quality="qualityOf(photo)" class="quality" />
           </div>
           <span v-if="!row[side].length" class="empty">—</span>
         </div>
@@ -297,7 +311,7 @@ async function submitConfirm() {
 .no-photo { display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--el-text-color-placeholder); }
 .thumb.bad :deep(.el-image) { filter: grayscale(1); opacity: 0.55; }
 .caption { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 2px; display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
-.reason { font-size: 12px; color: var(--el-color-danger); }
+.quality { margin-top: 2px; }
 .sub { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 2px; }
 .empty { color: var(--el-text-color-placeholder); }
 .confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; padding: 8px 12px; font-size: 13px;
