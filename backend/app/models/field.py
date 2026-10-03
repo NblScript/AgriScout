@@ -18,5 +18,7 @@ class Field(TimestampMixin, Base):
     area_ha: Mapped[float | None] = mapped_column(Float)
     soil_type: Mapped[str | None] = mapped_column(String(50))
     notes: Mapped[str | None] = mapped_column(Text)
+    # 设施类型：open_field 大田 / solar_greenhouse 日光温室 / plastic_tunnel 塑料大棚；空视为大田（计划 0014）
+    facility_type: Mapped[str | None] = mapped_column(String(20))
 
     plantings: Mapped[list["Planting"]] = relationship(back_populates="field")  # type: ignore[name-defined]  # noqa: F821

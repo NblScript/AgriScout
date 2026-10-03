@@ -13,6 +13,7 @@ from app.models.dataset_version import DatasetVersion
 from app.models.field import Field
 from app.models.follow_up import FollowUp
 from app.models.model_evaluation import ModelEvaluation
+from app.models.observation_unit import ObservationUnit
 from app.models.patrol import Patrol
 from app.models.patrol_report import PatrolReport
 from app.models.planting import Planting
@@ -38,6 +39,7 @@ __all__ = [
     "Field",
     "FollowUp",
     "ModelEvaluation",
+    "ObservationUnit",
     "Patrol",
     "PatrolReport",
     "Planting",

@@ -53,6 +53,18 @@ def s_path(layout: Layout) -> list[tuple[float, float, float]]:
     return pts
 
 
+def plant_key(x_m: float, y_m: float, layout: Layout) -> tuple[str, float] | None:
+    """垄上的采样点 → (株号 R{垄号两位}-P{株序号三位}, 行内位置米)；换行横移点不在垄上，返回 None。
+
+    模拟器把每个采样位当作一株（巡检包 v2 的 observation_key，计划 0014）；垄号、株序号从 1 开始。
+    """
+    row = x_m / layout.row_spacing_m
+    if abs(row - round(row)) > 1e-6:
+        return None
+    position = round(y_m / layout.step_m)
+    return f"R{round(row) + 1:02d}-P{position + 1:03d}", round(position * layout.step_m, 3)
+
+
 def to_lng_lat(x_m: float, y_m: float, layout: Layout) -> tuple[float, float]:
     return (
         layout.origin_lng + x_m / lng_scale(layout.origin_lat),

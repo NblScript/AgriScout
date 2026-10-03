@@ -16,6 +16,7 @@
 | area_ha | Float | — | — |
 | soil_type | String(50) | — | — |
 | notes | Text | — | — |
+| facility_type | String(20) | — | — |
 | created_at | DateTime | NOT NULL、default=now() | — |
 | updated_at | DateTime | NOT NULL、default=now() | — |
 
@@ -81,6 +82,9 @@
 | status | String(20) | NOT NULL | — |
 | analysis_status | String(20) | NOT NULL | — |
 | notes | Text | — | — |
+| schema_version | String(8) | NOT NULL、default=1.0 | — |
+| client_package_id | String(64) | — | — |
+| package_sha256 | String(64) | — | — |
 | created_at | DateTime | NOT NULL、default=now() | — |
 | updated_at | DateTime | NOT NULL、default=now() | — |
 
@@ -102,8 +106,18 @@
 | lat | Float | NOT NULL | — |
 | captured_at | DateTime | NOT NULL | — |
 | photo_url | String(500) | — | — |
+| observation_key | String(80) | — | — |
+| observation_unit_id | Integer | FK→observation_units.id | — |
+| route_chainage_m | Float | — | — |
+| distance_source | String(20) | — | — |
+| position_source | String(20) | — | — |
+| view_meta | JSON | — | — |
 | created_at | DateTime | NOT NULL、default=now() | — |
 | updated_at | DateTime | NOT NULL、default=now() | — |
+
+索引 `ix_capture_points_observation_key`：(observation_key)
+
+索引 `ix_capture_points_observation_unit_id`：(observation_unit_id)
 
 索引 `ix_capture_points_patrol_id`：(patrol_id)
 
@@ -396,6 +410,25 @@
 | updated_at | DateTime | NOT NULL、default=now() | — |
 
 索引 `ix_agent_conversations_patrol_id`：(patrol_id)
+
+### observation_units
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | Integer | PK | — |
+| field_id | Integer | FK→fields.id、NOT NULL | — |
+| key | String(80) | NOT NULL | — |
+| row_no | Integer | — | — |
+| position_no | Integer | — | — |
+| chainage_m | Float | — | — |
+| tag_code | String(80) | — | — |
+| status | String(20) | NOT NULL | — |
+| created_from | String(20) | NOT NULL | — |
+| note | Text | — | — |
+| created_at | DateTime | NOT NULL、default=now() | — |
+| updated_at | DateTime | NOT NULL、default=now() | — |
+
+索引 `ix_observation_units_field_id`：(field_id)
 
 ### patrol_reports
 

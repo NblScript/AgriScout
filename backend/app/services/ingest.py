@@ -3,9 +3,11 @@
 红线（见 ARCHITECTURE.md「数据流」）：本模块只落库不做识别；
 分析由 M3 的后台任务接手，Patrol.analysis_status 驱动进度。
 """
+import hashlib
+import json
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -17,7 +19,31 @@ from app.schemas.patrol import (
     decode_base64_photo,
     is_photo_url,
 )
+from app.services.observation_units import UnitResolver
 from app.services.storage import Storage
+
+
+def package_digest(package: PatrolPackageIn) -> str:
+    """校验后包的规范 JSON 的 SHA-256：判定同一包号的重传是否内容一致（计划 0014）。"""
+    canonical = json.dumps(
+        package.model_dump(mode="json"), ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _replay_result(db: Session, device_id: int, client_package_id: str, digest: str) -> IngestResultOut | None:
+    """同设备同包号已落库：内容一致 → duplicate 结果；内容不同 → PackageConflict；没有 → None。"""
+    existing = db.scalar(select(Patrol).where(
+        Patrol.device_id == device_id, Patrol.client_package_id == client_package_id,
+    ))
+    if existing is None:
+        return None
+    if existing.package_sha256 != digest:
+        raise PackageConflict(existing.id)
+    points = db.scalar(select(func.count()).where(CapturePoint.patrol_id == existing.id)) or 0
+    return IngestResultOut(
+        patrol_id=existing.id, capture_points=points, photos_saved=0, photos_referenced=0, duplicate=True,
+    )
 
 
 def _resolve_planting(db: Session, field_id: int, planting_id: int | None) -> int | None:
@@ -84,6 +110,13 @@ def ingest_patrol_package(db: Session, package: PatrolPackageIn, storage: Storag
 
     planting_id = _resolve_planting(db, header.field_id, header.planting_id)
 
+    # 带包号：先按 (设备, 包号) 判幂等，再走原有的三元组判重
+    digest = package_digest(package) if header.client_package_id else None
+    if header.client_package_id:
+        replay = _replay_result(db, device.id, header.client_package_id, digest)
+        if replay is not None:
+            return replay
+
     duplicate = db.scalars(
         select(Patrol).where(
             Patrol.field_id == header.field_id,
@@ -108,11 +141,15 @@ def ingest_patrol_package(db: Session, package: PatrolPackageIn, storage: Storag
         status="received",
         analysis_status="pending",
         notes=header.notes,
+        schema_version=package.schema_version,
+        client_package_id=header.client_package_id,
+        package_sha256=digest,
     )
-    db.add(patrol)
-    db.flush()  # 取 patrol.id 供子表外键使用；尚未提交，失败即整体回滚
+    units = UnitResolver(db, field.id)
 
     try:
+        db.add(patrol)
+        db.flush()  # 取 patrol.id 供子表外键使用；尚未提交，失败即整体回滚
         for cp in package.capture_points:
             photo_url, uploaded, created = _resolve_photo(cp, storage)
             if created and photo_url:
@@ -127,6 +164,13 @@ def ingest_patrol_package(db: Session, package: PatrolPackageIn, storage: Storag
                 lat=cp.lat,
                 captured_at=cp.captured_at,
                 photo_url=photo_url,
+                observation_key=cp.observation_key,
+                # 找不到株档案就自动建档（created_from=ingest），不丢数据，留给人工核对
+                observation_unit_id=units.resolve(cp.observation_key).id if cp.observation_key else None,
+                route_chainage_m=cp.route_chainage_m,
+                distance_source=cp.distance_source,
+                position_source=cp.position_source,
+                view_meta=cp.view.model_dump(mode="json") if cp.view is not None else None,
             )
             if cp.weather is not None:
                 point.weather = WeatherSample(patrol_id=patrol.id, **cp.weather.model_dump())
@@ -135,6 +179,11 @@ def ingest_patrol_package(db: Session, package: PatrolPackageIn, storage: Storag
     except IntegrityError as exc:
         db.rollback()
         _cleanup_new_photos(db, storage, created_photo_urls)
+        if header.client_package_id:
+            # 并发重传撞上 (设备, 包号) 唯一约束：对方已落库，按幂等规则重新判定
+            replay = _replay_result(db, device.id, header.client_package_id, digest)
+            if replay is not None:
+                return replay
         raise ValueError("巡检包落库失败：约束冲突（检查 seq 是否重复）") from exc
     except Exception:
         # 存储写盘等其他失败同样整包回滚，已新建的照片一并清理
@@ -156,6 +205,14 @@ class ReferenceNotFound(LookupError):
     单独定义而不直接用 LookupError：IndexError/KeyError 也是 LookupError 子类，
     内部 bug 会被误映射成 404 并暴露 "list index out of range" 这类文案。
     """
+
+
+class PackageConflict(Exception):
+    """同设备同包号、内容不同的上传（→409，带已有 patrol_id）。"""
+
+    def __init__(self, existing_id: int) -> None:
+        super().__init__("包号冲突")
+        self.existing_id = existing_id
 
 
 class DuplicateError(Exception):

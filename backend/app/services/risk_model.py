@@ -16,7 +16,6 @@ from typing import Any
 
 from app.core.config import get_settings
 from app.services.logistic import LogisticModel, model_from_dict
-from app.services.region_association import parse_key
 from app.services.risk_features import image_features, neighbor_map
 from app.services.risk_inputs import RegionInputs
 from app.services.risk_prediction import DEFAULT_QUALITY, RiskThresholds, _trend, evidence_confidence
@@ -146,8 +145,10 @@ class RegionRisk:
     evidence: dict[str, Any]
 
 
-def image_table(inputs: RegionInputs, current_patrol_id: int) -> tuple[dict, list[int], dict[str, tuple[int, int]]]:
-    """(区域, 巡检 id) → 区域风险分；更早巡检按时间排序；全部区域的网格坐标。"""
+def image_table(
+    inputs: RegionInputs, current_patrol_id: int,
+) -> tuple[dict, list[int], dict[str, tuple[str, int, int]]]:
+    """(区域, 巡检 id) → 区域风险分；更早巡检按时间排序；各区域的邻居坐标（类型, a, b）。"""
     scores: dict[tuple[str, int], float] = {}
     times: dict[int, Any] = {}
     for key, observations in inputs.history.items():
@@ -159,12 +160,19 @@ def image_table(inputs: RegionInputs, current_patrol_id: int) -> tuple[dict, lis
         if series.current.get("risk_score") is not None:
             scores[(key, current_patrol_id)] = series.current["risk_score"]
     earlier = sorted(times, key=lambda pid: (times[pid], pid))
-    regions = {}
-    for key in {*inputs.history, *inputs.series}:
-        parsed = parse_key(key)
-        if parsed is not None:
-            regions[key] = (parsed[2], parsed[3])
-    return scores, earlier, regions
+    coords = {key: inputs.coords[key] for key in {*inputs.history, *inputs.series} if key in inputs.coords}
+    return scores, earlier, coords
+
+
+def typed_neighbor_map(coords: dict[str, tuple[str, int, int]]) -> dict[str, list[str]]:
+    """同类型之间按 8 邻域找邻居：网格与网格、株与株（同垄 ±1 株加相邻垄），两类不互为邻居。"""
+    by_type: dict[str, dict[str, tuple[int, int]]] = {}
+    for key, (kind, a, b) in coords.items():
+        by_type.setdefault(kind, {})[key] = (a, b)
+    neighbors: dict[str, list[str]] = {}
+    for regions in by_type.values():
+        neighbors.update(neighbor_map(regions))
+    return neighbors
 
 
 def predict_regions(
@@ -174,8 +182,8 @@ def predict_regions(
 
     approval：该模型版本的审批状态（路由从模型评估表查出），写进 evidence 供追溯。
     """
-    scores, earlier, regions = image_table(inputs, current_patrol_id)
-    neighbors = neighbor_map(regions)
+    scores, earlier, coords = image_table(inputs, current_patrol_id)
+    neighbors = typed_neighbor_map(coords)
     rising_delta = RiskThresholds().rising_delta
     results: dict[str, RegionRisk] = {}
     for key, series in inputs.series.items():

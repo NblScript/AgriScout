@@ -36,6 +36,18 @@ const router = createRouter({
       meta: { title: '地块管理', icon: 'MapLocation' },
     },
     {
+      path: '/fields/:id/units',
+      name: 'field-units',
+      component: () => import('../views/UnitsView.vue'),
+      meta: { title: '株档案' },
+    },
+    {
+      path: '/units/:id',
+      name: 'unit-timeline',
+      component: () => import('../views/UnitTimelineView.vue'),
+      meta: { title: '单株时间线' },
+    },
+    {
       path: '/crops',
       name: 'crops',
       component: () => import('../views/CropsView.vue'),

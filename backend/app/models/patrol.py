@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ForeignKey, JSON, String, Text
+from sqlalchemy import ForeignKey, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -11,6 +11,8 @@ from app.models.timestamps import TimestampMixin, UTCDateTime
 
 class Patrol(TimestampMixin, Base):
     __tablename__ = "patrols"
+    # 采集端稳定包号：同设备同包号只落一次，重传按内容哈希判定幂等（计划 0014）
+    __table_args__ = (UniqueConstraint("device_id", "client_package_id", name="uq_patrol_client_package"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     field_id: Mapped[int] = mapped_column(ForeignKey("fields.id"), nullable=False, index=True)
@@ -25,6 +27,9 @@ class Patrol(TimestampMixin, Base):
     # pending / running / done / error（M3 分析管线驱动）
     analysis_status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
+    schema_version: Mapped[str] = mapped_column(String(8), nullable=False, default="1.0", server_default="1.0")
+    client_package_id: Mapped[str | None] = mapped_column(String(64))
+    package_sha256: Mapped[str | None] = mapped_column(String(64))
 
     field: Mapped["Field"] = relationship()  # type: ignore[name-defined]  # noqa: F821
     planting: Mapped["Planting | None"] = relationship()  # type: ignore[name-defined]  # noqa: F821

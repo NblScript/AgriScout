@@ -1,10 +1,14 @@
 """Field 地块 DTO。"""
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field as PField, field_validator, model_validator
 
 from app.schemas.common import reject_explicit_nulls
+
+
+# 设施类型（计划 0014）：空视为大田
+FacilityType = Literal["open_field", "solar_greenhouse", "plastic_tunnel"]
 
 
 def _validate_boundary(v: Any) -> dict:
@@ -25,6 +29,7 @@ class FieldBase(BaseModel):
     area_ha: float | None = PField(default=None, gt=0)
     soil_type: str | None = None
     notes: str | None = None
+    facility_type: FacilityType | None = None
 
     @field_validator("boundary")
     @classmethod
@@ -42,6 +47,7 @@ class FieldUpdate(BaseModel):
     area_ha: float | None = PField(default=None, gt=0)
     soil_type: str | None = None
     notes: str | None = None
+    facility_type: FacilityType | None = None
 
     @field_validator("boundary")
     @classmethod
