@@ -12,7 +12,7 @@
               │  HTTP 巡检包协议 v1 / v2 最小子集（合同：GET /api/v1/ingest/patrol-schema）
               ▼
 边/云（本仓库）FastAPI backend ←→ SQLite（开发、场边轻量部署）/ PostgreSQL（扩展部署）
-            Vue3 frontend：管理台、巡检回放、研究闭环、/screen 总览
+            Vue3 frontend：管理台、巡检回放、研究闭环、/screen 展示屏
             目标部署：Jetson TX2 场边主机同时承载推理服务与轻量平台（docs/08 §4、§7）
 训练（离线）ml/ 独立环境，模型经 export_model.py 导出到 backend/models/（不入库）
 ```
@@ -129,5 +129,5 @@ core/            config(pydantic-settings) / db(Session) / deps(认证与角色�
 - 管理台：工作台（每个大棚的环境风险、今日计划、株状态分布，待确认、最近巡检）+ 待确认 + 地块/作物/种植/设备 CRUD + 系统状态 + 规则修订审批
   + 研究闭环（风险/复巡/随访/数据集/模型评估）+ 巡检回放（地图/时间轴/复核/建议）
   + 大棚：株档案、单株时间线（含「确认状态」）、巡检计划页（环境曲线 + 四张名单）
-- `/screen` 展示屏：白卡片仪表盘，ECharts 亮色配色，中央 Leaflet 地图（计划 0018 阶段 B 重做为工作台的放大版）
+- `/screen` 展示屏（计划 0018）：工作台的全屏放大版，逐个大棚轮播「垄 × 株」状态网格（PlantGrid）、棚内环境、等人确认，每分钟自动刷新并写明读数时刻
 - 数据层：`api/index.ts` 每资源一个 api 对象；类型单一事实源 `types.ts` 对齐 backend schemas

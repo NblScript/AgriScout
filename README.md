@@ -160,7 +160,7 @@ pnpm install
 pnpm dev
 ```
 
-访问 <http://localhost:5173> 用上一步建的账号登录，登录后进入工作台；答辩投影用的展示屏为 <http://localhost:5173/screen>（顶栏「展示屏」按钮）。
+访问 <http://localhost:5173> 用上一步建的账号登录，登录后进入工作台；答辩投影用的展示屏为 <http://localhost:5173/screen>（侧栏或顶栏的「展示屏」），逐个大棚轮播每株状态、棚内环境和等人确认。
 
 ### 3. 跑一趟虚拟巡田
 
