@@ -1,15 +1,30 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
+/** 登录后的落脚页：工作台（计划 0018） */
+export const HOME_PATH = '/home'
+
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/dashboard' },
+    { path: '/', redirect: HOME_PATH },
     {
       path: '/login',
       name: 'login',
       component: () => import('../views/LoginView.vue'),
       meta: { title: '登录', bare: true, public: true },
+    },
+    {
+      path: '/home',
+      name: 'home',
+      component: () => import('../views/HomeView.vue'),
+      meta: { title: '工作台' },
+    },
+    {
+      path: '/confirm',
+      name: 'confirm',
+      component: () => import('../views/ConfirmQueueView.vue'),
+      meta: { title: '待确认' },
     },
     {
       path: '/users',
@@ -21,31 +36,31 @@ const router = createRouter({
       path: '/screen',
       name: 'screen',
       component: () => import('../views/BigScreenView.vue'),
-      meta: { title: '数据总览', bare: true },
+      meta: { title: '展示屏', bare: true },
     },
     {
       path: '/dashboard',
       name: 'dashboard',
       component: () => import('../views/DashboardView.vue'),
-      meta: { title: '系统状态', icon: 'Odometer' },
+      meta: { title: '系统状态' },
     },
- {
+    {
       path: '/fields',
       name: 'fields',
       component: () => import('../views/FieldsView.vue'),
-      meta: { title: '地块管理', icon: 'MapLocation' },
+      meta: { title: '大棚与地块' },
     },
     {
       path: '/fields/:id/units',
       name: 'field-units',
       component: () => import('../views/UnitsView.vue'),
-      meta: { title: '株档案' },
+      meta: { title: '株档案', fieldScoped: true },
     },
     {
       path: '/fields/:id/plan',
       name: 'field-plan',
       component: () => import('../views/PlanView.vue'),
-      meta: { title: '巡检计划' },
+      meta: { title: '巡检计划', fieldScoped: true },
     },
     {
       path: '/units/:id',
@@ -57,37 +72,37 @@ const router = createRouter({
       path: '/crops',
       name: 'crops',
       component: () => import('../views/CropsView.vue'),
-      meta: { title: '作物管理', icon: 'Cherry' },
+      meta: { title: '作物管理' },
     },
     {
       path: '/plantings',
       name: 'plantings',
       component: () => import('../views/PlantingsView.vue'),
-      meta: { title: '种植记录', icon: 'Calendar' },
+      meta: { title: '种植记录' },
     },
     {
       path: '/devices',
       name: 'devices',
       component: () => import('../views/DevicesView.vue'),
-      meta: { title: '设备管理', icon: 'Cpu' },
+      meta: { title: '设备管理' },
     },
     {
       path: '/rule-revisions',
       name: 'rule-revisions',
       component: () => import('../views/RuleRevisionsView.vue'),
-      meta: { title: '规则修订审批', icon: 'EditPen' },
+      meta: { title: '规则修订审批' },
     },
     {
       path: '/research-loop',
       name: 'research-loop',
       component: () => import('../views/ResearchLoopView.vue'),
-      meta: { title: '研究闭环', icon: 'DataAnalysis' },
+      meta: { title: '研究闭环' },
     },
     {
       path: '/patrols',
       name: 'patrols',
       component: () => import('../views/PatrolsView.vue'),
-      meta: { title: '巡检任务', icon: 'VideoCamera' },
+      meta: { title: '巡检记录' },
     },
     {
       path: '/patrols/:id',
@@ -95,7 +110,7 @@ const router = createRouter({
       component: () => import('../views/PatrolDetailView.vue'),
       meta: { title: '巡检回放' },
     },
-    { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
+    { path: '/:pathMatch(.*)*', redirect: HOME_PATH },
   ],
 })
 
@@ -103,13 +118,17 @@ const router = createRouter({
 router.beforeEach((to) => {
   const auth = useAuthStore()
   if (to.meta.public) {
-    return to.name === 'login' && auth.isAuthenticated ? '/dashboard' : true
+    return to.name === 'login' && auth.isAuthenticated ? HOME_PATH : true
   }
   if (!auth.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
-  if (to.meta.admin && !auth.isAdmin) return '/dashboard'
+  if (to.meta.admin && !auth.isAdmin) return HOME_PATH
   return true
+})
+
+router.afterEach((to) => {
+  document.title = to.meta.title ? `${to.meta.title} · 巡知` : '巡知 · 设施大棚病害主动巡检平台'
 })
 
 export default router

@@ -1,6 +1,12 @@
+/* 全站基础样式：颜色、字号一律引用 styles/tokens.css 的令牌 */
 :root {
-  font-family: 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+  color: var(--text-primary);
   color-scheme: light;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 * {
@@ -11,10 +17,21 @@
 
 body {
   min-height: 100vh;
-  background: #f4f7f4;
-  color: #1f2d1f;
+  background: var(--bg-page);
+  color: var(--text-primary);
 }
 
 #app {
   min-height: 100vh;
 }
+
+a {
+  color: var(--el-color-primary);
+  text-decoration: none;
+}
+
+/* 常用辅助类 */
+.muted { color: var(--text-secondary); }
+.text-12 { font-size: var(--fs-12); line-height: var(--lh-12); }
+.text-13 { font-size: var(--fs-13); line-height: var(--lh-13); }
+.tabular { font-variant-numeric: tabular-nums; }

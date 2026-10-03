@@ -3,6 +3,7 @@ import { createPinia } from 'pinia'
 import ElementPlus from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import 'element-plus/dist/index.css'
+import './styles/tokens.css'
 import './styles/theme.css'
 import './style.css'
 import App from './App.vue'
@@ -25,4 +26,5 @@ setUnauthorizedHandler(() => {
   }
 })
 app.use(ElementPlus, { locale: zhCn })
-app.mount('#app')
+// 等首次导航（含登录守卫）落定再挂载：登录页不会先闪一下管理台外壳
+void router.isReady().catch(() => undefined).then(() => app.mount('#app'))

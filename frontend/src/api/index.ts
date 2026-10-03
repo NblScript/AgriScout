@@ -185,11 +185,12 @@ export const plantingsApi = {
 /* ---------- 巡检 / 采样点 / 建议（M6 可视化） ---------- */
 
 export const patrolsApi = {
-  list: (params: { field_id?: number; status?: string; analysis_status?: string } = {}) => {
+  list: (params: { field_id?: number; status?: string; analysis_status?: string; limit?: number } = {}) => {
     const qs = new URLSearchParams()
     if (params.field_id != null) qs.set('field_id', String(params.field_id))
     if (params.status) qs.set('status', params.status)
     if (params.analysis_status) qs.set('analysis_status', params.analysis_status)
+    if (params.limit != null) qs.set('limit', String(params.limit))
     const q = qs.toString()
     return request<Page<Patrol>>(`/patrols${q ? `?${q}` : ''}`)
   },
@@ -299,6 +300,21 @@ export const statsApi = {
 }
 
 /* ---------- 研究软件闭环：风险、复巡、数据集和模型闸门 ---------- */
+
+/** 未完成的复巡任务状态（排队 / 已派给车 / 执行中） */
+export const OPEN_TASK_STATUSES = ['queued', 'assigned', 'running'] as const
+
+type TaskQuery = { field_id?: number; status?: string; task_type?: RevisitTask['task_type']; limit?: number }
+
+function listRevisitTasks(params: TaskQuery) {
+  const qs = new URLSearchParams()
+  if (params.field_id != null) qs.set('field_id', String(params.field_id))
+  if (params.status) qs.set('status', params.status)
+  if (params.task_type) qs.set('task_type', params.task_type)
+  if (params.limit != null) qs.set('limit', String(params.limit))
+  return request<RevisitTask[]>(`/revisit-tasks?${qs}`)
+}
+
 export const softwareLoopApi = {
   predictions: (patrolId: number) =>
     request<RiskPrediction[]>(`/patrols/${patrolId}/risk-predictions`),
@@ -310,6 +326,19 @@ export const softwareLoopApi = {
     status: string; reviewed_by: string; event_confirmed?: boolean; evidence?: Record<string, unknown>; note?: string
   }) => request(`/risk-predictions/${predictionId}/follow-up`, { method: 'POST', body: payload }),
   tasks: (fieldId?: number) => request<RevisitTask[]>(`/revisit-tasks${fieldId ? `?field_id=${fieldId}` : ''}`),
+  /** 按条件取任务（服务端按优先级倒序，最多 500 条） */
+  listTasks: listRevisitTasks,
+  /**
+   * 某类未完成任务：三种未完成状态各取一次再按优先级合并（接口的 status 只收一个值）。
+   * capped 表示某个状态取满了 limit 条，总数可能更多。
+   */
+  openTasks: async (taskType: RevisitTask['task_type'], params: { field_id?: number; limit?: number } = {}) => {
+    const limit = params.limit ?? 500
+    const lists = await Promise.all(OPEN_TASK_STATUSES.map((status) =>
+      listRevisitTasks({ field_id: params.field_id, task_type: taskType, status, limit })))
+    const tasks = lists.flat().sort((a, b) => b.priority - a.priority || b.created_at.localeCompare(a.created_at))
+    return { tasks, capped: lists.some((list) => list.length >= limit) }
+  },
   generateTasks: (fieldId: number, patrolId: number, limit = 20) =>
     request<RevisitTask[]>('/revisit-tasks/generate', {
       method: 'POST', body: { field_id: fieldId, patrol_id: patrolId, limit },

@@ -1,0 +1,155 @@
+/*
+ * 设计令牌（计划 0018 设计 2）：全站颜色、间距、圆角、阴影、字号的唯一来源。
+ * 只用 CSS 变量，不引入 SCSS。Element Plus 的 --el-* 变量在 theme.css 里映射到这里；
+ * 页面样式一律引用令牌，不写硬编码颜色。图表等需要实际色值的地方用 styles/tokens.ts 的 cssVar() 读取。
+ */
+:root {
+  /* ---------- 中性色 10 阶（带一点绿调的灰） ---------- */
+  --neutral-50: #f6f8f7;
+  --neutral-100: #eef2f0;
+  --neutral-200: #e3e8e5;
+  --neutral-300: #d2d9d5;
+  --neutral-400: #b0bab4;
+  --neutral-500: #8a958f;
+  --neutral-600: #66726b; /* 白底对比度 5.0，次要文字的下限 */
+  --neutral-700: #4a554f;
+  --neutral-800: #2e3833;
+  --neutral-900: #1a221e;
+
+  /* ---------- 品牌色 10 阶（沉稳绿 #15803d 为 600；浅阶按 Element 的混白公式取值，悬停 / 禁用 / 底色与组件一致） ---------- */
+  --brand-50: #e8f2ec;
+  --brand-100: #d0e6d8;
+  --brand-200: #b9d9c5;
+  --brand-300: #8ac09e;
+  --brand-400: #5ba677;
+  --brand-500: #38935a;
+  --brand-600: #15803d;
+  --brand-700: #116631;
+  --brand-800: #0e4f26;
+  --brand-900: #0a381b;
+
+  /* ---------- 语义色 ---------- */
+  --success: #188a4a;
+  --success-soft: #e8f3ed;
+  --success-ink: #136e3b;
+  --warning: #b45309;
+  --warning-soft: #f8eee6;
+  --warning-ink: #904207;
+  --danger: #c62828;
+  --danger-soft: #f9eaea;
+  --danger-ink: #9e2020;
+  --info: #5f6b66;
+  --info-soft: #eff0f0;
+  --info-ink: #4c5652;
+
+  /*
+   * ---------- 株状态色（全站唯一来源）----------
+   * base 填色 / ink 文字色（白底与 soft 底对比度都 ≥4.5）/ soft 浅底。
+   * 色盲模拟（Machado 2009）两两 ΔE00：正常 ≥30、红色盲 ≥18、绿色盲 ≥19、蓝色盲 ≥30；灰度 ≥11。
+   * 仍不只靠颜色：图例和标签带形状（● ▲ ■ ○），网格里「不明」另加斜线底纹。
+   */
+  --state-healthy: #3a9b6c;
+  --state-healthy-ink: #1f6b47;
+  --state-healthy-soft: #e6f4ec;
+  --state-early: #e9a823;
+  --state-early-ink: #8a5a00;
+  --state-early-soft: #fdf3dc;
+  --state-symptomatic: #a8231c;
+  --state-symptomatic-ink: #8f1d17;
+  --state-symptomatic-soft: #fbe7e5;
+  --state-unknown: #dfe4e1;
+  --state-unknown-ink: #56615b;
+  --state-unknown-soft: #f1f4f2;
+
+  /*
+   * ---------- 任务类型色（巡检计划四张名单）----------
+   * 与株状态色不同色系（蓝紫灰），两组之间 ΔE00 ≥15（含三种色盲模拟）；组内绿色盲最小 11.5。
+   * 网格里画成描边，另用线型区分：确认实线、补拍虚线、全覆盖点线、抽查双线。
+   */
+  --task-confirm: #5b21b6;
+  --task-confirm-ink: #5b21b6;
+  --task-confirm-soft: #efe9fb;
+  --task-confirm-line: solid;
+  --task-reshoot: #2563eb;
+  --task-reshoot-ink: #1d4ed8;
+  --task-reshoot-soft: #e8effd;
+  --task-reshoot-line: dashed;
+  --task-coverage: #38bdf8;
+  --task-coverage-ink: #0369a1;
+  --task-coverage-soft: #e5f6fe;
+  --task-coverage-line: dotted;
+  --task-random: #8a94a6;
+  --task-random-ink: #4b5563;
+  --task-random-soft: #eef0f3;
+  --task-random-line: double;
+
+  /*
+   * ---------- 图表系列色 ----------
+   * 只在图表里用，与株状态、任务类型不同义：温度与适宜时长用暖色，湿度与湿润时长用蓝，夜间湿润用青，露点差用灰。
+   */
+  --chart-warm: #c8691f;
+  --chart-wet: #2f6fb0;
+  --chart-night: #1f8a83;
+  --chart-neutral: #7a857f;
+  --chart-axis: var(--neutral-600);
+  --chart-grid: var(--neutral-200);
+
+  /* ---------- 文字、背景、描边 ---------- */
+  --text-primary: var(--neutral-900);
+  --text-regular: var(--neutral-700);
+  --text-secondary: var(--neutral-600);
+  --text-placeholder: var(--neutral-500);
+  --text-disabled: var(--neutral-400);
+  --bg-page: #f3f6f4;
+  --bg-card: #ffffff;
+  --bg-subtle: var(--neutral-50);
+  --bg-hover: var(--brand-50);
+  --border: var(--neutral-200);
+  --border-strong: var(--neutral-300);
+
+  /* ---------- 间距（4px 基数） ---------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* ---------- 圆角、阴影（最多两档） ---------- */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-1: 0 1px 2px rgba(20, 35, 27, 0.06);
+  --shadow-2: 0 6px 20px rgba(20, 35, 27, 0.08);
+
+  /* ---------- 字号与行高 ---------- */
+  --fs-12: 12px;
+  --lh-12: 18px;
+  --fs-13: 13px;
+  --lh-13: 20px;
+  --fs-14: 14px;
+  --lh-14: 22px;
+  --fs-16: 16px;
+  --lh-16: 24px;
+  --fs-20: 20px;
+  --lh-20: 28px;
+  --fs-24: 24px;
+  --lh-24: 32px;
+  --fs-30: 30px;
+  --lh-30: 38px;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+
+  /* 系统中文字体栈：不加网络字体（场地可能无网） */
+  --font-sans: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', 'Hiragino Sans GB', system-ui, -apple-system,
+    'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+
+  /* ---------- 布局尺寸 ---------- */
+  --sidebar-width: 216px;
+  --sidebar-width-collapsed: 64px;
+  --topbar-height: 56px;
+  --content-max-width: 1600px;
+}

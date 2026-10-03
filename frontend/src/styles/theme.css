@@ -1,22 +1,129 @@
-/* 品牌主题：沉稳农业绿。覆盖 Element Plus 主色，全站统一。 */
+/*
+ * Element Plus 主题（计划 0018 设计 2）：把 --el-* 变量全部映射到 tokens.css 的令牌，组件外观与令牌同源。
+ * 主色及各语义色的浅阶 / 深阶按 Element 的混色公式取值（混白 30/50/70/80/90%，混黑 20%）。
+ */
 :root {
-  /* #15803d (green-700) 按_Element_公式与黑/白混色得到 */
-  --el-color-primary: #15803d;
-  --el-color-primary-light-3: #5ba677;
-  --el-color-primary-light-5: #8abf9e;
-  --el-color-primary-light-7: #b9d9c5;
-  --el-color-primary-light-8: #d0e6d8;
-  --el-color-primary-light-9: #e8f2ec;
-  --el-color-primary-dark-2: #116631;
+  --el-color-white: #ffffff;
+  --el-color-black: var(--neutral-900);
 
-  /* 语义色统一用 600/700 重量，避免高饱和荧光感 */
-  --el-color-danger: #dc2626;
-  --el-color-warning: #d97706;
-  --el-color-success: #16a34a;
+  --el-color-primary: var(--brand-600);
+  --el-color-primary-light-3: var(--brand-400);
+  --el-color-primary-light-5: var(--brand-300);
+  --el-color-primary-light-7: var(--brand-200);
+  --el-color-primary-light-8: var(--brand-100);
+  --el-color-primary-light-9: var(--brand-50);
+  --el-color-primary-dark-2: var(--brand-700);
 
-  /* 中性面板描边：绿灰而非纯灰，呼应农业 */
-  --el-border-color-extra-light: #f0f4f0;
+  --el-color-success: var(--success);
+  --el-color-success-light-3: #5dad80;
+  --el-color-success-light-5: #8cc4a4;
+  --el-color-success-light-7: #badcc9;
+  --el-color-success-light-8: #d1e8db;
+  --el-color-success-light-9: var(--success-soft);
+  --el-color-success-dark-2: var(--success-ink);
+
+  --el-color-warning: var(--warning);
+  --el-color-warning-light-3: #ca8753;
+  --el-color-warning-light-5: #daa984;
+  --el-color-warning-light-7: #e8cbb5;
+  --el-color-warning-light-8: #f0ddce;
+  --el-color-warning-light-9: var(--warning-soft);
+  --el-color-warning-dark-2: var(--warning-ink);
+
+  --el-color-danger: var(--danger);
+  --el-color-danger-light-3: #d76868;
+  --el-color-danger-light-5: #e29494;
+  --el-color-danger-light-7: #eebebe;
+  --el-color-danger-light-8: #f4d4d4;
+  --el-color-danger-light-9: var(--danger-soft);
+  --el-color-danger-dark-2: var(--danger-ink);
+
+  --el-color-error: var(--el-color-danger);
+  --el-color-error-light-3: var(--el-color-danger-light-3);
+  --el-color-error-light-5: var(--el-color-danger-light-5);
+  --el-color-error-light-7: var(--el-color-danger-light-7);
+  --el-color-error-light-8: var(--el-color-danger-light-8);
+  --el-color-error-light-9: var(--el-color-danger-light-9);
+  --el-color-error-dark-2: var(--el-color-danger-dark-2);
+
+  --el-color-info: var(--info);
+  --el-color-info-light-3: #8f9794;
+  --el-color-info-light-5: #afb5b2;
+  --el-color-info-light-7: #cfd3d1;
+  --el-color-info-light-8: #dfe1e0;
+  --el-color-info-light-9: var(--info-soft);
+  --el-color-info-dark-2: var(--info-ink);
+
+  --el-text-color-primary: var(--text-primary);
+  --el-text-color-regular: var(--text-regular);
+  --el-text-color-secondary: var(--text-secondary);
+  --el-text-color-placeholder: var(--text-placeholder);
+  --el-text-color-disabled: var(--text-disabled);
+
+  --el-border-color: var(--border-strong);
+  --el-border-color-light: var(--border);
+  --el-border-color-lighter: var(--border);
+  --el-border-color-extra-light: var(--neutral-100);
+  --el-border-color-dark: var(--neutral-400);
+  --el-border-color-darker: var(--neutral-500);
+
+  --el-fill-color: var(--neutral-100);
+  --el-fill-color-light: var(--neutral-50);
+  --el-fill-color-lighter: var(--neutral-50);
+  --el-fill-color-extra-light: #fafbfa;
+  --el-fill-color-dark: var(--neutral-200);
+  --el-fill-color-darker: var(--neutral-300);
+  --el-fill-color-blank: var(--bg-card);
+
+  --el-bg-color: var(--bg-card);
+  --el-bg-color-page: var(--bg-page);
+  --el-bg-color-overlay: var(--bg-card);
+
+  --el-border-radius-base: var(--radius-sm);
+  --el-border-radius-round: 20px;
+
+  --el-box-shadow: var(--shadow-2);
+  --el-box-shadow-light: var(--shadow-2);
+  --el-box-shadow-lighter: var(--shadow-1);
+  --el-box-shadow-dark: var(--shadow-2);
+
+  --el-font-family: var(--font-sans);
+  --el-font-size-extra-large: var(--fs-20);
+  --el-font-size-large: var(--fs-16);
+  --el-font-size-medium: var(--fs-16);
+  --el-font-size-base: var(--fs-14);
+  --el-font-size-small: var(--fs-13);
+  --el-font-size-extra-small: var(--fs-12);
+
+  --el-mask-color: rgba(255, 255, 255, 0.85);
+  --el-overlay-color-lighter: rgba(26, 34, 30, 0.35);
 }
+
+/* 浅色标签：文字用深一阶（Element 默认用主色本身，12px 字在浅底上对比度不足 4.5） */
+.el-tag.el-tag--primary { --el-tag-text-color: var(--el-color-primary-dark-2); }
+.el-tag.el-tag--success { --el-tag-text-color: var(--el-color-success-dark-2); }
+.el-tag.el-tag--warning { --el-tag-text-color: var(--el-color-warning-dark-2); }
+.el-tag.el-tag--danger { --el-tag-text-color: var(--el-color-danger-dark-2); }
+.el-tag.el-tag--info { --el-tag-text-color: var(--el-color-info-dark-2); }
+.el-tag.el-tag--dark { --el-tag-text-color: #ffffff; }
+
+/* 表格：细描边、浅表头、数字等宽 */
+.el-table {
+  --el-table-border-color: var(--border);
+  --el-table-header-bg-color: var(--bg-subtle);
+  --el-table-header-text-color: var(--text-secondary);
+  --el-table-row-hover-bg-color: var(--bg-hover);
+  --el-table-tr-bg-color: var(--bg-card);
+  font-variant-numeric: tabular-nums;
+}
+.el-table th.el-table__cell { font-weight: var(--fw-semibold); font-size: var(--fs-13); }
+.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell { background: #fafbfa; }
+
+/* 对话框、卡片：统一圆角与阴影 */
+.el-dialog { --el-dialog-border-radius: var(--radius-lg); --el-dialog-padding-primary: var(--space-5); }
+.el-dialog__title { font-weight: var(--fw-semibold); }
+.el-card { --el-card-border-radius: var(--radius-lg); --el-card-border-color: var(--border); --el-card-padding: var(--space-5); }
+.el-descriptions { --el-descriptions-item-bordered-label-background: var(--bg-subtle); }
 
 /* 数字统一等宽对齐（工具感来自对齐，不来自发光） */
 .num,

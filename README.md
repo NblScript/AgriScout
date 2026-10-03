@@ -119,7 +119,7 @@ AgriScout（巡知）是一套面向病害风险预测与主动学习的农田�
 | 目录 | 作用 |
 |---|---|
 | `backend/` | FastAPI 服务、SQLAlchemy 模型、Alembic 迁移、分析和规则引擎 |
-| `frontend/` | Vue 管理台、巡检回放页、数据总览和规则审批页 |
+| `frontend/` | Vue 管理台（工作台、待确认、巡检计划与株档案、巡检回放、规则审批等）和展示屏 |
 | `simulator/` | 只走 HTTP 的独立虚拟巡田模拟器 |
 | `rover/` | 真车采集端（树莓派 + USB 摄像头），只走 HTTP，带断网队列 |
 | `ml/` | 独立的 YOLO 数据准备、训练和模型导出环境 |
@@ -160,7 +160,7 @@ pnpm install
 pnpm dev
 ```
 
-访问 <http://localhost:5173> 用上一步建的账号登录；独立数据总览页面为 <http://localhost:5173/screen>。
+访问 <http://localhost:5173> 用上一步建的账号登录，登录后进入工作台；答辩投影用的展示屏为 <http://localhost:5173/screen>（侧栏或顶栏的「展示屏」），逐个大棚轮播每株状态、棚内环境和等人确认。
 
 ### 3. 跑一趟虚拟巡田
 
