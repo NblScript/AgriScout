@@ -9,7 +9,6 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
-import io
 import json
 import os
 import sys
@@ -19,9 +18,21 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 import httpx
+
+try:
+    from . import acquire, hardware
+    from .point_store import PointStore
+except ImportError:  # 在 rover/ 目录下直接运行 python run.py
+    import acquire  # type: ignore[no-redef]
+    import hardware  # type: ignore[no-redef]
+    from point_store import PointStore  # type: ignore[no-redef]
+
+# 相机实现迁到 hardware.py；保留旧名字，旧模式和烟测照常引用
+FakeCapture = hardware.FakeCamera
+CameraCapture = hardware.CameraCapture
 
 TZ_CN = timezone(timedelta(hours=8))
 WHEAT_STAGES = [
@@ -34,9 +45,7 @@ WHEAT_STAGES = [
 ]
 
 
-class CaptureSource(Protocol):
-    def capture(self) -> bytes: ...
-    def close(self) -> None: ...
+CaptureSource = hardware.Camera
 
 
 class ApiError(RuntimeError):
@@ -340,74 +349,6 @@ def flush_spool(
     return sent, failed
 
 
-class FakeCapture:
-    """生成轻量合成图，用于无摄像头的链路验收。"""
-
-    def __init__(self, width: int, height: int):
-        from PIL import Image
-
-        self.width = width
-        self.height = height
-        self._index = 0
-        self._image_type = Image
-
-    def capture(self) -> bytes:
-        image = self._image_type.new(
-            "RGB", (self.width, self.height),
-            (30 + self._index % 40, 90 + (self._index * 7) % 70, 25 + self._index % 30),
-        )
-        self._index += 1
-        buffer = io.BytesIO()
-        image.save(buffer, format="JPEG", quality=85)
-        return buffer.getvalue()
-
-    def close(self) -> None:
-        pass
-
-
-class CameraCapture:
-    """USB 摄像头采集器，显式释放 OpenCV 资源。
-
-    OpenCV（V4L2）默认在驱动里缓冲若干帧：按间隔拍照时直接 read() 拿到的是
-    缓冲里的旧帧，照片与记录的时间/位置对不上（小车行进时偏差 = 车速 × 间隔），
-    高密度采样的空间对应关系就失效了。每次拍照前先丢弃缓冲帧。
-    """
-
-    STALE_FRAMES = 4  # 常见 V4L2 缓冲深度；缓冲可设为 1 时多丢几帧只多等几十毫秒
-
-    def __init__(self, index: int, width: int, height: int):
-        import cv2  # 延迟导入，--fake 不需要 OpenCV
-
-        self._cv2 = cv2
-        self._width = width
-        self._height = height
-        self._cap = cv2.VideoCapture(index)
-        if not self._cap.isOpened():
-            self._cap.release()
-            raise RuntimeError(f"打不开摄像头 index={index}，确认已连接且未被占用")
-        # 部分后端不支持该属性，返回 False 时仍靠 capture() 里的丢帧兜底
-        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
-    def capture(self) -> bytes:
-        for _ in range(self.STALE_FRAMES):
-            self._cap.grab()
-        ok, frame = self._cap.read()
-        if not ok:
-            raise RuntimeError("读帧失败，检查摄像头是否被占用")
-        frame = self._cv2.resize(frame, (self._width, self._height))
-        ok, encoded = self._cv2.imencode(
-            ".jpg", frame, [self._cv2.IMWRITE_JPEG_QUALITY, 85],
-        )
-        if not ok:
-            raise RuntimeError("JPEG 编码失败")
-        return encoded.tobytes()
-
-    def close(self) -> None:
-        if self._cap is not None:
-            self._cap.release()
-            self._cap = None
-
-
 def gen_boundary(base_lng: float, base_lat: float, total_len_m: float) -> dict[str, Any]:
     """生成包住直线轨迹的演示矩形 GeoJSON Polygon。"""
     half_lng = 15.0 / 111_000.0
@@ -454,6 +395,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--flush-spool", action="store_true",
         help="只补传本地队列，不启动新的采集",
     )
+    # 停车拍摄模式（计划 0016 阶段 A）：每个停车点按视角序列拍、逐张判断质量并补拍、逐点落盘
+    parser.add_argument(
+        "--mode", choices=("legacy", "stops"), default="legacy",
+        help="legacy=沿直线等间隔拍一张；stops=停车按视角序列拍并补拍（阶段 B 起改为默认）",
+    )
+    parser.add_argument(
+        "--views", default=str(Path(__file__).with_name("views.example.json")),
+        help="视角序列 JSON（stops 模式）",
+    )
+    parser.add_argument("--stops", type=int, default=5, help="停车点数量（stops 模式）")
+    parser.add_argument("--stop-spacing", type=float, default=0.4, help="假里程计的停车点间距（米，stops 模式）")
+    parser.add_argument("--max-attempts", type=int, default=3, help="每个视角最多拍几次（stops 模式）")
+    parser.add_argument("--pitch-step", type=float, default=5.0, help="叶背视角每次补拍加的仰角（度）")
+    parser.add_argument(
+        "--fake-script", default="",
+        help="--fake 时假相机依次产出的图像类型，逗号分隔：normal/blurry/overexposed/dark/backlit",
+    )
+    parser.add_argument(
+        "--resume", action="store_true",
+        help="stops 模式：继续上次中断的巡检（默认把中断的巡检直接组包排队）",
+    )
     # 登录凭据（决策 D15）：口令建议走环境变量，避免留在命令行历史里
     parser.add_argument("--username", default=os.environ.get("AGRISCOUT_USERNAME"), help="平台账号（操作员及以上）")
     parser.add_argument("--password", default=os.environ.get("AGRISCOUT_PASSWORD"), help="口令（建议用环境变量）")
@@ -475,9 +437,28 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--upload-retries 不能为负数")
     if args.retry_delay < 0:
         parser.error("--retry-delay 不能为负数")
+    if args.stops < 1:
+        parser.error("--stops 必须大于 0")
+    if args.stop_spacing <= 0:
+        parser.error("--stop-spacing 必须大于 0")
+    if args.max_attempts < 1:
+        parser.error("--max-attempts 必须大于 0")
+    if args.pitch_step < 0:
+        parser.error("--pitch-step 不能为负数")
+    script = [kind.strip() for kind in args.fake_script.split(",") if kind.strip()]
+    unknown = [kind for kind in script if kind not in hardware.FAKE_KINDS]
+    if unknown:
+        parser.error(f"--fake-script 不认识的类型：{unknown}")
+    args.fake_script = script
     if not (-180 <= args.base_lng <= 180 and -90 <= args.base_lat <= 90):
         parser.error("--base-lng/--base-lat 超出经纬度范围")
     return args
+
+
+def route_length_m(args: argparse.Namespace) -> float:
+    if args.mode == "stops":
+        return args.stops * args.stop_spacing
+    return args.points * args.step
 
 
 def ensure_records(client: ApiClient, args: argparse.Namespace) -> tuple[dict, dict, dict]:
@@ -486,7 +467,7 @@ def ensure_records(client: ApiClient, args: argparse.Namespace) -> tuple[dict, d
     field = (
         client.ensure_field(
             args.field_name,
-            gen_boundary(args.base_lng, args.base_lat, args.points * args.step),
+            gen_boundary(args.base_lng, args.base_lat, route_length_m(args)),
         )
         if args.field_id == 0 else {"id": args.field_id}
     )
@@ -563,16 +544,106 @@ def build_package(
     }
 
 
+def finalize_unfinished(spool: PackageSpool, *, keep: Path | None = None) -> None:
+    """把中断的 stops 巡检（逐点目录）直接组包放进上传队列，已拍的点不丢。"""
+    for directory in PointStore.unfinished(spool.directory):
+        if keep is not None and directory == keep:
+            continue
+        store = PointStore(directory)
+        try:
+            if not store.resume():
+                store.remove()  # 一张都没拍就中断，没有可上传的内容
+                continue
+            spool.save(store.build_package(), last_error="巡检中断，按已拍的点组包")
+        except (OSError, ValueError, KeyError) as exc:
+            print(f"[落盘] 中断的巡检 {directory.name} 组包失败，保留目录待人工处理：{exc}")
+            continue
+        store.remove()
+        print(f"[落盘] 中断的巡检 {directory.name} 已按 {store.next_seq} 个点组包排队")
+
+
+def make_rig(args: argparse.Namespace) -> tuple[acquire.Rig, Any]:
+    """返回 (Rig, 里程计)。真实云台/补光/编码器尚未接入，非 --fake 时会明确报错。"""
+    if args.fake:
+        rig = acquire.Rig(
+            camera=hardware.FakeCamera(args.width, args.height, args.fake_script),
+            gimbal=hardware.FakeGimbal(),
+            light=hardware.FakeLight(),
+            tag_reader=hardware.FakeTagReader([f"R01-P{n:03d}" for n in range(1, args.stops + 1)]),
+        )
+        return rig, hardware.FakeOdometer(args.stop_spacing)
+    gimbal, light, odometer = hardware.ServoGimbal(), hardware.GpioLight(), hardware.EncoderOdometer()
+    camera = hardware.CameraCapture(args.camera, args.width, args.height)
+    return acquire.Rig(camera, gimbal, light, hardware.QrTagReader()), odometer
+
+
+def open_stops_patrol(
+    client: ApiClient, spool: PackageSpool, args: argparse.Namespace, resume_dir: Path | None,
+) -> PointStore:
+    """新建一趟 stops 巡检的逐点目录；--resume 时打开上次中断的目录。"""
+    if resume_dir is not None:
+        store = PointStore(resume_dir)
+        store.resume()
+        print(f"[续拍] 继续巡检 {resume_dir.name}：已落盘 {store.next_seq} 个点")
+        return store
+    device, field, planting = ensure_records(client, args)
+    print(f"[建档] 设备={device['code']} 地块=#{field['id']} 作物=冬小麦 种植#{planting['id']}")
+    views = acquire.load_views(args.views)
+    started = datetime.now(TZ_CN)
+    meta = {
+        "field_id": field["id"],
+        "planting_id": planting["id"],
+        "device": args.device,
+        "started_at": started.isoformat(),
+        "notes": f"rover:{args.device} mode=stops real/fake={args.fake}",
+        # 续拍时按建档时的参数继续，避免中途换了视角序列
+        "views": acquire.views_to_json(views),
+        "stops": args.stops,
+        "stop_spacing": args.stop_spacing,
+        "max_attempts": args.max_attempts,
+        "pitch_step_deg": args.pitch_step,
+        "base_lng": args.base_lng,
+        "base_lat": args.base_lat,
+    }
+    safe_device = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in args.device)
+    return PointStore.create(spool.directory, f"{safe_device}-{started:%Y%m%dT%H%M%S%f}", meta)
+
+
+def collect_stops(
+    store: PointStore, rig: acquire.Rig, odometer: Any, args: argparse.Namespace,
+) -> dict[str, Any]:
+    """按 meta 里记下的参数拍完全部停车点，组成巡检包。"""
+    meta = store.meta
+    views = acquire.parse_views(meta["views"])
+    policy = acquire.ShootPolicy(max_attempts=meta["max_attempts"], pitch_step_deg=meta["pitch_step_deg"])
+    print(
+        f"[采集] 停车拍摄 {meta['stops']} 个点 × {len(views)} 个视角，每视角最多 {policy.max_attempts} 次"
+        f"（{'合成图' if args.fake else 'USB 摄像头'}）",
+    )
+    acquire.run_stops(
+        store, rig, views, odometer,
+        stops=meta["stops"], base_lng=meta["base_lng"], base_lat=meta["base_lat"],
+        policy=policy, clock=lambda: datetime.now(TZ_CN), interval=args.interval,
+    )
+    return store.build_package()
+
+
 def run(args: argparse.Namespace) -> int:
     client = ApiClient(args.api, token=args.token, username=args.username, password=args.password)
     spool = PackageSpool(args.spool_dir)
     source: CaptureSource | None = None
+    store: PointStore | None = None
     try:
         health = client.get("/api/v1/health")
         print(
             f"[联通] 平台 v{health['version']} ({health['environment']}) "
             f"数据库 {health['database']}",
         )
+        unfinished = PointStore.unfinished(spool.directory)
+        resume_dir = unfinished[-1] if args.mode == "stops" and args.resume and unfinished else None
+        if args.resume and resume_dir is None and args.mode == "stops":
+            print("[续拍] 没有中断的巡检，开始新的一趟")
+        finalize_unfinished(spool, keep=resume_dir)
         pending = spool.pending()
         if pending:
             sent, failed = flush_spool(
@@ -584,19 +655,28 @@ def run(args: argparse.Namespace) -> int:
             print(f"[队列] 补传完成：成功 {sent}，保留 {failed}")
         if args.flush_spool:
             return 1 if spool.pending() else 0
-        device, field, planting = ensure_records(client, args)
-        print(
-            f"[建档] 设备={device['code']} 地块=#{field['id']} "
-            f"作物=冬小麦 种植#{planting['id']}",
-        )
-        source = FakeCapture(args.width, args.height) if args.fake else CameraCapture(
-            args.camera, args.width, args.height,
-        )
-        points, track, start_dt = collect_points(args, source)
-        package = build_package(
-            field["id"], planting["id"], args.device, points, track, start_dt, args.fake,
-        )
+        if args.mode == "stops":
+            # 先备好硬件再建目录：真实云台等未接入时直接报错，不留下空的巡检目录
+            rig, odometer = make_rig(args)
+            source = rig.camera
+            store = open_stops_patrol(client, spool, args, resume_dir)
+            package = collect_stops(store, rig, odometer, args)
+        else:
+            device, field, planting = ensure_records(client, args)
+            print(
+                f"[建档] 设备={device['code']} 地块=#{field['id']} "
+                f"作物=冬小麦 种植#{planting['id']}",
+            )
+            source = FakeCapture(args.width, args.height) if args.fake else CameraCapture(
+                args.camera, args.width, args.height,
+            )
+            points, track, start_dt = collect_points(args, source)
+            package = build_package(
+                field["id"], planting["id"], args.device, points, track, start_dt, args.fake,
+            )
         queued_path = spool.save(package)
+        if store is not None:
+            store.remove()  # 整包已进队列，逐点目录不再需要
         result = upload_with_retry(
             client,
             package,
@@ -613,6 +693,8 @@ def run(args: argparse.Namespace) -> int:
         return 0
     except (OSError, RuntimeError, KeyError, ValueError) as exc:
         print(f"[错误] 采集失败：{exc}")
+        if store is not None and store.directory.exists():
+            print(f"[落盘] 已拍的 {store.next_seq} 个点保留在 {store.directory}；下次运行加 --resume 续拍，否则自动组包排队")
         if "package" in locals() and isinstance(package, dict):
             try:
                 queued_path = spool.path_for(package)
