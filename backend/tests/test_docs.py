@@ -18,7 +18,7 @@ LINK_CHECK_FILES = [
     DOCS / "design-docs" / "core-beliefs.md",
     DOCS / "design-docs" / "decision-registry.md",
     DOCS / "exec-plans" / "README.md",
-    DOCS / "exec-plans" / "active" / "0007-application-alignment.md",
+    *sorted((DOCS / "exec-plans" / "active").glob("*.md")),  # 在档计划随增删自动纳入
     REPO / "README.md",
 ]
 

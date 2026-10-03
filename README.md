@@ -6,9 +6,11 @@ AgriScout（巡知）是一套面向病害风险预测与主动学习的农田�
 
 一句话概括：**用有限的巡检和人工投入，获得更有助于判断病害风险的证据，并通过可验证的反馈持续改进。**
 
-> 项目面向 2027 年第二十届“挑战杯”全国大学生课外学术科技作品竞赛（大挑）科技发明制作 A 类，首批作物为小麦。
+> 项目面向 2027 年第二十届“挑战杯”全国大学生课外学术科技作品竞赛（大挑）科技发明制作 A 类。
 > 规则要点、参赛定位与合规清单见 [competition-rules](docs/design-docs/competition-rules.md)。
-> 项目定位、创新点和实验设计以 [docs/09 申报书](docs/09-project-application.md) 为准，硬件与部署以 [docs/08 系统方案](docs/08-system-solution.md) 为准。
+> **2026-10 方向调整**：目标场景由小麦大田改为设施大棚（日光温室、塑料大棚）黄瓜霜霉病，做风险驱动的闭环主动采集
+> （决策 D16，[计划 0013](docs/exec-plans/active/0013-greenhouse-active-acquisition.md)）。下文的小麦规则、模型与模拟季保留为方法验证；
+> [docs/09 申报书](docs/09-project-application.md) 是小麦版，待按新方向重写；硬件与部署以 [docs/08 系统方案](docs/08-system-solution.md) 为准。
 
 ## 为什么做
 
@@ -263,17 +265,15 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 
 ## 下一阶段
 
-下一阶段是 **M7：真实采集接入与数据实验准备**，软件闭环已具备，重点转为获得真实证据（执行计划见
-[0007](docs/exec-plans/active/0007-application-alignment.md)）：
+下一阶段是 **温室方向软件线**（执行计划见 [0013](docs/exec-plans/active/0013-greenhouse-active-acquisition.md)，
+与作物无关的剩余改造见 [0007](docs/exec-plans/active/0007-application-alignment.md)）。场地核实与试拍前只做不依赖场地的部分：
 
-- 播种前完成试验地准备：预留小车通道、确定病种与合作地块、布设气象站、给观察区域编号；
-- 补齐真车采数的前置改造：观察区域身份（垄号 + 桩号）、时钟同步、逐点落盘与分步上传、连续环境记录；
-- 让采集端按协议生成真实巡检包，完成一趟真车联调；
-- 对 200、1300、2600 点规模做上传、重试和断网压力测试；
-- 用真实车载照片建立标注集、训练集和独立测试集；
-- 用 precision、recall、mAP、漏报率等指标评估识别，而不是只看演示效果；
-- 让农技人员复核小麦规则阈值和建议出处；
-- 做采样间距（0.5 米为候选）、视角和复访间隔的对比实验，确定实际采用的采样策略。
+- 按株建档 + 巡检包协议 v2 最小子集（株号、行内位置、视角元数据、客户端包 ID 幂等），单株时间线；
+- 棚内冠层温湿度接入、霜霉病环境风险指标，风险驱动的巡检计划（补拍、人工确认、随机抽查、低频全覆盖）；
+- rover 按预设角度拍摄 + 逐张质量判断 + 补拍，逐点落盘，图像质量进入分析结果；
+- 大棚黄瓜模拟场景，端到端跑通闭环；
+- 试拍拿到真实照片后：霜霉病识别基线、黄瓜规则草稿（待农技复核）；
+- 时钟同步、盲法复核、数据集分组划分、TX2 部署验证（计划 0007）。
 
 ## 已知边界
 
@@ -297,7 +297,8 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 - [docs/01-reference-research.md](docs/01-reference-research.md)：同类案例与论文调研。
 - [rover/README.md](rover/README.md)：真车采集端安装、参数与失败行为。
 - [docs/design-docs/decision-registry.md](docs/design-docs/decision-registry.md)：编号决策注册表与规则引擎生命周期。
-- [docs/exec-plans/active/0007-application-alignment.md](docs/exec-plans/active/0007-application-alignment.md)：进行中的执行计划（真车采数前置改造、时间线）。
+- [docs/exec-plans/active/0013-greenhouse-active-acquisition.md](docs/exec-plans/active/0013-greenhouse-active-acquisition.md)：进行中的执行计划（温室方向软件线，WP1–WP6）。
+- [docs/exec-plans/active/0007-application-alignment.md](docs/exec-plans/active/0007-application-alignment.md)：进行中的执行计划（与作物无关的剩余改造：时钟、盲法复核、数据集划分、TX2）。
 - [docs/exec-plans/tech-debt-tracker.md](docs/exec-plans/tech-debt-tracker.md)：技术债台账（含历次审查未修项）。
 - [docs/exec-plans/README.md](docs/exec-plans/README.md)：执行计划约定；已删除历史文档的取回方式。
 - [docs/generated/db-schema.md](docs/generated/db-schema.md)：自动生成的数据库结构快照。
