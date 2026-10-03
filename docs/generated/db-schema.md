@@ -277,6 +277,7 @@
 | capture_point_id | Integer | FK→capture_points.id | — |
 | device_id | Integer | FK→devices.id | — |
 | risk_prediction_id | Integer | FK→risk_predictions.id | — |
+| observation_unit_id | Integer | FK→observation_units.id | — |
 | task_type | String(20) | NOT NULL | — |
 | status | String(20) | NOT NULL | — |
 | priority | Float | NOT NULL | — |
@@ -295,6 +296,8 @@
 索引 `ix_revisit_tasks_device_id`：(device_id)
 
 索引 `ix_revisit_tasks_field_id`：(field_id)
+
+索引 `ix_revisit_tasks_observation_unit_id`：(observation_unit_id)
 
 索引 `ix_revisit_tasks_patrol_id`：(patrol_id)
 
@@ -410,6 +413,23 @@
 | updated_at | DateTime | NOT NULL、default=now() | — |
 
 索引 `ix_agent_conversations_patrol_id`：(patrol_id)
+
+### env_readings
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | Integer | PK | — |
+| field_id | Integer | FK→fields.id、NOT NULL | — |
+| sensor_key | String(40) | NOT NULL | — |
+| device_id | Integer | FK→devices.id | — |
+| observed_at | DateTime | NOT NULL | — |
+| temp_c | Float | NOT NULL | — |
+| humidity_pct | Float | NOT NULL | — |
+| leaf_wetness | Float | — | — |
+| source | String(20) | NOT NULL | — |
+| created_at | DateTime | NOT NULL、default=now() | — |
+
+索引 `ix_env_readings_field_time`：(field_id, observed_at)
 
 ### observation_units
 

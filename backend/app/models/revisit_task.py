@@ -21,7 +21,11 @@ class RevisitTask(TimestampMixin, Base):
     risk_prediction_id: Mapped[int | None] = mapped_column(
         ForeignKey("risk_predictions.id", ondelete="SET NULL"), index=True,
     )
-    task_type: Mapped[str] = mapped_column(String(20), nullable=False)  # revisit / label / random
+    # 计划 0015：巡检计划的任务落到株上（同株每种类型只保留一条未完成任务）
+    observation_unit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("observation_units.id", ondelete="SET NULL"), index=True,
+    )
+    task_type: Mapped[str] = mapped_column(String(20), nullable=False)  # revisit / label / random / coverage
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
     priority: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     value_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
@@ -37,3 +41,4 @@ class RevisitTask(TimestampMixin, Base):
     capture_point: Mapped["CapturePoint | None"] = relationship()  # type: ignore[name-defined]
     device: Mapped["Device | None"] = relationship()  # type: ignore[name-defined]
     risk_prediction: Mapped["RiskPrediction | None"] = relationship()  # type: ignore[name-defined]
+    observation_unit: Mapped["ObservationUnit | None"] = relationship()  # type: ignore[name-defined]

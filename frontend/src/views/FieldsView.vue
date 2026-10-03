@@ -163,9 +163,16 @@ function vertices(row: Field): number {
       <template #default="{ row }">{{ row.facility_type ? FACILITY_LABELS[row.facility_type as FacilityType] : '大田' }}</template>
     </el-table-column>
     <el-table-column prop="notes" label="备注" min-width="140" show-overflow-tooltip />
-    <el-table-column label="操作" width="230" fixed="right">
+    <el-table-column label="操作" width="320" fixed="right">
       <template #default="{ row }">
         <el-button size="small" type="primary" plain @click="router.push({ name: 'field-units', params: { id: row.id } })">株档案</el-button>
+        <el-button
+          v-if="row.facility_type === 'solar_greenhouse' || row.facility_type === 'plastic_tunnel'"
+          size="small"
+          type="primary"
+          plain
+          @click="router.push({ name: 'field-plan', params: { id: row.id } })"
+        >巡检计划</el-button>
         <el-button size="small" @click="openEdit(row)">编辑</el-button>
         <el-button size="small" type="danger" plain @click="removeRow(row)">删除</el-button>
       </template>

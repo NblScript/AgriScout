@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.core.timeutil import field_date, to_utc
 from app.models import Analysis, CapturePoint, DatasetVersion, Device, Field, FollowUp, ModelEvaluation, Patrol, RevisitTask, RiskPrediction
-from app.services.active_learning import ActiveLearningCandidate, SelectionConstraints, select_active_learning_tasks
 from app.services.dataset_governance import (
     approve_model_evaluation as governance_approve_model_evaluation,
     freeze_dataset_version,
@@ -18,7 +17,8 @@ from app.services.evaluation_metrics import LabeledPrediction, WindowPrediction,
 from app.services.evidence_feedback import InvalidTransitionError, check_completeness, transition_status
 from app.services.risk_inputs import build_region_series, region_evidence
 from app.services.risk_model import RegionRisk, is_lr_version, load_model, predict_regions
-from app.services.risk_prediction import DEFAULT_QUALITY, predict_region_risk
+from app.services import revisit_planning
+from app.services.risk_prediction import predict_region_risk
 from app.schemas.software_loop import (
     DatasetFreezeIn, DatasetVersionCreate, DatasetVersionOut, FollowUpIn, FollowUpOut,
     ModelApproveIn, ModelEvaluationCreate, ModelEvaluationOut, RevisitTaskCreate,
@@ -475,28 +475,9 @@ def update_revisit_task(task_id: int, payload: RevisitTaskUpdate, db: Session = 
     return obj
 
 
-def _task_signals(prediction: RiskPrediction) -> dict[str, float]:
-    """预测 → 复巡/标注打分信号（D13）。
-
-    启发式基线的置信度本身就是证据充分度，沿用；risk-lr 的置信度是 |2p−1|（模型有多确定），
-    不能当证据质量：质量改读 evidence_quality，风险按模型自己的 high 阈值归一，
-    使 high 等级正好对应打分里的 risk ≥ 0.5（罕见事件的概率绝对值普遍很小）。
-    """
-    signals = {
-        "quality": prediction.confidence, "uncertainty": 1.0 - prediction.confidence,
-        "risk": prediction.probability, "change": 1.0 if prediction.trend == "rising" else 0.0,
-    }
-    if is_lr_version(prediction.model_version):
-        evidence = prediction.evidence or {}
-        signals["quality"] = (evidence.get("evidence_quality") or {}).get("score", DEFAULT_QUALITY)
-        high = ((evidence.get("model") or {}).get("level_thresholds") or {}).get("high")
-        if high:
-            signals["risk"] = min(1.0, prediction.probability / (2 * high))
-    return signals
-
-
 @router.post("/revisit-tasks/generate", response_model=list[RevisitTaskOut])
 def generate_revisit_tasks(payload: TaskGenerateIn, db: Session = Depends(get_db)):
+    """按区域去重后用联合策略排序生成复巡任务（逻辑见 services/revisit_planning.py，与离线重放共用实现）。"""
     if db.get(Field, payload.field_id) is None:
         raise HTTPException(status_code=404, detail="地块不存在")
     if payload.patrol_id is not None:
@@ -505,62 +486,10 @@ def generate_revisit_tasks(payload: TaskGenerateIn, db: Session = Depends(get_db
             raise HTTPException(status_code=404, detail="巡检不存在")
         if patrol.field_id != payload.field_id:
             raise HTTPException(status_code=422, detail="任务地块与巡检不一致")
-    stmt = select(RiskPrediction).join(Patrol, RiskPrediction.patrol_id == Patrol.id).where(
-        RiskPrediction.status == "open", Patrol.field_id == payload.field_id,
+    return revisit_planning.generate_revisit_tasks(
+        db, field_id=payload.field_id, patrol_id=payload.patrol_id, limit=payload.limit,
+        created_by=payload.created_by, interval_days=payload.patrol_interval_days,
     )
-    if payload.patrol_id is not None:
-        stmt = stmt.where(RiskPrediction.patrol_id == payload.patrol_id)
-    predictions = list(db.scalars(stmt.order_by(RiskPrediction.probability.desc()).limit(payload.limit)).all())
-    candidates: list[ActiveLearningCandidate] = []
-    prediction_by_id: dict[str, RiskPrediction] = {}
-    for prediction in predictions:
-        point = prediction.capture_point
-        if point is None:
-            continue
-        candidate_id = f"risk-{prediction.id}"
-        prediction_by_id[candidate_id] = prediction
-        candidates.append(ActiveLearningCandidate(
-            candidate_id=candidate_id, **_task_signals(prediction), representativeness=0.5, cost=1.0,
-        ))
-    ranked = select_active_learning_tasks(candidates, SelectionConstraints(max_tasks=payload.limit, budget=float(payload.limit)))
-    output: list[RevisitTask] = []
-    for row in ranked:
-        prediction = prediction_by_id[row.candidate_id]
-        point = prediction.capture_point
-        if point is None:
-            continue
-        existing = db.scalar(select(RevisitTask).where(
-            RevisitTask.risk_prediction_id == prediction.id,
-            # 同一预测只保留一条复巡任务；新预测窗口会生成新的 prediction id。
-        ))
-        if existing is not None:
-            output.append(existing)
-            continue
-        field_id = payload.field_id
-        obj = RevisitTask(
-            field_id=field_id, patrol_id=prediction.patrol_id, capture_point_id=prediction.capture_point_id,
-            risk_prediction_id=prediction.id,
-            task_type=row.task_type, priority=row.score, value_score=row.score,
-            rationale={"risk": prediction.probability, "uncertainty": 1.0 - prediction.confidence,
-                       "trend": prediction.trend, "reasons": list(row.reasons), "signals": row.signals},
-            parameters={"target_event": prediction.target_event, "forecast_hours": prediction.forecast_hours},
-            created_by=payload.created_by,
-        )
-        db.add(obj)
-        output.append(obj)
-    prediction_ids = [obj.risk_prediction_id for obj in output if obj.risk_prediction_id is not None]
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        if not prediction_ids:
-            raise
-        output = list(db.scalars(select(RevisitTask).where(
-            RevisitTask.risk_prediction_id.in_(prediction_ids),
-        )).all())
-    for obj in output:
-        db.refresh(obj)
-    return output
 
 
 @router.get("/devices/{device_id}/tasks/next", response_model=RevisitTaskOut | None)

@@ -164,8 +164,11 @@ def test_lr_request_must_match_training_target(client, model_dir):
     assert heuristic.status_code == 200 and heuristic.json()[0]["model_version"] == "risk-heuristic-v2"
 
 
-def test_lr_revisit_tasks_use_evidence_quality_not_model_certainty(client, model_dir):
-    """risk-lr 的置信度是 |2p−1|，不是证据质量；高风险区域必须生成复巡而不是随机抽查（D13）。"""
+def test_lr_revisit_tasks_use_measured_quality_not_model_certainty(client, model_dir):
+    """risk-lr 的置信度是 |2p−1|，不是证据质量；高风险区域必须生成复巡而不是随机抽查（D13）。
+
+    计划 0015 起质量信号改用实测图像质量（0016-A），风险按模型 high 阈值归一后算不确定性（联合策略口径）。
+    """
     save_model_file(_doc(), model_path("risk-lr-test"))
     field_id, patrols = _mini_season(client)
     preds = {p["id"]: p for p in _generate(client, patrols[-1]["patrol_id"]).json()}
@@ -180,8 +183,11 @@ def test_lr_revisit_tasks_use_evidence_quality_not_model_certainty(client, model
     for task in tasks:
         pred = preds[task["risk_prediction_id"]]
         signals = task["rationale"]["signals"]
-        assert signals["quality"] == pytest.approx(pred["evidence"]["evidence_quality"]["score"])
-        assert signals["uncertainty"] == pytest.approx(1 - pred["confidence"])
-        if pred["level"] == "high":
-            assert task["task_type"] != "random", (pred["observation_key"], signals)
-    assert any(task["task_type"] == "revisit" for task in tasks)
+        # 合成纯色图在 iq-rule-v1 下判为模糊：实测质量 0，而不是模型置信度
+        assert task["rationale"]["quality_source"] == "image_quality"
+        assert signals["quality"] == 0.0 != pred["confidence"]
+        high = pred["evidence"]["model"]["level_thresholds"]["high"]
+        assert signals["risk"] == pytest.approx(min(1.0, pred["probability"] / (2 * high)), abs=1e-6)
+        assert signals["uncertainty"] == pytest.approx(1 - abs(2 * signals["risk"] - 1), abs=1e-6)
+        assert task["task_type"] == "revisit", (pred["observation_key"], signals)
+    assert len({task["rationale"]["region"] for task in tasks}) == len(tasks)

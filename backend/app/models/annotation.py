@@ -22,6 +22,7 @@ class Annotation(TimestampMixin, Base):
         ForeignKey("patrols.id", ondelete="CASCADE"), nullable=False, index=True,
     )
     # normal 正常 / dry_stress 干旱胁迫 / suspected_disease 疑似病害 / other 其他
+    # / downy_mildew_early 霜霉病早期 / downy_mildew_symptomatic 霜霉病明显（计划 0015）
     label: Mapped[str] = mapped_column(String(50), nullable=False)
     # 认证已砍除（基线 B4），以姓名归属标注人
     annotator_name: Mapped[str] = mapped_column(String(80), nullable=False)

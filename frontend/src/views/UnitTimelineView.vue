@@ -1,18 +1,27 @@
 <script setup lang="ts">
-/** 单株时间线（计划 0014）：同一株每天一行，正面与叶背分列；补拍标第几次，质量不合格灰显并写原因。 */
+/**
+ * 单株时间线（计划 0014）：同一株每天一行，正面与叶背分列；补拍标第几次，质量不合格灰显并写原因。
+ * 计划 0015 加「确认状态」：人工结论写成标注，挂在回看期内最近一张合格叶背图上，每株状态以最近一次人工结论为准。
+ */
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Refresh } from '@element-plus/icons-vue'
-import { observationUnitsApi } from '../api'
+import { annotationsApi, greenhouseApi, observationUnitsApi } from '../api'
 import { errMsg } from '../api/http'
-import { ANNOTATION_LABELS, type AnnotationLabel, type ImageQuality, type TimelineDay, type TimelinePhoto, type UnitTimeline } from '../types'
+import { useAuthStore } from '../stores/auth'
+import {
+  ANNOTATION_LABELS, PLANT_STATE_LABELS,
+  type AnnotationLabel, type ImageQuality, type PlantState, type PlantStateValue, type TimelineDay, type TimelinePhoto, type UnitTimeline,
+} from '../types'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const unitId = Number(route.params.id)
 
 const timeline = ref<UnitTimeline | null>(null)
+const plantState = ref<PlantState | null>(null)
 const loading = ref(false)
 const days = ref(30)
 
@@ -24,6 +33,16 @@ async function load() {
     ElMessage.error(errMsg(e))
   } finally {
     loading.value = false
+  }
+  if (timeline.value) await loadState(timeline.value.unit.field_id)
+}
+
+/** 当前状态是按整块地算的（与计划同一口径），这里只取本株；拿不到不影响时间线 */
+async function loadState(fieldId: number) {
+  try {
+    plantState.value = (await greenhouseApi.plantStates(fieldId)).find((s) => s.unit_id === unitId) ?? null
+  } catch {
+    plantState.value = null
   }
 }
 onMounted(() => {
@@ -103,6 +122,78 @@ function timeText(iso: string): string {
 function annotationText(label: string): string {
   return ANNOTATION_LABELS[label as AnnotationLabel] ?? label
 }
+
+/* ---------- 确认状态（计划 0015） ---------- */
+const CONFIRM_OPTIONS: { label: AnnotationLabel; text: string }[] = [
+  { label: 'normal', text: '健康' },
+  { label: 'downy_mildew_early', text: '早期' },
+  { label: 'downy_mildew_symptomatic', text: '明显' },
+  { label: 'other', text: '其他' },
+]
+const STATE_TAG: Record<PlantStateValue, 'success' | 'warning' | 'danger' | 'info'> = {
+  healthy: 'success', early: 'warning', symptomatic: 'danger', unknown: 'info',
+}
+const confirmLabel = ref<AnnotationLabel | ''>('')
+const confirmNote = ref('')
+const annotator = ref(auth.user?.display_name ?? '')
+const confirming = ref(false)
+
+/** 与后端 greenhouse_plans._accepted 同口径：车端 accepted 优先，没有再看平台测的质量 */
+function accepted(photo: TimelinePhoto): boolean | null {
+  if (typeof photo.view?.accepted === 'boolean') return photo.view.accepted
+  const ok = photo.analysis?.image_quality?.ok
+  return typeof ok === 'boolean' ? ok : null
+}
+const targetPhoto = computed<TimelinePhoto | null>(() =>
+  (timeline.value?.days ?? [])
+    .flatMap((d) => d.photos)
+    .filter((p) => sideOf(p) === 'under' && accepted(p) === true)
+    .reduce<TimelinePhoto | null>(
+      (best, p) => (best == null || Date.parse(p.captured_at) > Date.parse(best.captured_at) ? p : best),
+      null,
+    ),
+)
+const canConfirm = computed(() => !auth.isViewer && targetPhoto.value != null)
+const confirmHint = computed(() => {
+  if (auth.isViewer) return '只读账号不能确认'
+  const photo = targetPhoto.value
+  if (!photo) return `回看期内没有合格的叶背图，可加长回看或先补拍`
+  const day = new Date(photo.captured_at).toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit' })
+  return `挂到 ${day} ${timeText(photo.captured_at)} 的叶背图`
+})
+function stateSource(state: PlantState): string {
+  if (state.source === 'human') {
+    const at = state.reviewed_at
+      ? new Date(state.reviewed_at).toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit' })
+      : ''
+    return `人工确认 ${at}`.trim()
+  }
+  if (state.source === 'model') return `模型占位 ${state.model_score?.toFixed(2) ?? '—'}，不是诊断`
+  return '还没有合格叶背图'
+}
+
+async function submitConfirm() {
+  const photo = targetPhoto.value
+  const label = confirmLabel.value
+  if (!photo || !label) return
+  const name = annotator.value.trim()
+  if (!name) {
+    ElMessage.warning('请填写确认人')
+    return
+  }
+  confirming.value = true
+  try {
+    await annotationsApi.submit(photo.capture_point_id, { label, annotator_name: name, note: confirmNote.value.trim() || null })
+    ElMessage.success(`已确认为「${CONFIRM_OPTIONS.find((o) => o.label === label)?.text}」`)
+    confirmLabel.value = ''
+    confirmNote.value = ''
+    await load()
+  } catch (e) {
+    ElMessage.error(errMsg(e))
+  } finally {
+    confirming.value = false
+  }
+}
 </script>
 
 <template>
@@ -124,6 +215,25 @@ function annotationText(label: string): string {
       <el-option :value="90" label="90 天" />
     </el-select>
     <el-button :icon="Refresh" circle size="small" title="刷新" @click="load" />
+  </div>
+
+  <div class="confirm">
+    <span class="confirm-title">确认状态</span>
+    <template v-if="plantState">
+      当前
+      <el-tag :type="STATE_TAG[plantState.state]" size="small" effect="plain">{{ PLANT_STATE_LABELS[plantState.state] }}</el-tag>
+      <span class="sub">{{ stateSource(plantState) }}</span>
+    </template>
+    <span class="divider" />
+    <el-radio-group v-model="confirmLabel" size="small" :disabled="!canConfirm">
+      <el-radio-button v-for="o in CONFIRM_OPTIONS" :key="o.label" :value="o.label">{{ o.text }}</el-radio-button>
+    </el-radio-group>
+    <el-input v-model="annotator" size="small" placeholder="确认人" style="width: 110px" :disabled="!canConfirm" />
+    <el-input v-model="confirmNote" size="small" placeholder="备注（可选）" style="width: 180px" :disabled="!canConfirm" />
+    <el-button type="primary" size="small" :loading="confirming" :disabled="!canConfirm || !confirmLabel" @click="submitConfirm">
+      提交
+    </el-button>
+    <span class="sub">{{ confirmHint }}</span>
   </div>
 
   <el-table :data="rows" v-loading="loading" border size="small" empty-text="这株在回看期内还没有照片">
@@ -190,4 +300,9 @@ function annotationText(label: string): string {
 .reason { font-size: 12px; color: var(--el-color-danger); }
 .sub { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 2px; }
 .empty { color: var(--el-text-color-placeholder); }
+.confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; padding: 8px 12px; font-size: 13px;
+  border: 1px solid var(--el-border-color-lighter); border-radius: 4px; color: var(--el-text-color-regular); }
+.confirm-title { font-weight: 600; color: var(--el-text-color-primary); }
+.confirm .sub { margin-top: 0; }
+.divider { width: 1px; height: 16px; background: var(--el-border-color); margin: 0 4px; }
 </style>
