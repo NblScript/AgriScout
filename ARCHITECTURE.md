@@ -49,6 +49,8 @@ core/            config(pydantic-settings) / db(Session) / deps(认证与角色�
 - 路由层依赖通过 `Depends()` 注入（get_db / get_analyzer / get_storage / get_session_factory），测试用 `dependency_overrides` 全量替换
 - 后台任务不能用请求会话：runner 经 `session_factory` 自建 Session（D2 配套纪律）
 - 分析写库合并 crop 名进 detail；建议生成失败不回滚分析结论（延迟 import 隔离）
+- 每个分析的点另写 `detail.image_quality`（`iq-rule-v1`，与分析器无关、不改 analyzer_version）；
+  车端 `rover/quality.py` 同公式各写一份，由两边同一组合成图测试锁成一致（计划 0016-A）
 
 ## 契约
 

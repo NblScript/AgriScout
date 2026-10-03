@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models import Analysis, CapturePoint, Patrol
 from app.services.analysis.base import Analyzer, CaptureContext
+from app.services.analysis.image_quality import METHOD as IQ_METHOD
+from app.services.analysis.image_quality import assess_image_quality
 from app.services.storage import Storage
 
 logger = logging.getLogger("agriscout.analysis")
@@ -90,6 +92,11 @@ def run_patrol_analysis(
                     patrol_id, point.seq, point.photo_url, exc_info=True,
                 )
                 continue
+            # 图像质量与分析器无关，每个分析的点都写（计划 0016 阶段 A6）
+            try:
+                image_quality = assess_image_quality(image)
+            except (OSError, Image.DecompressionBombError) as exc:
+                image_quality = {"method": IQ_METHOD, "ok": False, "reasons": [f"undecodable: {str(exc)[:120]}"]}
             # 重分析幂等：清掉旧结果再写新
             db.execute(delete(Analysis).where(Analysis.capture_point_id == point.id))
             db.add(
@@ -103,7 +110,7 @@ def run_patrol_analysis(
                     ndvi=result.ndvi,
                     disease_detections=result.disease_detections,
                     risk_score=result.risk_score,
-                    detail={**(result.detail or {}), "crop": crop_name},
+                    detail={**(result.detail or {}), "crop": crop_name, "image_quality": image_quality},
                 )
             )
             analyzed += 1

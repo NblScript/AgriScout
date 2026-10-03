@@ -1,0 +1,8 @@
+{
+  "_comment": "示例视角序列（计划 0016 阶段 A）：一张正面 + 两张叶背仰拍（补光）。角度与高度均为示例值，待试拍校准。",
+  "views": [
+    {"name": "front", "side": "upper", "pitch_deg": 0, "yaw_deg": 0, "height_m": 0.6, "fill_light": false},
+    {"name": "under-35", "side": "under", "pitch_deg": 35, "yaw_deg": 0, "height_m": 0.2, "fill_light": true},
+    {"name": "under-50", "side": "under", "pitch_deg": 50, "yaw_deg": 0, "height_m": 0.2, "fill_light": true}
+  ]
+}

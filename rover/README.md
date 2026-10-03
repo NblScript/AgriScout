@@ -40,12 +40,27 @@ export AGRISCOUT_USERNAME=rover AGRISCOUT_PASSWORD='<口令>'
 .venv/bin/python run.py --api http://10.104.160.64:8000 --flush-spool --spool-dir /var/lib/agriscout/spool
 ```
 
+## 停车补拍模式（计划 0016 阶段 A）
+
+`--mode stops`：每个停车点按视角序列（默认 `views.example.json`：一张正面 + 两张叶背仰拍补光）逐个拍，
+每张当场用 `iq-rule-v1` 判断清晰度、过曝、欠曝、逆光，不合格就补拍（叶背视角每次加 `--pitch-step` 度），
+每次尝试都记成一个点上传。照片拍一张落盘一张（`<spool-dir>/<巡检目录>/`），断电不丢；
+下次运行时中断的巡检自动组包排队，加 `--resume` 则从断点续拍。云台、补光、编码器驱动还没接，目前只能配合 `--fake` 使用。
+
+```bash
+# 假相机按脚本依次给出 normal/blurry/overexposed/dark/backlit，演示补拍
+.venv/bin/python run.py --api http://10.104.160.64:8000 --fake --mode stops --stops 5 --fake-script normal,blurry,blurry
+```
+
+阶段 A 上传的仍是 v1 包：株号、行内位置、视角和质量记录只留在本地 `points.jsonl`，阶段 B（协议 v2）才上传；
+平台另对每张照片按同一公式算一遍质量，写进分析结果的 `detail.image_quality`。
+
 ## 无硬件烟测
 
 安装 `requirements.txt` 后，可从仓库根目录运行最小闭环与失败路径检查：
 
 ```bash
-python -m unittest rover.test_run_smoke
+python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_store
 ```
 
 烟测使用本地 HTTP mock，不导入后端内部模块，也不需要摄像头；它覆盖 `--fake` 上传、巡检包时间顺序、非 JSON/网络错误，以及采集失败时的资源清理。
@@ -67,6 +82,11 @@ python -m unittest rover.test_run_smoke
 | `--upload-retries` | 2 | 网络或 5xx/429 等临时错误的额外重试次数 |
 | `--retry-delay` | 0.5 | 指数退避的基础等待秒数 |
 | `--flush-spool` | 关 | 只补传队列，不启动新的采集 |
+| `--mode` | `legacy` | `legacy` 沿直线等间隔拍一张；`stops` 停车按视角序列拍并补拍 |
+| `--views` / `--stops` / `--stop-spacing` | 示例文件 / 5 / 0.4 | stops 模式的视角序列、停车点数、假里程计间距（米） |
+| `--max-attempts` / `--pitch-step` | 3 / 5 | 每个视角最多拍几次；叶背补拍每次加的仰角（度） |
+| `--fake-script` | 空 | `--fake` 时假相机依次产出的图像类型，逗号分隔 |
+| `--resume` | 关 | stops 模式从上次中断处续拍 |
 | `--username` / `--password` | 环境变量 `AGRISCOUT_USERNAME` / `AGRISCOUT_PASSWORD` | 平台账号（操作员及以上）；首次访问受保护接口时自动登录，令牌过期自动重登 |
 | `--token` | 环境变量 `AGRISCOUT_TOKEN` | 已签发的访问令牌，与账号口令二选一 |
 
@@ -81,9 +101,10 @@ python -m unittest rover.test_run_smoke
 ## 代码结构与失败行为
 
 `run.py` 按职责拆分为 HTTP 客户端、照片采集源、本地队列、建档、点位采集和巡检包组装，
-因此可以用 `--fake` 在没有摄像头时验证链路，也可以单独替换 `CameraCapture` 接入其他相机。
+因此可以用 `--fake` 在没有摄像头时验证链路；相机、云台等实现在 `hardware.py`，可以单独替换 `CameraCapture` 接入其他相机。
 每次完整采集会先以临时文件加原子替换写入本地队列，再尝试上传；上传成功后删除队列文件，网络错误或服务端临时错误会保留原始巡检包，后续可用 `--flush-spool` 补传。
-重试不会重新拍照，也不会改变原始时间戳。参数越界、非 JSON 响应或任一点拍摄失败都会终止当前任务，不上传不完整巡检包；无论成功还是失败，HTTP 客户端和摄像头都会释放。
+重试不会重新拍照，也不会改变原始时间戳。legacy 模式下参数越界、非 JSON 响应或任一点拍摄失败都会终止当前任务，不上传不完整巡检包
+（stops 模式下单张拍摄失败只记一个无照片的点，继续拍）；无论成功还是失败，HTTP 客户端和摄像头都会释放。
 
 当前后端尚未提供稳定的 client package id。HTTP 409 只会保留在本地队列并提示待核对，不能直接当作幂等成功删除，以免不同巡检包发生时间冲突时丢数据。
 
