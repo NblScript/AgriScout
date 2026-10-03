@@ -9,7 +9,7 @@
 ```
 端（采集）  巡检小车 rover/：Pi 3B 采集编排 + 摄像头/二自由度云台 + 四驱底盘
             模拟器 simulator/：与小车同权的虚拟数据源
-              │  HTTP 巡检包协议 v1（合同：GET /api/v1/ingest/patrol-schema）
+              │  HTTP 巡检包协议 v1 / v2 最小子集（合同：GET /api/v1/ingest/patrol-schema）
               ▼
 边/云（本仓库）FastAPI backend ←→ SQLite（开发、场边轻量部署）/ PostgreSQL（扩展部署）
             Vue3 frontend：管理台、巡检回放、研究闭环、/screen 总览
@@ -54,8 +54,14 @@ core/            config(pydantic-settings) / db(Session) / deps(认证与角色�
 
 ## 契约
 
-- **巡检包协议 v1**：单一事实源 `app/schemas/patrol.py`，经 `GET /api/v1/ingest/patrol-schema` 导出；
-  变更须同步 simulator 与 rover（红线 4）。v2 目标字段（`observation_key`、`route_chainage_m`、`client_package_id` 等）见 docs/08 §9。
+- **巡检包协议 v1 / v2 最小子集**：单一事实源 `app/schemas/patrol.py`，经 `GET /api/v1/ingest/patrol-schema` 导出；
+  变更须同步 simulator 与 rover（红线 4）。v2 子集（计划 0014）：点级 `observation_key`（株号）、`route_chainage_m`、
+  `distance_source`、`position_source`、`view`（视角、补拍次数、质量），头部 `client_package_id`；出现任一 v2 字段而
+  `schema_version` 不是 "2.0" 时 422，v1 包行为不变。其余目标字段见 docs/08 §9。
+- **重传幂等**：带 `client_package_id` 时按（设备, 键）判重，内容哈希取规范 JSON 的 SHA-256：同键同内容 200 +
+  `duplicate=true` 且不再调度分析，同键异内容 409（detail 带原 `patrol_id`）；不带键仍按「地块 + 设备 + 开始时间」判重。
+- **株号关联**：点带株号就落到 `observation_units`（找不到自动建档，`created_from=ingest` 待核对），风险区域键用
+  `field-{id}/unit/{株号}`；没有株号回退 D11 网格。邻居只在同类坐标内算，纯网格数据的 risk-lr 输出与改动前逐位一致。
 - **Analyzer 协议**（`services/analysis/base.py`）：业务层只依赖它，替换实现零改业务。
   ```python
   class Analyzer(Protocol):

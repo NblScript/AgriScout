@@ -34,6 +34,9 @@ python run.py --scenario dry \
 
 建档全部幂等：设备按 code、地块/作物按名称复用；种植记录按 (田,作物,播种日) 复用。
 
+加 `--v2` 发协议 v2 最小子集（计划 0014）：行内点带株号 `R{垄}-P{株}`、`route_chainage_m` 和 `view`（正面），
+包头带 `client_package_id`（重发同一包，平台返回 200 + `duplicate`），平台按株号自动建档。不加时仍发 v1。
+
 ## 它验证了什么
 
 1. **协议契约**：上传严格走 `POST /api/v1/ingest/patrol`；
@@ -54,7 +57,8 @@ simulator/
 ├── scenarios.py   # 场景预设（问题注入策略）
 ├── epidemic.py    # 病害扩散元胞模型（潜伏期 + 天气 + 空间扩散）
 ├── season.py      # 多日期模拟季：上传、风险预测、模拟随访、导出真值
-└── test_epidemic.py  # 病害模型单测（仓库根目录 python -m unittest simulator.test_epidemic）
+├── test_epidemic.py  # 病害模型单测（仓库根目录 python -m unittest simulator.test_epidemic）
+└── test_geo_v2.py    # --v2 株号推导单测（仓库根目录 python -m unittest simulator.test_geo_v2）
 ```
 
 ## 多日期模拟季（执行计划 0008）

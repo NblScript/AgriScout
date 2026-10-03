@@ -31,6 +31,8 @@
 | sync_rules 不停用 YAML 已删规则 | 从 YAML 删掉的规则仍在表里保持 active，与「只停用不删行」纪律不一致 | 第一次从 YAML 删规则前 | sync 时把 YAML 中缺失的 rule_key 置 inactive 并报告 |
 | risk_prediction.py 命名卫生 | 自带与 ORM 同名的 `RiskPrediction` 数据类，另有多个复查窗口别名，注释为英文 | 顺手重构时 | 改名 `RiskEstimate`、删别名、注释改中文 |
 | 分析 runner 逐点提交 | SQLite 上一趟 600 多次 fsync，库变大后每趟约 40 s | 真车 2600 点规模前 | 批量提交或开 WAL（计划 0008 遗留） |
+| 坐标不可为空 | 巡检包每个点必须带 lng/lat，棚内没有 GNSS 时只能填按步长推出的直线，地图轨迹和网格关联都不可信（按株号关联不受影响） | 地图展示棚内巡检前、或接入不带坐标的采集端时 | 计划 0014 范围外；协议、`capture_points` 非空约束与前端地图要一起改（docs/08 §9.3） |
+| rover 重传遇 409 卡队列 | `upload_with_retry` 收到 409 不删本地队列，只能人工处理 | 断网补传、重复上传时 | 平台侧已在 0014 解决（`client_package_id` 幂等，同包返回 200 + `duplicate`），等 0016-B rover 接入 |
 
 ## 已清
 
