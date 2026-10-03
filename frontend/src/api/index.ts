@@ -13,7 +13,9 @@ import type {
   Device,
   DeviceEvent,
   DeviceHeartbeat,
+  FacilityType,
   Field,
+  ObservationUnit,
   Page,
   Patrol,
   PatrolDetail,
@@ -26,6 +28,9 @@ import type {
   ModelEvaluation,
   StatsOverview,
   LoginResult,
+  UnitSource,
+  UnitStatus,
+  UnitTimeline,
   User,
   UserRole,
 } from '../types'
@@ -36,6 +41,7 @@ export interface FieldCreatePayload {
   area_ha?: number | null
   soil_type?: string | null
   notes?: string | null
+  facility_type?: FacilityType | null
 }
 export type FieldUpdatePayload = Partial<FieldCreatePayload>
 
@@ -78,6 +84,33 @@ export const fieldsApi = {
   update: (id: number, payload: FieldUpdatePayload) =>
     request<Field>(`/fields/${id}`, { method: 'PATCH', body: payload }),
   remove: (id: number) => request<void>(`/fields/${id}`, { method: 'DELETE' }),
+}
+
+export interface UnitBulkRow {
+  row_no: number
+  plants: number
+  spacing_m: number
+  start_chainage_m?: number
+}
+export const observationUnitsApi = {
+  list: (fieldId: number, params: { row_no?: number; status?: UnitStatus; created_from?: UnitSource } = {}) => {
+    const qs = new URLSearchParams()
+    if (params.row_no != null) qs.set('row_no', String(params.row_no))
+    if (params.status) qs.set('status', params.status)
+    if (params.created_from) qs.set('created_from', params.created_from)
+    const q = qs.toString()
+    return request<ObservationUnit[]>(`/fields/${fieldId}/observation-units${q ? `?${q}` : ''}`)
+  },
+  create: (fieldId: number, payload: { key: string; chainage_m?: number | null; tag_code?: string | null; note?: string | null }) =>
+    request<ObservationUnit>(`/fields/${fieldId}/observation-units`, { method: 'POST', body: payload }),
+  bulk: (fieldId: number, rows: UnitBulkRow[]) =>
+    request<{ created: number; skipped: number }>(`/fields/${fieldId}/observation-units/bulk`, {
+      method: 'POST',
+      body: { rows },
+    }),
+  update: (id: number, payload: { tag_code?: string | null; status?: UnitStatus; note?: string | null }) =>
+    request<ObservationUnit>(`/observation-units/${id}`, { method: 'PATCH', body: payload }),
+  timeline: (id: number, days = 30) => request<UnitTimeline>(`/observation-units/${id}/timeline?days=${days}`),
 }
 
 export const cropsApi = {

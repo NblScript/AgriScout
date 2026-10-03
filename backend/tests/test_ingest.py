@@ -185,7 +185,8 @@ def test_patrol_schema_exported(client):
     assert resp.status_code == 200
     schema = resp.json()
     assert schema["title"] == "PatrolPackageIn"
-    assert set(schema["properties"]) == {"patrol", "capture_points"}
+    # 计划 0014：包级多了 schema_version（v2 最小子集），其余不变
+    assert set(schema["properties"]) == {"schema_version", "patrol", "capture_points"}
     point_def = schema["$defs"]["CapturePointPayload"]
     assert "photo" in point_def["properties"]
     header_def = schema["$defs"]["PatrolHeaderPayload"]

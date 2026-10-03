@@ -8,6 +8,7 @@
     python run.py --scenario dry            # 干旱场景
     python run.py --scenario patchy_disease # 中段聚集病害斑块
     python run.py --scenario healthy        # 健康对照
+    python run.py --scenario dry --v2       # 发巡检包 v2：每个垄上点带株号、行内位置和视角
 依赖：httpx, pillow（见 requirements.txt；可复用 backend/.venv 运行环境）
 """
 from __future__ import annotations
@@ -20,7 +21,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from client import ApiClient, ApiError, add_auth_args
-from geo import Layout, area_ha, boundary_geojson, s_path, to_lng_lat
+from geo import Layout, area_ha, boundary_geojson, plant_key, s_path, to_lng_lat
 from photo import make_photo_bytes
 from scenarios import Scenario
 from weather import weather_at
@@ -38,7 +39,7 @@ WHEAT_STAGES = [
 ]
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="AgriScout 虚拟巡田模拟器")
     p.add_argument("--api", default="http://localhost:8000")
     p.add_argument("--scenario", default="healthy",
@@ -55,8 +56,13 @@ def parse_args() -> argparse.Namespace:
                    help="播种于几天前（50 天前 → 当前处于拔节期）")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--timeout", type=float, default=90.0, help="等待分析完成的秒数")
+    p.add_argument("--v2", action="store_true",
+                   help="发巡检包 v2（计划 0014）：垄上点带株号、行内位置、视角，包带 client_package_id")
     add_auth_args(p)
-    return p.parse_args()
+    args = p.parse_args(argv)
+    if args.v2 and (args.rows > 99 or round(args.row_length / args.step) + 1 > 999):
+        p.error("--v2 的株号格式 R{两位}-P{三位}：垄数 ≤99，每垄采样点 ≤999")
+    return args
 
 
 def build_package(args, scenario: Scenario, rng: random.Random) -> tuple[dict, dict]:
@@ -84,7 +90,7 @@ def build_package(args, scenario: Scenario, rng: random.Random) -> tuple[dict, d
             photo_b64 = base64.b64encode(
                 make_photo_bytes(mode, intensity, rng)
             ).decode()
-        capture_points.append({
+        point = {
             "seq": idx,
             "distance_m": round(dist, 2),
             "lng": round(lng, 6),
@@ -92,9 +98,15 @@ def build_package(args, scenario: Scenario, rng: random.Random) -> tuple[dict, d
             "captured_at": captured.isoformat(),
             "photo": photo_b64,
             "weather": w,
-        })
+        }
+        plant = plant_key(x, y, layout) if args.v2 else None
+        if plant is not None:
+            point["observation_key"], point["route_chainage_m"] = plant
+            point["view"] = {"side": "upper"}
+        capture_points.append(point)
 
     package = {
+        "schema_version": "2.0" if args.v2 else "1.0",
         "patrol": {
             "field_id": 0,  # 由调用方回填
             "device": args.device,
@@ -105,6 +117,8 @@ def build_package(args, scenario: Scenario, rng: random.Random) -> tuple[dict, d
         },
         "capture_points": capture_points,
     }
+    if args.v2:
+        package["patrol"]["client_package_id"] = f"{args.device}-{start_dt:%Y%m%dT%H%M%S}"
     meta = {
         "layout": layout, "total_points": total,
         "sowing_date": (start_dt - timedelta(days=args.sowing_days_ago)).date().isoformat(),

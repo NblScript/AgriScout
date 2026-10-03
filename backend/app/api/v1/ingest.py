@@ -1,12 +1,12 @@
 """数据接入端点：采集端（小车/模拟器）唯一入口。"""
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db, get_session_factory
 from app.schemas.patrol import IngestResultOut, PatrolPackageIn
 from app.services.analysis import Analyzer, get_analyzer
 from app.services.analysis.runner import run_patrol_analysis
-from app.services.ingest import DuplicateError, ReferenceNotFound, ingest_patrol_package
+from app.services.ingest import DuplicateError, PackageConflict, ReferenceNotFound, ingest_patrol_package
 from app.services.storage import Storage, get_storage
 
 import logging
@@ -26,14 +26,24 @@ def patrol_package_schema():
 def ingest_patrol(
     package: PatrolPackageIn,
     background_tasks: BackgroundTasks,
+    response: Response,
     db: Session = Depends(get_db),
     storage: Storage = Depends(get_storage),
     analyzer: Analyzer = Depends(get_analyzer),
     session_factory=Depends(get_session_factory),
 ):
-    """上传巡检包：单事务落库秒级返回；逐点分析由后台任务异步执行（M3）。"""
+    """上传巡检包：单事务落库秒级返回；逐点分析由后台任务异步执行（M3）。
+
+    带 ``client_package_id`` 的重传：内容一致返回 200 + ``duplicate=true``（不重复分析），
+    内容不同返回 409（计划 0014）。
+    """
     try:
         result = ingest_patrol_package(db, package, storage)
+    except PackageConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"包号冲突：同设备同 client_package_id 的巡检包已存在且内容不同（patrol_id={exc.existing_id}）",
+        ) from exc
     except DuplicateError as exc:
         raise HTTPException(
             status_code=409,
@@ -43,6 +53,9 @@ def ingest_patrol(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if result.duplicate:
+        response.status_code = 200
+        return result
 
     # 落库成功后调度分析；TestClient 下任务随请求周期同步跑完，便于断言
     background_tasks.add_task(

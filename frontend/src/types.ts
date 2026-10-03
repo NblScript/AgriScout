@@ -17,9 +17,13 @@ export interface Field {
   area_ha: number | null
   soil_type: string | null
   notes: string | null
+  facility_type: FacilityType | null
   created_at: string
   updated_at: string
 }
+
+/** 设施类型（计划 0014）；空视为大田 */
+export type FacilityType = 'open_field' | 'solar_greenhouse' | 'plastic_tunnel'
 
 export interface Crop {
   id: number
@@ -139,6 +143,104 @@ export interface CapturePointFull {
   photo_url: string | null
   weather: WeatherSample | null
   analysis: PointAnalysis | null
+  // 协议 v2 最小子集（计划 0014）；v1 包为空
+  observation_key: string | null
+  observation_unit_id: number | null
+  route_chainage_m: number | null
+  distance_source: string | null
+  position_source: string | null
+  view: ViewMeta | null
+}
+
+/** 视角元数据（协议字段 view，计划 0013「共同约定」） */
+export interface ViewMeta {
+  side: 'upper' | 'under' | 'unknown'
+  pitch_deg: number | null
+  yaw_deg: number | null
+  height_m: number | null
+  fill_light: boolean | null
+  attempt: number
+  accepted: boolean | null
+  quality: ImageQuality | null
+}
+
+/** 图像质量 iq-rule-v1（车端 view.quality 与平台 analysis.detail.image_quality 同结构） */
+export interface ImageQuality {
+  method: string
+  ok: boolean
+  reasons: string[]
+  sharpness?: number | null
+  mean_luma?: number | null
+  clip_high?: number | null
+  clip_low?: number | null
+  backlit?: boolean | null
+}
+
+/* ---------- 株档案与单株时间线（计划 0014） ---------- */
+
+export type UnitStatus = 'active' | 'retired'
+export type UnitSource = 'manual' | 'bulk' | 'ingest'
+
+export interface ObservationUnit {
+  id: number
+  field_id: number
+  key: string
+  row_no: number | null
+  position_no: number | null
+  chainage_m: number | null
+  tag_code: string | null
+  status: UnitStatus
+  created_from: UnitSource
+  note: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface TimelinePhoto {
+  capture_point_id: number
+  patrol_id: number
+  captured_at: string
+  photo_url: string | null
+  view: ViewMeta | null
+  analysis: {
+    risk_score: number | null
+    disease_detections: Record<string, unknown>[] | null
+    analyzer_version: string
+    image_quality: ImageQuality | null
+  } | null
+}
+
+export interface TimelineAnnotation {
+  id: number
+  capture_point_id: number
+  label: string
+  annotator_name: string
+  note: string | null
+  updated_at: string
+}
+
+export interface TimelinePrediction {
+  id: number
+  capture_point_id: number | null
+  target_event: string
+  model_version: string
+  probability: number
+  level: string
+  trend: string
+  status: string
+  follow_up_status: string | null
+}
+
+export interface TimelineDay {
+  field_date: string
+  photos: TimelinePhoto[]
+  annotations: TimelineAnnotation[]
+  predictions: TimelinePrediction[]
+}
+
+export interface UnitTimeline {
+  unit: ObservationUnit
+  days: TimelineDay[]
 }
 
 export interface Patrol {
@@ -158,6 +260,8 @@ export interface PatrolDetail extends Patrol {
   track: { type: string; coordinates: number[][] } | null
   point_count: number
   notes: string | null
+  schema_version: string
+  client_package_id: string | null
 }
 
 export interface RuleSnapshot {

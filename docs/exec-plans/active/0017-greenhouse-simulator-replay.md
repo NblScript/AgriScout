@@ -2,7 +2,7 @@
 
 ## 状态
 2026-10-03 建档，未开工。总览和共同约定见 [计划 0013](0013-greenhouse-active-acquisition.md)，开工前先读。
-批次：第三批。依赖 [0014](0014-plant-identity-protocol-v2.md) 和 [0015](0015-env-risk-patrol-planner.md) 合并；
+批次：第三批。依赖 0014（已完成）和 [0015](0015-env-risk-patrol-planner.md) 合并；
 0016-B 若已合并，包格式以 rover 的实际产出为准对照。不涉及迁移，里程碑 M17。
 
 ## 背景

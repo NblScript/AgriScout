@@ -13,6 +13,7 @@ from app.api.v1 import (
     fields,
     health,
     ingest,
+    observation_units,
     patrols,
     plantings,
     reports,
@@ -31,6 +32,7 @@ api_router.include_router(users.router)
 # Protocol paths such as /devices/register must precede /devices/{device_id}.
 api_router.include_router(device_protocol.router)
 api_router.include_router(fields.router)
+api_router.include_router(observation_units.router)
 api_router.include_router(crops.router)
 api_router.include_router(devices.router)
 api_router.include_router(plantings.router)

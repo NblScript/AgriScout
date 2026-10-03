@@ -3,9 +3,17 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
 import { fieldsApi } from '../api'
 import { errMsg } from '../api/http'
-import type { Field } from '../types'
+import type { FacilityType, Field } from '../types'
+
+const router = useRouter()
+const FACILITY_LABELS: Record<FacilityType, string> = {
+  open_field: '大田',
+  solar_greenhouse: '日光温室',
+  plastic_tunnel: '塑料大棚',
+}
 
 const list = ref<Field[]>([])
 const loading = ref(false)
@@ -151,9 +159,13 @@ function vertices(row: Field): number {
     <el-table-column label="土壤" width="100">
       <template #default="{ row }">{{ row.soil_type ?? '—' }}</template>
     </el-table-column>
+    <el-table-column label="设施" width="100">
+      <template #default="{ row }">{{ row.facility_type ? FACILITY_LABELS[row.facility_type as FacilityType] : '大田' }}</template>
+    </el-table-column>
     <el-table-column prop="notes" label="备注" min-width="140" show-overflow-tooltip />
-    <el-table-column label="操作" width="150" fixed="right">
+    <el-table-column label="操作" width="230" fixed="right">
       <template #default="{ row }">
+        <el-button size="small" type="primary" plain @click="router.push({ name: 'field-units', params: { id: row.id } })">株档案</el-button>
         <el-button size="small" @click="openEdit(row)">编辑</el-button>
         <el-button size="small" type="danger" plain @click="removeRow(row)">删除</el-button>
       </template>
