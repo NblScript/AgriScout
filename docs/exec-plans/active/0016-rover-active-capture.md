@@ -4,7 +4,7 @@
 2026-10-03 建档；同日阶段 A 完成（M16 阶段 A，分支 `claude/project-thread-i8yjbh`），B、C 未开工。总览和共同约定见 [计划 0013](0013-greenhouse-active-acquisition.md)，开工前先读。
 本计划分三个阶段，每个阶段单独一个 PR，里程碑都记作 M16（主题里注明阶段）；不涉及迁移。
 - 阶段 A：第一批，没有依赖，可与 0014 并行。
-- 阶段 B：依赖 [0014](0014-plant-identity-protocol-v2.md) 合并。
+- 阶段 B：依赖 0014 合并（已完成）。
 - 阶段 C：依赖 [0015](0015-env-risk-patrol-planner.md) 合并。
 
 ## 背景
