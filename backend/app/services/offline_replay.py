@@ -19,7 +19,13 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.services.active_learning import ActiveLearningCandidate, SelectionConstraints, rank_candidates
+from app.services.active_learning import (
+    ActiveLearningCandidate,
+    SelectionConstraints,
+    rank_candidates,
+    revisit_candidate,
+    select_revisits,
+)
 from app.services.evaluation_metrics import average_precision, brier_score, recall_at_fp_budget
 from app.services.logistic import LogisticModel, fit_logistic
 from app.services.risk_features import DEFAULT_LOOKBACK_DAYS, IMAGE_FEATURES, image_features, neighbor_map
@@ -283,19 +289,17 @@ def h2_revisit_replay(
         return chosen
 
     def joint(cands: list[str], day: int, state: dict) -> list[str]:
+        # 候选构造与选择和线上 /revisit-tasks/generate 是同一实现（计划 0015）
         last_visit = state.setdefault("last_visit", {})
         candidates = []
         for r in cands:
-            p = p_of(r, day, risk)
             f = features.get((r, day), {})
-            stale = 1.0 if r not in last_visit else _clamp((day - last_visit[r]) / (3 * interval))
-            candidates.append(ActiveLearningCandidate(
-                candidate_id=r, quality=1.0, uncertainty=1 - abs(2 * p - 1), risk=p,
-                change=_clamp(2 * max(f.get("img_delta", 0.0), f.get("nbr_delta", 0.0))),
-                representativeness=stale, cost=1.0,
+            candidates.append(revisit_candidate(
+                r, probability=p_of(r, day, risk), image_delta=f.get("img_delta", 0.0),
+                neighbor_delta=f.get("nbr_delta", 0.0), day=day, last_visit_day=last_visit.get(r),
+                interval_days=interval,
             ))
-        ranked = rank_candidates(candidates, SelectionConstraints(allowed_task_types=frozenset({"revisit"})))
-        return [row.candidate_id for row in ranked[:budget]]
+        return [row.candidate_id for row in select_revisits(candidates, budget)]
 
     def simulate(choose: Callable) -> dict[str, Any]:
         state: dict[str, Any] = {}

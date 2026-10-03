@@ -13,12 +13,15 @@ import type {
   Device,
   DeviceEvent,
   DeviceHeartbeat,
+  EnvSummary,
   FacilityType,
   Field,
   ObservationUnit,
   Page,
   Patrol,
   PatrolDetail,
+  PatrolPlan,
+  PlantState,
   Planting,
   PatrolReport,
   RuleRevision,
@@ -111,6 +114,21 @@ export const observationUnitsApi = {
   update: (id: number, payload: { tag_code?: string | null; status?: UnitStatus; note?: string | null }) =>
     request<ObservationUnit>(`/observation-units/${id}`, { method: 'PATCH', body: payload }),
   timeline: (id: number, days = 30) => request<UnitTimeline>(`/observation-units/${id}/timeline?days=${days}`),
+}
+
+export const greenhouseApi = {
+  env: (fieldId: number, params: { since?: string; until?: string; sensor_key?: string } = {}) => {
+    const qs = new URLSearchParams()
+    if (params.since) qs.set('since', params.since)
+    if (params.until) qs.set('until', params.until)
+    if (params.sensor_key) qs.set('sensor_key', params.sensor_key)
+    const q = qs.toString()
+    return request<EnvSummary>(`/fields/${fieldId}/env${q ? `?${q}` : ''}`)
+  },
+  plantStates: (fieldId: number) => request<PlantState[]>(`/fields/${fieldId}/plant-states`),
+  generatePlan: (fieldId: number, payload: { plan_date?: string; created_by: string; overrides?: Record<string, number> }) =>
+    request<PatrolPlan>(`/fields/${fieldId}/patrol-plans`, { method: 'POST', body: payload }),
+  latestPlan: (fieldId: number) => request<PatrolPlan>(`/fields/${fieldId}/patrol-plans/latest`),
 }
 
 export const cropsApi = {

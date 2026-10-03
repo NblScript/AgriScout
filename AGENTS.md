@@ -34,7 +34,8 @@ python -m unittest simulator.test_epidemic simulator.test_geo_v2  # 仓库根目
 # 真车采集端（树莓派 + USB 摄像头；--fake 无摄像头测链路）
 cd rover && .venv/bin/python run.py --api http://<后端IP>:8000 --fake
 cd rover && .venv/bin/python run.py --api http://<后端IP>:8000 --fake --mode stops --fake-script normal,blurry  # 停车补拍模式（0016-A）
-python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_store  # 仓库根目录运行，无硬件
+cd rover && .venv/bin/python env_upload.py --api http://<后端IP>:8000 --field-id 3 --csv th-01.csv --sensor-key th-01  # 温湿度记录仪 CSV（0015）
+python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_store rover.test_env_upload  # 仓库根目录运行，无硬件
 
 # ML 训练（独立环境）
 cd ml && .venv/bin/python data/prepare_gwd.py && .venv/bin/python train.py
@@ -51,18 +52,18 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 | 路径 | 职责 |
 |---|---|
 | `backend/app/models/` | 24 张表，每实体一文件；`timestamps.py` 公共 mixin；`__init__.py` 为注册中心 |
-| `backend/app/api/v1/` | 路由层：CRUD + ingest + 分析 + 建议 + 标注 + stats + 报告 + Agent + 规则修订 + `device_protocol`（注册/心跳/事件/故障注入）+ `software_loop`（风险/复巡/随访/数据集/模型评估）+ `auth`/`users`（登录与用户管理，D15）+ `observation_units`（株档案/批量建档/单株时间线，计划 0014） |
+| `backend/app/api/v1/` | 路由层：CRUD + ingest + 分析 + 建议 + 标注 + stats + 报告 + Agent + 规则修订 + `device_protocol`（注册/心跳/事件/故障注入）+ `software_loop`（风险/复巡/随访/数据集/模型评估）+ `auth`/`users`（登录与用户管理，D15）+ `observation_units`（株档案/批量建档/单株时间线，计划 0014）+ `greenhouse`（棚内环境上报与查询、每株状态、巡检计划，计划 0015） |
 | `backend/app/services/analysis/` | Analyzer 协议（base.py）+ 占位颜色版 + YOLO 版（麦穗，可选）+ disease_classifier（条锈病图块分类，可选）+ image_quality（iq-rule-v1，每点写 detail）+ 后台 runner |
-| `backend/app/services/` | advice(规则引擎) / agent_chat+agent_tools(L2 诊断) / agent_rule_draft+rule_feedback+shadow_run+rule_revision(L1 起草生效) / llm_report(报告) / ingest+observation_units(重传幂等、株号解析与自动建档) / storage / risk_prediction+risk_inputs+region_association+active_learning+evidence_feedback+dataset_governance(M7 研究闭环，纯函数优先) / evaluation_metrics+offline_replay(随访指标与 H1–H3 离线重放) / logistic+risk_features+risk_model(risk-lr 可训练风险模型，D12) |
+| `backend/app/services/` | advice(规则引擎) / agent_chat+agent_tools(L2 诊断) / agent_rule_draft+rule_feedback+shadow_run+rule_revision(L1 起草生效) / llm_report(报告) / ingest+observation_units(重传幂等、株号解析与自动建档) / storage / risk_prediction+risk_inputs+region_association+active_learning+evidence_feedback+dataset_governance(M7 研究闭环，纯函数优先) / evaluation_metrics+offline_replay(随访指标与 H1–H3 离线重放) / logistic+risk_features+risk_model(risk-lr 可训练风险模型，D12) / revisit_planning(线上复巡生成，与离线共用联合策略，D17) / greenhouse_env+plant_state+patrol_planner+greenhouse_plans(大棚环境指标、每株状态、planner-v0 与计划落库，D18) |
 | `backend/app/tools/` | `sync_rules`（YAML 同步）、`gen_db_schema`（表结构快照）、`replay_eval`（离线重放报告）、`train_risk_lr`（训练导出风险模型）、`al_replay_images`（H3 真实图像数据选样对比）、`create_user`（建号/重置口令） |
 | `backend/rules/wheat.yaml` | 规则种子库 18 条（单一事实源，经 sync_rules 同步入表） |
 | `backend/app/schemas/` | DTO + 巡检包协议 v1 + 设备协议（对采集端的合同） |
-| `backend/migrations/versions/` | 手写 Alembic 迁移，`00NN_主题` 命名（当前 0015） |
-| `frontend/src/views/` | 七个管理页（系统状态/地块/作物/种植/设备/规则修订审批/研究闭环）+ PatrolsView/PatrolDetailView（回放/复核/问一问/报告）+ BigScreenView（/screen 总览）+ LoginView/UsersView（登录、用户管理）+ UnitsView/UnitTimelineView（株档案、单株时间线） |
+| `backend/migrations/versions/` | 手写 Alembic 迁移，`00NN_主题` 命名（当前 0016） |
+| `frontend/src/views/` | 七个管理页（系统状态/地块/作物/种植/设备/规则修订审批/研究闭环）+ PatrolsView/PatrolDetailView（回放/复核/问一问/报告）+ BigScreenView（/screen 总览）+ LoginView/UsersView（登录、用户管理）+ UnitsView/UnitTimelineView（株档案、单株时间线与确认状态）+ PlanView（巡检计划） |
 | `frontend/src/components/` | MapCanvas（Leaflet 封装，theme=light/dark）、EChart、ScreenPanel |
 | `frontend/src/api/index.ts` · `types.ts` | 每资源一个 api 对象；类型单一事实源，对齐 backend schemas |
 | `simulator/` | 独立虚拟巡田，只走 HTTP（禁止 import 后端内部）；`season.py` 多日期病害扩散模拟季 |
-| `rover/` | 真车采集端：`run.py` 编排上传与 spool 断网续传；`hardware`（硬件接口+假实现）/`quality`（iq-rule-v1）/`acquire`（视角补拍）/`point_store`（逐点落盘）；只走 HTTP |
+| `rover/` | 真车采集端：`run.py` 编排上传与 spool 断网续传；`hardware`（硬件接口+假实现）/`quality`（iq-rule-v1）/`acquire`（视角补拍）/`point_store`（逐点落盘）/`env_upload`（温湿度 CSV 上传）；只走 HTTP |
 | `ml/` | YOLO 训练环境（与后端运行时分离）：麦穗检测（GWD）、条锈病图块分类（NWRD，D14） |
 | `tools/` | download_tiles.py 离线瓦片下载（高德源） |
 
@@ -98,7 +99,8 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 | 改数据库 / 看表结构 | `docs/generated/db-schema.md`（生成物，勿手改） |
 | 动 Analyzer 或接入新识别模型 | `ARCHITECTURE.md`「契约」「能力分级」、`services/analysis/base.py`、决策 D14 |
 | 动规则/建议逻辑 | `backend/rules/wheat.yaml` 文件头（格式）、`services/advice.py`、注册表「规则引擎生命周期」 |
-| 动风险预测/复巡/数据集闸门 | 决策 D10–D13、`api/v1/software_loop.py`、`services/offline_replay.py` |
+| 动风险预测/复巡/数据集闸门 | 决策 D10–D13、D17，`api/v1/software_loop.py`、`services/revisit_planning.py`、`services/offline_replay.py` |
+| 动大棚环境 / 每株状态 / 巡检计划 | 决策 D18、`services/patrol_planner.py`、`services/greenhouse_plans.py` |
 | 查某个编号决策（D/B/T/L） | `docs/design-docs/decision-registry.md` |
 | 动认证 / 角色 / 公开接口 | 决策 D15、`core/deps.py`、`core/security.py`、`tests/test_auth.py` |
 | 理解整体架构 | `ARCHITECTURE.md`（本仓库） |

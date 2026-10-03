@@ -10,6 +10,7 @@ from app.models.device import Device
 from app.models.device_event import DeviceEvent
 from app.models.device_heartbeat import DeviceHeartbeat
 from app.models.dataset_version import DatasetVersion
+from app.models.env_reading import EnvReading
 from app.models.field import Field
 from app.models.follow_up import FollowUp
 from app.models.model_evaluation import ModelEvaluation
@@ -36,6 +37,7 @@ __all__ = [
     "DeviceEvent",
     "DeviceHeartbeat",
     "DatasetVersion",
+    "EnvReading",
     "Field",
     "FollowUp",
     "ModelEvaluation",

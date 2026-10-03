@@ -6,8 +6,12 @@ from pydantic import BaseModel, ConfigDict, Field as PField, model_validator
 
 from app.schemas.common import reject_explicit_nulls
 
-# 复核标签：与规则引擎的胁迫类别对齐，后续可扩展
-AnnotationLabel = Literal["normal", "dry_stress", "suspected_disease", "other"]
+# 复核标签：normal / dry_stress / suspected_disease 与小麦规则引擎的胁迫类别对齐；
+# downy_mildew_early / downy_mildew_symptomatic 是黄瓜霜霉病「早期 / 明显」确认（计划 0015，口径见 0013），
+# 只进每株状态，不参与小麦规则的漏报统计（rule_feedback.STRESS_LABELS 不含它们）
+AnnotationLabel = Literal[
+    "normal", "dry_stress", "suspected_disease", "other", "downy_mildew_early", "downy_mildew_symptomatic",
+]
 
 
 class AnnotationCreate(BaseModel):

@@ -416,6 +416,42 @@ def select_active_learning_tasks(
     return select_tasks(candidates, constraints)
 
 
+def revisit_candidate(
+    candidate_id: str,
+    *,
+    probability: float,
+    image_delta: float,
+    neighbor_delta: float,
+    day: float,
+    last_visit_day: float | None,
+    interval_days: float,
+    quality: float = 1.0,
+    cost: float = 1.0,
+) -> ActiveLearningCandidate:
+    """联合复巡策略的候选构造：离线重放 H2 的 ``joint`` 与线上 ``/revisit-tasks/generate`` 共用（计划 0015）。
+
+    - 不确定性 = 1 − |2p − 1|（p 接近 0.5 时最不确定）；风险 = p；
+    - 变化 = 本区域与邻域图像风险增量的较大者 × 2（截断到 0–1）；
+    - 代表性 = 距上次复查的陈旧程度：从没复查过记 1，否则按 3 个巡检间隔归一。
+    """
+    stale = 1.0 if last_visit_day is None else _clamp((day - last_visit_day) / (3 * interval_days))
+    return ActiveLearningCandidate(
+        candidate_id=candidate_id, quality=quality, uncertainty=1 - abs(2 * probability - 1), risk=probability,
+        change=_clamp(2 * max(image_delta, neighbor_delta)),
+        representativeness=stale, cost=cost,
+    )
+
+
+def select_revisits(candidates: Iterable[ActiveLearningCandidate], budget: int) -> list[RankedCandidate]:
+    """联合复巡策略的选择：只按 revisit 打分排序，取前 budget 个（离线重放与线上共用）。"""
+    ranked = rank_candidates(candidates, SelectionConstraints(allowed_task_types=frozenset({"revisit"})))
+    return ranked[:budget]
+
+
+def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
+    return max(low, min(high, value))
+
+
 __all__ = [
     "TASK_TYPES",
     "TaskType",
@@ -430,4 +466,6 @@ __all__ = [
     "select_tasks",
     "rank_active_learning_candidates",
     "select_active_learning_tasks",
+    "revisit_candidate",
+    "select_revisits",
 ]

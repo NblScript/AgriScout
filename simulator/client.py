@@ -123,6 +123,22 @@ class ApiClient:
     def post_follow_up(self, prediction_id: int, body: dict[str, Any]) -> dict:
         return self.post(f"/api/v1/risk-predictions/{prediction_id}/follow-up", body, expect=(200,))
 
+    def post_env_readings(
+        self, field_id: int, sensor_key: str, readings: list[dict[str, Any]], *,
+        source: str = "sensor", device: str | None = None, batch_size: int = 5000,
+    ) -> dict[str, int]:
+        """上报棚内温湿度读数（计划 0015，供 0017 大棚模拟场景用）；按平台上限分批，返回新增/跳过合计。"""
+        total = {"inserted": 0, "skipped": 0}
+        for start in range(0, len(readings), batch_size):
+            body: dict[str, Any] = {"sensor_key": sensor_key, "source": source,
+                                    "readings": readings[start:start + batch_size]}
+            if device:
+                body["device"] = device
+            result = self.post(f"/api/v1/fields/{field_id}/env-readings", body, expect=(200,))
+            total["inserted"] += result["inserted"]
+            total["skipped"] += result["skipped"]
+        return total
+
     def risk_metrics(self, params: dict[str, Any]) -> dict:
         resp = self._client.get("/api/v1/risk-predictions/metrics", params=params)
         if resp.status_code != 200:

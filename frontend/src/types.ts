@@ -304,7 +304,13 @@ export interface AnalysisSummary {
 }
 
 /* ================= M6+ 标注回流：人工复核 ================= */
-export type AnnotationLabel = 'normal' | 'dry_stress' | 'suspected_disease' | 'other'
+export type AnnotationLabel =
+  | 'normal'
+  | 'dry_stress'
+  | 'suspected_disease'
+  | 'other'
+  | 'downy_mildew_early'
+  | 'downy_mildew_symptomatic'
 
 export interface Annotation {
   id: number
@@ -330,6 +336,8 @@ export const ANNOTATION_LABELS: Record<AnnotationLabel, string> = {
   dry_stress: '干旱胁迫',
   suspected_disease: '疑似病害',
   other: '其他',
+  downy_mildew_early: '霜霉病早期',
+  downy_mildew_symptomatic: '霜霉病明显',
 }
 
 export const ANNOTATION_TAG_TYPES: Record<AnnotationLabel, string> = {
@@ -337,6 +345,8 @@ export const ANNOTATION_TAG_TYPES: Record<AnnotationLabel, string> = {
   dry_stress: 'warning',
   suspected_disease: 'danger',
   other: 'info',
+  downy_mildew_early: 'warning',
+  downy_mildew_symptomatic: 'danger',
 }
 
 /** 长势等级 → 展示色（1 差 → 5 旺） */
@@ -465,7 +475,8 @@ export interface RevisitTask {
   capture_point_id: number | null
   device_id: number | null
   risk_prediction_id: number | null
-  task_type: 'revisit' | 'label' | 'random'
+  observation_unit_id: number | null
+  task_type: 'revisit' | 'label' | 'random' | 'coverage'
   status: string
   priority: number
   value_score: number
@@ -566,4 +577,125 @@ export interface DeviceEvent {
   note: string | null
   created_at: string
   updated_at: string
+}
+
+/* ================= 计划 0015：棚内环境、每株状态、巡检计划 ================= */
+export interface EnvHour {
+  hour: string
+  count: number
+  missing: boolean
+  temp_c: number | null
+  humidity_pct: number | null
+  dewpoint_depression_min: number | null
+  leaf_wetness_max: number | null
+  favorable: boolean
+  wet: boolean
+}
+
+export interface EnvDay {
+  field_date: string
+  favorable_hours: number
+  wet_hours: number
+  night_wet_hours: number
+  night_coverage: number
+  diurnal_range: number | null
+  coverage: number
+}
+
+export interface EnvIndex {
+  method: string
+  /** null = 覆盖率不足，按无环境信息处理（不是低风险） */
+  env_index: number | null
+  as_of: string
+  window_hours: number
+  favorable_hours: number
+  wet_hours: number
+  coverage: number
+  reason: string | null
+}
+
+export interface MorningWindow {
+  date: string
+  start: string
+  end: string
+  night_of: string
+  night_wet_hours: number
+  reason: string
+}
+
+export interface EnvSummary {
+  field_id: number
+  since: string
+  until: string
+  sensors: string[]
+  hourly: EnvHour[]
+  daily: EnvDay[]
+  index: EnvIndex
+  morning_window: MorningWindow | null
+  params: Record<string, unknown>
+}
+
+export type PlantStateValue = 'healthy' | 'early' | 'symptomatic' | 'unknown'
+export const PLANT_STATE_LABELS: Record<PlantStateValue, string> = {
+  healthy: '健康',
+  early: '早期',
+  symptomatic: '明显',
+  unknown: '不明',
+}
+
+export interface PlantState {
+  unit_id: number
+  key: string
+  row_no: number | null
+  position_no: number | null
+  state: PlantStateValue
+  source: 'human' | 'model' | 'none'
+  confidence: number
+  model_score: number | null
+  last_seen_at: string | null
+  last_under_ok_at: string | null
+  last_under_accepted: boolean | null
+  reviewed_at: string | null
+  analyzer_version: string | null
+}
+
+export type PlanListName = 'confirm' | 'reshoot' | 'coverage' | 'random'
+export const PLAN_LIST_LABELS: Record<PlanListName, string> = {
+  confirm: '推给人确认',
+  reshoot: '叶背补拍',
+  coverage: '低频全覆盖',
+  random: '随机抽查',
+}
+
+export interface PlanItem {
+  unit_id: number
+  key: string
+  row_no: number | null
+  position_no: number | null
+  list_name: PlanListName
+  task_id: number
+  task_type: string
+  task_status: string
+  score: number
+  priority: number
+  rationale: Record<string, unknown>
+}
+
+export interface PatrolPlan {
+  field_id: number
+  plan_version: string
+  plan_date: string
+  /** 本地块第几次生成计划；重新生成时上一版里还在排队、没入选的任务作废 */
+  generation: number | null
+  generated_at: string | null
+  seed: string
+  units: number
+  reshoot_budget: number
+  env: Record<string, unknown> & { env_index: number | null; env_missing?: boolean; coverage?: number }
+  window: MorningWindow | null
+  confirm: PlanItem[]
+  reshoot: PlanItem[]
+  coverage: PlanItem[]
+  random: PlanItem[]
+  params: Record<string, unknown> | null
 }

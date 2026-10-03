@@ -8,7 +8,8 @@ from app.schemas.common import reject_explicit_nulls
 
 
 RiskLevel = Literal["low", "medium", "high", "unknown"]
-TaskType = Literal["revisit", "label", "random"]
+# coverage：巡检计划的低频全覆盖任务（计划 0015）
+TaskType = Literal["revisit", "label", "random", "coverage"]
 TaskStatus = Literal["queued", "assigned", "running", "completed", "cancelled"]
 FollowUpStatus = Literal[
     "pending", "confirmed_positive", "confirmed_negative", "insufficient", "intervened", "unknown",
@@ -101,6 +102,7 @@ class RevisitTaskOut(RevisitTaskCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    observation_unit_id: int | None = None
     status: str
     completed_at: datetime | None
     result_note: str | None
@@ -113,6 +115,8 @@ class TaskGenerateIn(BaseModel):
     patrol_id: int | None = Field(default=None, gt=0)
     limit: int = Field(default=20, ge=1, le=200)
     created_by: str = Field(default="system", min_length=1, max_length=80)
+    # 巡检间隔（天）：距上次复巡按 3 个间隔归一成陈旧程度，与离线重放的巡检间隔同义（计划 0015）
+    patrol_interval_days: float = Field(default=1.0, gt=0, le=60)
 
 
 class DatasetVersionCreate(BaseModel):

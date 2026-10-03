@@ -42,6 +42,12 @@ const router = createRouter({
       meta: { title: '株档案' },
     },
     {
+      path: '/fields/:id/plan',
+      name: 'field-plan',
+      component: () => import('../views/PlanView.vue'),
+      meta: { title: '巡检计划' },
+    },
+    {
       path: '/units/:id',
       name: 'unit-timeline',
       component: () => import('../views/UnitTimelineView.vue'),
