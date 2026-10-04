@@ -282,6 +282,20 @@ export interface UnitTimeline {
   days: TimelineDay[]
 }
 
+/** 风险预测等级（时间线、研究闭环共用） */
+export const RISK_LEVEL_LABELS: Record<string, string> = { high: '高', medium: '中', low: '低', unknown: '不明' }
+export const RISK_LEVEL_TAG_TYPES: Record<string, 'danger' | 'warning' | 'info'> = { high: 'danger', medium: 'warning', low: 'info' }
+
+/** 预测的随访结论 */
+export const FOLLOW_UP_LABELS: Record<string, string> = {
+  pending: '待随访',
+  confirmed_positive: '确认阳性',
+  confirmed_negative: '确认阴性',
+  insufficient: '证据不足',
+  intervened: '已处置',
+  unknown: '未知',
+}
+
 export interface Patrol {
   id: number
   field_id: number
