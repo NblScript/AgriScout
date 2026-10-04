@@ -42,3 +42,23 @@ export function previewPhoto(photos: TimelinePhoto[]): TimelinePhoto | null {
   const under = photos.filter((p) => photoSide(p.view) === 'under')
   return confirmTarget(photos) ?? latest(under) ?? latest(photos)
 }
+
+/** 巡检回放的采样点按时间线照片的样子给出（缩略图组件共用） */
+export function pointAsPhoto(point: CapturePointFull): TimelinePhoto {
+  const analysis = point.analysis
+  return {
+    capture_point_id: point.id,
+    patrol_id: point.patrol_id,
+    captured_at: point.captured_at,
+    photo_url: point.photo_url,
+    view: point.view,
+    analysis: analysis
+      ? {
+          risk_score: analysis.risk_score,
+          disease_detections: analysis.disease_detections,
+          analyzer_version: analysis.analyzer_version,
+          image_quality: (analysis.detail?.image_quality as ImageQuality | undefined) ?? null,
+        }
+      : null,
+  }
+}
