@@ -7,13 +7,13 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { FullScreen, House, VideoPause, VideoPlay } from '@element-plus/icons-vue'
+import ConfirmPanel from '../components/ConfirmPanel.vue'
+import EnvPanel from '../components/EnvPanel.vue'
 import PlantGrid from '../components/PlantGrid.vue'
-import ScreenConfirmPanel from '../components/screen/ScreenConfirmPanel.vue'
-import ScreenEnvPanel from '../components/screen/ScreenEnvPanel.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
 import SectionCard from '../components/ui/SectionCard.vue'
 import StatCard from '../components/ui/StatCard.vue'
-import { PLAN_LISTS, latestReadingAt, stateCounts, statesUpdatedAt, useGreenhouseBoard } from '../composables/useGreenhouseBoard'
+import { latestReadingAt, planProgress, stateCounts, statesUpdatedAt, useGreenhouseBoard } from '../composables/useGreenhouseBoard'
 import { ANALYSIS_STATUS_LABELS, FACILITY_LABELS, type Patrol } from '../types'
 import { fieldClock, fieldDateLabel, fieldTimeHms, relativeTime } from '../utils/fieldTime'
 
@@ -122,12 +122,7 @@ const currentPlan = computed(() => (current.value ? todayPlan(current.value) : n
 const currentTasks = computed(() => confirmTasks.value.filter((t) => t.field_id === current.value?.field.id))
 const statesAt = computed(() => (current.value ? statesUpdatedAt(current.value.states) : null))
 /** 今日计划进度：不算已作废的任务 */
-const planProgress = computed(() => {
-  const plan = currentPlan.value
-  if (!plan) return null
-  const items = PLAN_LISTS.flatMap((name) => plan[name]).filter((item) => item.task_status !== 'cancelled')
-  return { total: items.length, done: items.filter((item) => item.task_status === 'completed').length }
-})
+const progress = computed(() => planProgress(currentPlan.value))
 const chartFont = window.innerWidth >= 1600 ? 13 : 12
 
 function patrolText(patrol: Patrol | null): string {
@@ -206,8 +201,8 @@ function patrolText(patrol: Patrol | null): string {
         </template>
         <template #actions>
           <div class="gh-meta">
-            <span v-if="planProgress && currentPlan">
-              今日计划 {{ fieldClock(currentPlan.generated_at) }} 生成 · <b>{{ planProgress.total }}</b> 株 · 已完成 <b>{{ planProgress.done }}</b>
+            <span v-if="progress && currentPlan">
+              今日计划 {{ fieldClock(currentPlan.generated_at) }} 生成 · <b>{{ progress.total }}</b> 株 · 已完成 <b>{{ progress.done }}</b>
             </span>
             <span v-else>今日计划未生成<template v-if="current.plan">（最近一次 {{ current.plan.plan_date }}）</template></span>
             <span>最近巡检 {{ patrolText(current.lastPatrol) }}</span>
@@ -216,8 +211,8 @@ function patrolText(patrol: Patrol | null): string {
         <PlantGrid :key="current.field.id" :states="current.states" :plan="currentPlan" fit="both" :max-cell="72" />
       </SectionCard>
       <div class="side">
-        <ScreenEnvPanel :env="current.env" :now="now" :font-size="chartFont" class="side-env" />
-        <ScreenConfirmPanel :tasks="currentTasks" :limit="4" />
+        <EnvPanel :env="current.env" :now="now" :font-size="chartFont" class="side-env" />
+        <ConfirmPanel :tasks="currentTasks" :limit="4" />
       </div>
     </main>
     <SectionCard v-else-if="loaded" class="main">

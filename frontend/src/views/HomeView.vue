@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 工作台（计划 0018，阶段 A 骨架）：打开系统第一眼看「哪个棚环境风险高、今天要补拍哪些、哪些株等人确认」。
+ * 工作台（计划 0018）：打开系统第一眼看「哪个棚环境风险高、今天要补拍哪些、哪些株等人确认」；点大棚卡片进大棚详情。
  * 数据全部来自 0014/0015 的现有接口，逐个大棚调用；env_index 为空时写「环境数据不足」，不当成低风险。
  */
 import { computed, onMounted } from 'vue'
@@ -18,11 +18,9 @@ import { PLAN_LISTS as LISTS, PLANT_STATES as STATES, stateCounts, useGreenhouse
 import { fieldHomePath } from '../layouts/nav'
 import { useFieldsStore } from '../stores/fields'
 import { useUiStore } from '../stores/ui'
-import {
-  ANALYSIS_STATUS_LABELS, FACILITY_LABELS, PLAN_TRIGGER_LABELS, PLANT_STATE_LABELS,
-  type Field, type PlantStateValue, type RevisitTask,
-} from '../types'
+import { ANALYSIS_STATUS_LABELS, FACILITY_LABELS, PLANT_STATE_LABELS, type Field } from '../types'
 import { fieldClock, fieldDateLabel, relativeTime } from '../utils/fieldTime'
+import { taskModelScore, taskPlantState, taskReasons, taskUnitKey } from '../utils/planTask'
 
 const router = useRouter()
 const fieldsStore = useFieldsStore()
@@ -61,23 +59,6 @@ const attention = computed(() => cards.value.reduce((acc, c) => {
   return { early: acc.early + counts.early, symptomatic: acc.symptomatic + counts.symptomatic }
 }, { early: 0, symptomatic: 0 }))
 
-/* ---------- 待我确认 ---------- */
-function unitKey(task: RevisitTask): string {
-  return (task.parameters.observation_key as string | undefined) ?? '—'
-}
-function reasons(task: RevisitTask): string {
-  const triggers = (task.rationale.triggers as string[] | undefined) ?? []
-  return triggers.map((t) => PLAN_TRIGGER_LABELS[t] ?? t).join('、') || '—'
-}
-function taskState(task: RevisitTask): PlantStateValue | null {
-  const state = task.rationale.state as PlantStateValue | undefined
-  return state && state in PLANT_STATE_LABELS ? state : null
-}
-function modelScore(task: RevisitTask): string {
-  const score = task.rationale.model_score
-  return typeof score === 'number' ? score.toFixed(2) : '—'
-}
-
 function openField(field: Field) {
   void router.push(fieldHomePath(field))
 }
@@ -106,11 +87,11 @@ function openField(field: Field) {
   <section class="block">
     <div class="block-head">
       <h2>大棚</h2>
-      <span class="muted text-13">按环境风险从高到低；点卡片进巡检计划</span>
+      <span class="muted text-13">按环境风险从高到低；点卡片进大棚详情</span>
     </div>
     <div v-if="cards.length" class="gh-grid">
       <article v-for="card in cards" :key="card.field.id" class="gh-card" tabindex="0" role="link"
-               :aria-label="`${card.field.name}，进入巡检计划`"
+               :aria-label="`${card.field.name}，进入大棚详情`"
                @click="openField(card.field)" @keydown.enter="openField(card.field)">
         <header class="gh-head">
           <div class="gh-title">
@@ -194,7 +175,7 @@ function openField(field: Field) {
       <el-table :data="confirmTasks.slice(0, 10)" size="small" v-loading="loading && !loaded">
         <el-table-column label="株号" width="110">
           <template #default="{ row }">
-            <router-link v-if="row.observation_unit_id" :to="`/units/${row.observation_unit_id}`" class="mono">{{ unitKey(row) }}</router-link>
+            <router-link v-if="row.observation_unit_id" :to="`/units/${row.observation_unit_id}`" class="mono">{{ taskUnitKey(row) }}</router-link>
             <span v-else class="muted">任务 #{{ row.id }}</span>
           </template>
         </el-table-column>
@@ -203,15 +184,15 @@ function openField(field: Field) {
         </el-table-column>
         <el-table-column label="当前状态" width="96">
           <template #default="{ row }">
-            <StateTag v-if="taskState(row)" :state="taskState(row)!" size="small" />
+            <StateTag v-if="taskPlantState(row)" :state="taskPlantState(row)!" size="small" />
             <span v-else class="muted">—</span>
           </template>
         </el-table-column>
         <el-table-column label="原因" min-width="160" show-overflow-tooltip>
-          <template #default="{ row }">{{ reasons(row) }}</template>
+          <template #default="{ row }">{{ taskReasons(row).join('、') || '—' }}</template>
         </el-table-column>
         <el-table-column label="模型分" width="76" align="right">
-          <template #default="{ row }"><span class="tabular">{{ modelScore(row) }}</span></template>
+          <template #default="{ row }"><span class="tabular">{{ taskModelScore(row) }}</span></template>
         </el-table-column>
         <template #empty><EmptyState compact title="没有等人确认的株" /></template>
       </el-table>

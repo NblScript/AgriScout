@@ -304,6 +304,13 @@ export const statsApi = {
 /** 未完成的复巡任务状态（排队 / 已派给车 / 执行中） */
 export const OPEN_TASK_STATUSES = ['queued', 'assigned', 'running'] as const
 
+/** 从各未完成状态走到「已完成」要经过的状态（与后端 TASK_TRANSITIONS 一致） */
+const COMPLETE_STEPS: Record<string, string[]> = {
+  queued: ['assigned', 'running', 'completed'],
+  assigned: ['running', 'completed'],
+  running: ['completed'],
+}
+
 type TaskQuery = { field_id?: number; status?: string; task_type?: RevisitTask['task_type']; limit?: number }
 
 function listRevisitTasks(params: TaskQuery) {
@@ -345,6 +352,20 @@ export const softwareLoopApi = {
     }),
   updateTask: (taskId: number, payload: { status?: string; result_note?: string }) =>
     request<RevisitTask>(`/revisit-tasks/${taskId}`, { method: 'PATCH', body: payload }),
+  /**
+   * 把未完成的任务走到「已完成」：接口按状态机一次只走一步（排队 → 已派 → 执行中 → 已完成），
+   * 人工确认、手工标记完成都走这里；已结束的任务不动，返回 null。
+   */
+  completeTask: async (task: Pick<RevisitTask, 'id' | 'status'>, resultNote: string): Promise<RevisitTask | null> => {
+    const steps = COMPLETE_STEPS[task.status] ?? []
+    let latest: RevisitTask | null = null
+    for (const status of steps) {
+      latest = await request<RevisitTask>(`/revisit-tasks/${task.id}`, {
+        method: 'PATCH', body: status === 'completed' ? { status, result_note: resultNote } : { status },
+      })
+    }
+    return latest
+  },
   datasets: () => request<DatasetVersion[]>('/datasets/versions'),
   createDataset: (payload: { name: string; version: string; source_filter?: Record<string, unknown>; label_schema?: Record<string, unknown> }) =>
     request<DatasetVersion>('/datasets/versions', { method: 'POST', body: payload }),
@@ -353,6 +374,44 @@ export const softwareLoopApi = {
   evaluations: () => request<ModelEvaluation[]>('/model-evaluations'),
   approveEvaluation: (id: number, approved_by: string) =>
     request<ModelEvaluation>(`/model-evaluations/${id}/approve`, { method: 'POST', body: { approved_by } }),
+}
+
+/* ---------- 人工确认株状态（0015 时间线「确认状态」；0018 阶段 B 起时间线和待确认页共用） ---------- */
+
+export interface ConfirmPlantInput {
+  unitId: number
+  fieldId: number
+  /** 结论挂在哪张图上：回看期内最近一张合格叶背图 */
+  pointId: number
+  label: AnnotationLabel
+  /** 写进任务结果的结论文字（健康 / 早期 / 明显 / 其他） */
+  labelText: string
+  annotator: string
+  note?: string | null
+  /** 手里已有的这株未完成确认任务（待确认页）；不给就按地块查一次 */
+  tasks?: RevisitTask[]
+}
+
+export const confirmApi = {
+  /**
+   * 结论写成标注（每株状态以最近一次人工结论为准），再把这株未完成的「确认」任务走到已完成，
+   * 结果里写结论和确认人，待确认页和角标才会少这一条。都是现有接口。
+   * 标注失败直接抛错；关任务失败不回滚标注，只在返回值里报几条没关上。
+   */
+  confirmPlant: async (input: ConfirmPlantInput): Promise<{ closed: number; failed: number }> => {
+    await annotationsApi.submit(input.pointId, { label: input.label, annotator_name: input.annotator, note: input.note || null })
+    let tasks: RevisitTask[]
+    try {
+      tasks = input.tasks ?? (await softwareLoopApi.openTasks('label', { field_id: input.fieldId })).tasks
+        .filter((task) => task.observation_unit_id === input.unitId)
+    } catch {
+      return { closed: 0, failed: 1 }
+    }
+    const note = `人工确认：${input.labelText}（${input.annotator}）`
+    const results = await Promise.allSettled(tasks.map((task) => softwareLoopApi.completeTask(task, note)))
+    const failed = results.filter((r) => r.status === 'rejected').length
+    return { closed: results.length - failed, failed }
+  },
 }
 
 /* ---------- 登录与用户管理（决策 D15） ---------- */

@@ -1,41 +1,40 @@
 <script setup lang="ts">
-/** 展示屏 · 等人确认：本棚未完成的「确认」任务前几条（按优先级），株号、当前状态、原因、模型分。 */
+/**
+ * 等人确认卡（展示屏、大棚详情概览共用）：本棚未完成的「确认」任务前几条（按优先级），株号、当前状态、原因、模型分。
+ * navigable 时株号可点进单株时间线，moreTo 给右上角「去确认」入口；展示屏只看不点。
+ */
 import { computed } from 'vue'
-import SectionCard from '../ui/SectionCard.vue'
-import StateTag from '../ui/StateTag.vue'
-import { PLAN_TRIGGER_LABELS, PLANT_STATE_LABELS, type PlantStateValue, type RevisitTask } from '../../types'
+import { ArrowRight } from '@element-plus/icons-vue'
+import SectionCard from './ui/SectionCard.vue'
+import StateTag from './ui/StateTag.vue'
+import type { RevisitTask } from '../types'
+import { taskModelScore, taskPlantState, taskReasons, taskUnitKey } from '../utils/planTask'
 
-const props = withDefaults(defineProps<{ tasks: RevisitTask[]; limit?: number }>(), { limit: 5 })
+const props = withDefaults(defineProps<{ tasks: RevisitTask[]; limit?: number; navigable?: boolean; moreTo?: string }>(), {
+  limit: 5,
+  navigable: false,
+  moreTo: undefined,
+})
 
 const shown = computed(() => props.tasks.slice(0, props.limit))
 const rest = computed(() => Math.max(props.tasks.length - props.limit, 0))
-
-function unitKey(task: RevisitTask): string {
-  return (task.parameters.observation_key as string | undefined) ?? `任务 #${task.id}`
-}
-function taskState(task: RevisitTask): PlantStateValue | null {
-  const state = task.rationale.state as PlantStateValue | undefined
-  return state && state in PLANT_STATE_LABELS ? state : null
-}
-function reasons(task: RevisitTask): string {
-  const triggers = (task.rationale.triggers as string[] | undefined) ?? []
-  return triggers.map((t) => PLAN_TRIGGER_LABELS[t] ?? t).join('、') || '—'
-}
-function score(task: RevisitTask): string {
-  const value = task.rationale.model_score
-  return typeof value === 'number' ? value.toFixed(2) : '—'
-}
 </script>
 
 <template>
   <SectionCard title="等人确认" :subtitle="tasks.length ? `${tasks.length} 株，按优先级` : '没有等人确认的株'" class="confirm-panel">
+    <template v-if="moreTo && tasks.length" #actions>
+      <router-link :to="moreTo" class="more">去确认<el-icon><ArrowRight /></el-icon></router-link>
+    </template>
     <ul v-if="shown.length" class="list">
       <li v-for="task in shown" :key="task.id">
-        <b class="key">{{ unitKey(task) }}</b>
-        <StateTag v-if="taskState(task)" :state="taskState(task)!" size="small" />
+        <router-link v-if="navigable && task.observation_unit_id" :to="`/units/${task.observation_unit_id}`" class="key">
+          {{ taskUnitKey(task) }}
+        </router-link>
+        <b v-else class="key">{{ taskUnitKey(task) }}</b>
+        <StateTag v-if="taskPlantState(task)" :state="taskPlantState(task)!" size="small" />
         <span v-else class="muted">—</span>
-        <span class="reason">{{ reasons(task) }}</span>
-        <span class="score">模型分 <b>{{ score(task) }}</b></span>
+        <span class="reason">{{ taskReasons(task).join('、') || '—' }}</span>
+        <span class="score">模型分 <b>{{ taskModelScore(task) }}</b></span>
       </li>
     </ul>
     <p v-if="rest" class="rest">另有 {{ rest }} 株，在「待确认」页处理</p>
@@ -57,9 +56,11 @@ function score(task: RevisitTask): string {
 }
 .list li + li { border-top: 1px solid var(--border); }
 .key { font-family: var(--font-mono); font-weight: var(--fw-medium); color: var(--text-primary); }
+a.key { color: var(--el-color-primary); }
 .reason { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-regular); }
 .score { color: var(--text-secondary); white-space: nowrap; }
 .score b { font-variant-numeric: tabular-nums; color: var(--text-primary); font-weight: var(--fw-medium); }
 .rest, .none { margin: var(--space-2) 0 0; font-size: var(--fs-12); line-height: var(--lh-12); color: var(--text-secondary); }
 .none { margin: 0; }
+.more { display: inline-flex; align-items: center; gap: 2px; font-size: var(--fs-13); }
 </style>

@@ -19,6 +19,18 @@ export function setUnauthorizedHandler(handler: () => void) {
   onUnauthorized = handler
 }
 
+/** 带 HTTP 状态码的错误（如 404 = 还没生成过计划，调用方据此区分「没有」和「出错」） */
+export class HttpError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+    this.name = 'HttpError'
+  }
+}
+
+export function isNotFound(e: unknown): boolean {
+  return e instanceof HttpError && e.status === 404
+}
+
 export async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (authToken) headers.Authorization = `Bearer ${authToken}`
@@ -42,7 +54,7 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
     } catch {
       /* 保留 HTTP 状态码信息 */
     }
-    throw new Error(detail)
+    throw new HttpError(detail, resp.status)
   }
   if (resp.status === 204) return undefined as T
   return (await resp.json()) as T

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 大棚与地块（计划 0018 套新外壳）：列表与增删改；大棚行可进巡检计划和株档案。 */
+/** 大棚与地块（计划 0018）：列表与增删改；点名称或「详情」进大棚详情（大田只有概览和巡检记录）。 */
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -10,6 +10,7 @@ import PageHeader from '../components/ui/PageHeader.vue'
 import SectionCard from '../components/ui/SectionCard.vue'
 import { fieldsApi } from '../api'
 import { errMsg } from '../api/http'
+import { fieldHomePath } from '../layouts/nav'
 import { useAuthStore } from '../stores/auth'
 import { useFieldsStore } from '../stores/fields'
 import { FACILITY_LABELS, isGreenhouse, type FacilityType, type Field } from '../types'
@@ -164,7 +165,7 @@ function vertices(row: Field): number {
       <el-table-column label="名称" min-width="200">
         <template #default="{ row }">
           <div class="name-cell">
-            <b>{{ row.name }}</b>
+            <router-link :to="fieldHomePath(row)" class="name-link">{{ row.name }}</router-link>
             <span class="muted text-12">#{{ row.id }}</span>
           </div>
         </template>
@@ -191,8 +192,7 @@ function vertices(row: Field): number {
       <el-table-column label="操作" width="300" fixed="right">
         <template #default="{ row }">
           <div class="ops">
-            <el-button v-if="isGreenhouse(row)" size="small" type="primary" plain
-                       @click="router.push({ name: 'field-plan', params: { id: row.id } })">巡检计划</el-button>
+            <el-button size="small" type="primary" plain @click="router.push(fieldHomePath(row))">详情</el-button>
             <el-button size="small" @click="router.push({ name: 'field-units', params: { id: row.id } })">株档案</el-button>
             <template v-if="!auth.isViewer">
               <el-button size="small" text @click="openEdit(row)">编辑</el-button>
@@ -264,7 +264,8 @@ function vertices(row: Field): number {
 }
 .count-chip b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
 .name-cell { display: flex; align-items: baseline; gap: var(--space-2); }
-.name-cell b { font-weight: var(--fw-medium); color: var(--text-primary); }
+.name-link { font-weight: var(--fw-medium); color: var(--text-primary); }
+.name-link:hover { color: var(--el-color-primary); }
 .ops { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .ops :deep(.el-button + .el-button) { margin-left: 0; }
 </style>

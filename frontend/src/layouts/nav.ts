@@ -3,7 +3,7 @@ import type { Component } from 'vue'
 import {
   Calendar, Camera, Cherry, Cpu, DataAnalysis, EditPen, House, MapLocation, Monitor, Odometer, Stamp, User,
 } from '@element-plus/icons-vue'
-import { isGreenhouse, type Field } from '../types'
+import type { Field } from '../types'
 
 export interface NavItem {
   label: string
@@ -77,10 +77,7 @@ export function navGroupOf(item: NavItem): NavGroup | undefined {
   return NAV_GROUPS.find((group) => group.items.includes(item))
 }
 
-/**
- * 地块的落脚页：大棚进巡检计划，大田进该地块的巡检记录。
- * 阶段 B 有了大棚详情 `/fields/:id` 后两者都改指那里。
- */
-export function fieldHomePath(field: Pick<Field, 'id' | 'facility_type'>): string {
-  return isGreenhouse(field) ? `/fields/${field.id}/plan` : `/patrols?field_id=${field.id}`
+/** 地块的落脚页：大棚和大田都进详情页 `/fields/:id`（大田只有概览和巡检记录两个标签）。 */
+export function fieldHomePath(field: Pick<Field, 'id'>): string {
+  return `/fields/${field.id}`
 }

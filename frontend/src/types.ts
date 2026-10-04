@@ -130,6 +130,26 @@ export interface DiseaseDetection {
   [k: string]: unknown
 }
 
+/**
+ * 检出类型（analysis.disease_detections[].type）→ 中文名（计划 0018）：病斑框、地图提示、图例都按这里显示，页面里不写死病名。
+ * 接入新的病害模型时在这里加它的类型；没登记的类型退回检出自带的 label 或类型码。
+ */
+export const DETECTION_TYPE_LABELS: Record<string, string> = {
+  stripe_rust: '条锈病',
+  suspected_stress: '疑似胁迫',
+}
+
+/** 病害模型给出的检出（带病斑框、地图上标红圈）；颜色规则的「疑似胁迫」不算 */
+export const DISEASE_MODEL_TYPES: ReadonlySet<string> = new Set(['stripe_rust'])
+
+export function detectionLabel(d: { type?: string; label?: string }): string {
+  return (d.type && DETECTION_TYPE_LABELS[d.type]) || d.label || d.type || '检出'
+}
+
+export function isDiseaseModelDetection(d: { type?: string }): boolean {
+  return !!d.type && DISEASE_MODEL_TYPES.has(d.type)
+}
+
 export interface PointAnalysis {
   id: number
   capture_point_id: number
@@ -676,6 +696,21 @@ export const PLANT_STATE_LABELS: Record<PlantStateValue, string> = {
   symptomatic: '明显',
   unknown: '不明',
 }
+
+/** 每株状态的来源（D18：人工结论优先，只有模型结果时为占位分数） */
+export const PLANT_SOURCE_LABELS: Record<'human' | 'model' | 'none', string> = {
+  human: '人工确认',
+  model: '模型（占位）',
+  none: '还没有结论',
+}
+
+/** 人工确认株状态的四个选项（时间线「确认状态」与待确认页共用；写成标注） */
+export const CONFIRM_OPTIONS: { label: AnnotationLabel; text: string; state: PlantStateValue | null }[] = [
+  { label: 'normal', text: '健康', state: 'healthy' },
+  { label: 'downy_mildew_early', text: '早期', state: 'early' },
+  { label: 'downy_mildew_symptomatic', text: '明显', state: 'symptomatic' },
+  { label: 'other', text: '其他', state: null },
+]
 
 export interface PlantState {
   unit_id: number

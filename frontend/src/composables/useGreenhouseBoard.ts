@@ -34,6 +34,13 @@ export function stateCounts(states: PlantState[]): Record<PlantStateValue, numbe
   return counts
 }
 
+/** 计划进度：共几株、已完成几株（不算已作废的任务）；没有计划时为空 */
+export function planProgress(plan: PatrolPlan | null): { total: number; done: number } | null {
+  if (!plan) return null
+  const items = PLAN_LISTS.flatMap((name) => plan[name]).filter((item) => item.task_status !== 'cancelled')
+  return { total: items.length, done: items.filter((item) => item.task_status === 'completed').length }
+}
+
 /** 最近一条温湿度读数的时间：接口在有读数时把 until 定在最新读数之后 1 秒，没有读数时为空 */
 export function latestReadingAt(env: EnvSummary | null): number | null {
   if (!env || !env.sensors.length) return null
