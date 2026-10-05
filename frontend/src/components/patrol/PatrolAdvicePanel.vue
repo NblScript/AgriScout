@@ -87,7 +87,7 @@ const PRIORITY_LABELS: Record<string, string> = { high: '高', medium: '中', lo
         </template>
       </el-table-column>
       <el-table-column prop="content" label="建议内容" min-width="300" show-overflow-tooltip />
-      <el-table-column label="规则依据" width="150">
+      <el-table-column label="规则依据" width="210">
         <template #default="{ row }">
           <el-tooltip placement="top">
             <template #content>
@@ -127,5 +127,5 @@ const PRIORITY_LABELS: Record<string, string> = { high: '高', medium: '中', lo
 .sub { margin-left: var(--space-2); }
 .actions { margin-left: auto; padding-right: var(--space-3); }
 .filter { margin-bottom: var(--space-3); }
-.rule { cursor: help; border-bottom: 1px dashed var(--neutral-400); font-size: var(--fs-12); color: var(--text-regular); }
+.rule { white-space: nowrap; cursor: help; border-bottom: 1px dashed var(--neutral-400); font-size: var(--fs-12); color: var(--text-regular); }
 </style>

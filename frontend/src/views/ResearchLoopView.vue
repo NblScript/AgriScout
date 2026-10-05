@@ -12,11 +12,13 @@ import SectionCard from '../components/ui/SectionCard.vue'
 import { observationUnitsApi, patrolsApi, softwareLoopApi } from '../api'
 import { errMsg } from '../api/http'
 import { useAuthStore } from '../stores/auth'
+import { useUiStore } from '../stores/ui'
 import type { DatasetVersion, ModelEvaluation, Patrol, RiskPrediction, RevisitTask } from '../types'
 import { fieldClock } from '../utils/fieldTime'
 import { taskReasons as planTaskReasons } from '../utils/planTask'
 
 const auth = useAuthStore()
+const ui = useUiStore()
 const patrols = ref<Patrol[]>([])
 const selectedPatrol = ref<number | null>(null)
 const predictions = ref<RiskPrediction[]>([])
@@ -70,9 +72,17 @@ function taskReasons(task: RevisitTask) {
 }
 
 /** field-5/grid2.5m/3_7 → 网格 3-7（2.5 m）；株号等非网格键原样显示。 */
+/** 株的区域键是 field-{id}/unit/{株号}（计划 0014），大田是网格键 */
+const UNIT_KEY = /\/unit\/([^/]+)$/
 function regionLabel(key: string) {
+  const unit = UNIT_KEY.exec(key)
+  if (unit) return unit[1]
   const m = /grid([\d.]+)m\/(-?\d+)_(-?\d+)$/.exec(key)
   return m ? `网格 ${m[2]}-${m[3]}（${m[1]} m）` : key
+}
+function unitIdOf(key: string): number | undefined {
+  const unit = UNIT_KEY.exec(key)
+  return unit ? unitIds.value.get(unit[1]) : undefined
 }
 
 /**
@@ -133,6 +143,7 @@ async function refreshLoop() {
   predictions.value = rows
   tasks.value = taskRows
   if (fieldId != null) {
+    ui.setCurrentField(fieldId)
     try {
       unitIds.value = new Map((await observationUnitsApi.list(fieldId)).map((u) => [u.key, u.id]))
     } catch { unitIds.value = new Map() /* 没有株档案只是不出链接 */ }
@@ -260,9 +271,8 @@ onMounted(load)
         </el-table-column>
         <el-table-column label="观察对象" min-width="140">
           <template #default="{ row }">
-            <router-link v-if="unitIds.has(row.observation_key)" :to="`/units/${unitIds.get(row.observation_key)}`" class="mono">
-              {{ row.observation_key }}
-            </router-link>
+            <router-link v-if="unitIdOf(row.observation_key) != null" :to="`/units/${unitIdOf(row.observation_key)}`" class="mono"
+                         :title="row.observation_key">{{ regionLabel(row.observation_key) }}</router-link>
             <span v-else :title="row.observation_key">{{ regionLabel(row.observation_key) }}</span>
           </template>
         </el-table-column>

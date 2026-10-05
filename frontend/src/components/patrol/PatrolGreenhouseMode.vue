@@ -88,7 +88,7 @@ const loose = computed(() => visits.value.filter((v) => v.unitId == null).length
 <style scoped>
 .gh-mode { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 440px); gap: var(--space-4); align-items: start; }
 .left { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
-.order { display: flex; flex-wrap: wrap; gap: var(--space-1); margin: var(--space-3) 0 0; padding: 0; list-style: none; max-height: 120px; overflow: auto; }
+.order { display: flex; flex-wrap: wrap; gap: var(--space-1); margin: var(--space-3) 0 0; padding: 0; list-style: none; max-height: 196px; /* 超过六行半就滚动，露半行提示还能往下翻 */ overflow: auto; }
 .chip {
   height: 26px;
   padding: 0 var(--space-2);
