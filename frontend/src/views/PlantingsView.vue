@@ -11,9 +11,13 @@ import {
   type PlantingUpdatePayload,
 } from '../api'
 import { errMsg } from '../api/http'
+import PageHeader from '../components/ui/PageHeader.vue'
+import SectionCard from '../components/ui/SectionCard.vue'
+import { useAuthStore } from '../stores/auth'
 import { useCrudDialog } from '../composables/useCrudDialog'
 import { PLANTING_STATUS_LABELS, type Crop, type Field, type Planting, type PlantingStatus } from '../types'
 
+const auth = useAuthStore()
 const list = ref<Planting[]>([])
 const fields = ref<Field[]>([])
 const crops = ref<Crop[]>([])
@@ -129,53 +133,51 @@ function removeRow(row: Planting) {
 </script>
 
 <template>
-  <div class="toolbar">
-    <el-select
-      v-model="filterFieldId"
-      placeholder="按地块过滤（全部）"
-      clearable
-      style="width: 220px"
-      @change="load"
-    >
-      <el-option v-for="f in fields" :key="f.id" :label="f.name" :value="f.id" />
-    </el-select>
-    <el-button type="primary" :icon="Plus" :disabled="!fields.length || !crops.length" @click="openCreate">
-      新增种植记录
-    </el-button>
-    <el-button :icon="Refresh" circle title="刷新" @click="load" />
-    <span v-if="!fields.length || !crops.length" class="hint">
-      需先创建地块与作物，才能登记种植记录
-    </span>
-  </div>
+  <PageHeader title="种植记录" subtitle="哪块地种了什么、什么时候播种；预计收获日按作物生命周期推算">
+    <template v-if="!auth.isViewer && (!fields.length || !crops.length)" #meta>
+      <span class="hint">需先创建地块与作物，才能登记种植记录</span>
+    </template>
+    <template #actions>
+      <el-select v-model="filterFieldId" placeholder="全部地块" clearable class="f-field" @change="load">
+        <el-option v-for="f in fields" :key="f.id" :label="f.name" :value="f.id" />
+      </el-select>
+      <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
+      <el-button v-if="!auth.isViewer" type="primary" :icon="Plus" :disabled="!fields.length || !crops.length" @click="openCreate">
+        新增种植记录
+      </el-button>
+    </template>
+  </PageHeader>
 
-  <el-table :data="list" v-loading="loading" border stripe>
-    <el-table-column prop="id" label="ID" width="64" />
-    <el-table-column label="地块" min-width="130">
-      <template #default="{ row }">{{ row.field_name ?? `#${row.field_id}` }}</template>
-    </el-table-column>
-    <el-table-column label="作物" min-width="120">
-      <template #default="{ row }">{{ row.crop_name ?? `#${row.crop_id}` }}</template>
-    </el-table-column>
-    <el-table-column prop="sowing_date" label="播种日期" width="115" />
-    <el-table-column label="预计收获" width="115">
-      <template #default="{ row }">{{ row.expected_harvest_date ?? '—' }}</template>
-    </el-table-column>
-    <el-table-column label="状态" width="100">
-      <template #default="{ row }">
-        <el-tag :type="row.status === 'active' ? 'success' : 'info'" effect="plain">
-          {{ PLANTING_STATUS_LABELS[row.status as PlantingStatus] }}
-        </el-tag>
-      </template>
-    </el-table-column>
-    <el-table-column prop="notes" label="备注" min-width="120" show-overflow-tooltip />
-    <el-table-column label="操作" width="150" fixed="right">
-      <template #default="{ row }">
-        <el-button size="small" @click="openEdit(row)">编辑</el-button>
-        <el-button size="small" type="danger" plain @click="removeRow(row)">删除</el-button>
-      </template>
-    </el-table-column>
-    <template #empty>暂无种植记录</template>
-  </el-table>
+  <SectionCard flush>
+    <el-table :data="list" v-loading="loading">
+      <el-table-column prop="id" label="ID" width="64" />
+      <el-table-column label="地块" min-width="130">
+        <template #default="{ row }">{{ row.field_name ?? `#${row.field_id}` }}</template>
+      </el-table-column>
+      <el-table-column label="作物" min-width="120">
+        <template #default="{ row }">{{ row.crop_name ?? `#${row.crop_id}` }}</template>
+      </el-table-column>
+      <el-table-column prop="sowing_date" label="播种日期" width="115" />
+      <el-table-column label="预计收获" width="115">
+        <template #default="{ row }">{{ row.expected_harvest_date ?? '—' }}</template>
+      </el-table-column>
+      <el-table-column label="状态" width="100">
+        <template #default="{ row }">
+          <el-tag :type="row.status === 'active' ? 'success' : 'info'" effect="plain">
+            {{ PLANTING_STATUS_LABELS[row.status as PlantingStatus] }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="notes" label="备注" min-width="120" show-overflow-tooltip />
+      <el-table-column v-if="!auth.isViewer" label="操作" width="150" fixed="right">
+        <template #default="{ row }">
+          <el-button size="small" @click="openEdit(row)">编辑</el-button>
+          <el-button size="small" type="danger" plain @click="removeRow(row)">删除</el-button>
+        </template>
+      </el-table-column>
+      <template #empty>暂无种植记录</template>
+    </el-table>
+  </SectionCard>
 
   <el-dialog
     v-model="dialogVisible"
@@ -233,14 +235,9 @@ function removeRow(row: Planting) {
 </template>
 
 <style scoped>
-.toolbar {
-  margin-bottom: 14px;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
+.f-field { width: 200px; }
 .hint {
-  color: #8a978a;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 </style>

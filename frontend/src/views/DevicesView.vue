@@ -5,6 +5,9 @@ import type { FormRules } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { devicesApi, type DeviceCreatePayload, type DeviceUpdatePayload } from '../api'
 import { errMsg } from '../api/http'
+import PageHeader from '../components/ui/PageHeader.vue'
+import SectionCard from '../components/ui/SectionCard.vue'
+import { useAuthStore } from '../stores/auth'
 import { useCrudDialog } from '../composables/useCrudDialog'
 import {
   DEVICE_STATUS_LABELS,
@@ -14,6 +17,7 @@ import {
   type DeviceType,
 } from '../types'
 
+const auth = useAuthStore()
 const list = ref<Device[]>([])
 const loading = ref(false)
 
@@ -90,35 +94,39 @@ function onSubmit() {
 </script>
 
 <template>
-  <div class="toolbar">
-    <el-button type="primary" :icon="Plus" @click="openCreate">新增设备</el-button>
-    <el-button :icon="Refresh" circle title="刷新" @click="load" />
-  </div>
+  <PageHeader title="设备管理" subtitle="巡检小车等采集设备；小车上传巡检包、心跳和事件按设备编号对应">
+    <template #actions>
+      <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
+      <el-button v-if="!auth.isViewer" type="primary" :icon="Plus" @click="openCreate">新增设备</el-button>
+    </template>
+  </PageHeader>
 
-  <el-table :data="list" v-loading="loading" border stripe>
-    <el-table-column prop="id" label="ID" width="64" />
-    <el-table-column prop="code" label="编号" min-width="110" />
-    <el-table-column prop="name" label="名称" min-width="130" />
-    <el-table-column label="类型" width="110">
-      <template #default="{ row }">{{ DEVICE_TYPE_LABELS[row.type as DeviceType] }}</template>
-    </el-table-column>
-    <el-table-column label="型号" min-width="120">
-      <template #default="{ row }">{{ row.model ?? '—' }}</template>
-    </el-table-column>
-    <el-table-column label="状态" width="100">
-      <template #default="{ row }">
-        <el-tag :type="STATUS_TAG[row.status as DeviceStatus]" effect="plain">
-          {{ DEVICE_STATUS_LABELS[row.status as DeviceStatus] }}
-        </el-tag>
-      </template>
-    </el-table-column>
-    <el-table-column label="操作" width="150" fixed="right">
-      <template #default="{ row }">
-        <el-button size="small" @click="openEdit(row)">编辑</el-button>
-        <el-button size="small" type="danger" plain @click="removeRow(row, row.name)">删除</el-button>
-      </template>
-    </el-table-column>
-  </el-table>
+  <SectionCard flush>
+    <el-table :data="list" v-loading="loading">
+      <el-table-column prop="id" label="ID" width="64" />
+      <el-table-column prop="code" label="编号" min-width="110" />
+      <el-table-column prop="name" label="名称" min-width="130" />
+      <el-table-column label="类型" width="110">
+        <template #default="{ row }">{{ DEVICE_TYPE_LABELS[row.type as DeviceType] }}</template>
+      </el-table-column>
+      <el-table-column label="型号" min-width="120">
+        <template #default="{ row }">{{ row.model ?? '—' }}</template>
+      </el-table-column>
+      <el-table-column label="状态" width="100">
+        <template #default="{ row }">
+          <el-tag :type="STATUS_TAG[row.status as DeviceStatus]" effect="plain">
+            {{ DEVICE_STATUS_LABELS[row.status as DeviceStatus] }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column v-if="!auth.isViewer" label="操作" width="150" fixed="right">
+        <template #default="{ row }">
+          <el-button size="small" @click="openEdit(row)">编辑</el-button>
+          <el-button size="small" type="danger" plain @click="removeRow(row, row.name)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+  </SectionCard>
 
   <el-dialog
     v-model="dialogVisible"
@@ -172,9 +180,4 @@ function onSubmit() {
 </template>
 
 <style scoped>
-.toolbar {
-  margin-bottom: 14px;
-  display: flex;
-  gap: 10px;
-}
 </style>

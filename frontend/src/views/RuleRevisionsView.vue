@@ -2,15 +2,23 @@
 /** 规则修订审批页：Agent 起草 → 影子 diff → 人工批/驳（规则线 L1 的人工闸门）。 */
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Refresh } from '@element-plus/icons-vue'
+import EmptyState from '../components/ui/EmptyState.vue'
+import PageHeader from '../components/ui/PageHeader.vue'
 import { ruleRevisionApi } from '../api'
 import { errMsg } from '../api/http'
 import { useAuthStore } from '../stores/auth'
 import type { RuleRevision } from '../types'
+import { fieldClock } from '../utils/fieldTime'
 
 const revisions = ref<RuleRevision[]>([])
 const loading = ref(true)
 const generating = ref(false)
-const decidedBy = ref(useAuthStore().user?.display_name ?? localStorage.getItem('agriscout_annotator') ?? '')
+const auth = useAuthStore()
+const decidedBy = ref(auth.user?.display_name ?? readAnnotator())
+function readAnnotator(): string {
+  try { return localStorage.getItem('agriscout_annotator') ?? '' } catch { return '' }
+}
 const statusFilter = ref<'' | 'draft' | 'approved' | 'rejected'>('')
 /** per-revision 操作锁：影子/审批进行中的按钮防重入 */
 const opLoading = ref<Record<number, boolean>>({})
@@ -93,17 +101,17 @@ onMounted(load)
 </script>
 
 <template>
-  <div v-loading="loading">
-    <div class="head">
-      <h3>规则修订审批 <span class="dim">（Agent 起草 · 影子验证 · 人工批准后才生效）</span></h3>
-      <div class="head-right">
-        <el-input
-          v-model="decidedBy" placeholder="审批人姓名" style="width: 140px" size="small"
-        />
+  <PageHeader title="规则修订审批" subtitle="Agent 起草 · 影子验证 · 人工批准后才生效；批准的修订案须回写规则 YAML">
+    <template #actions>
+      <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
+      <template v-if="!auth.isViewer">
+        <el-input v-model="decidedBy" placeholder="审批人姓名" class="decider" />
         <el-button type="primary" :loading="generating" @click="generate">触发起草</el-button>
-      </div>
-    </div>
+      </template>
+    </template>
+  </PageHeader>
 
+  <div v-loading="loading">
     <div class="filter-row">
       <el-radio-group v-model="statusFilter" size="small" @change="load">
         <el-radio-button value="">全部</el-radio-button>
@@ -119,10 +127,10 @@ onMounted(load)
       style="margin-bottom: 12px"
     />
 
-    <el-empty v-if="!revisions.length && !loading" description="暂无修订案——点击右上角「触发起草」" />
+    <EmptyState v-if="!revisions.length && !loading" title="暂无修订案" :description="auth.isViewer ? '' : '点右上角「触发起草」'" />
 
-    <el-row :gutter="12">
-      <el-col v-for="rev in revisions" :key="rev.id" :span="12" style="margin-bottom: 12px">
+    <div class="cards">
+      <div v-for="rev in revisions" :key="rev.id">
         <div class="rev-card" :class="rev.status">
           <div class="rev-head">
             <el-tag
@@ -133,7 +141,7 @@ onMounted(load)
             </el-tag>
             <b>{{ rev.rule_key }}</b>
             <el-tag size="small" effect="plain">{{ rev.action === 'modify' ? '修改' : rev.action === 'add' ? '新增' : '停用' }}</el-tag>
-            <span class="dim">{{ rev.model }} · {{ new Date(rev.created_at).toLocaleString('zh-CN') }}</span>
+            <span class="dim">{{ rev.model }} · {{ fieldClock(rev.created_at) }}</span>
           </div>
 
           <div class="section">
@@ -159,7 +167,7 @@ onMounted(load)
             <p class="dim">未执行——批准前必须先跑影子对比</p>
           </div>
 
-          <div class="ops" v-if="rev.status === 'draft'">
+          <div class="ops" v-if="rev.status === 'draft' && !auth.isViewer">
             <el-button size="small" :loading="!!opLoading[rev.id]" @click="shadow(rev)">影子运行</el-button>
             <el-button
               size="small" type="success"
@@ -170,52 +178,49 @@ onMounted(load)
             </el-button>
             <el-button size="small" type="danger" plain :disabled="!!opLoading[rev.id]" @click="decide(rev, 'reject')">驳回</el-button>
           </div>
-          <div class="ops" v-else>
+          <div class="ops" v-else-if="rev.status !== 'draft'">
             <span class="dim">{{ rev.decided_by }} · {{ rev.decide_note || '无备注' }}
               <template v-if="rev.applied_version"> · 已应用为规则 v{{ rev.applied_version }}</template>
             </span>
           </div>
         </div>
-      </el-col>
-    </el-row>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
-.head-right { display: flex; gap: 8px; }
-.filter-row { margin-bottom: 12px; }
-.dim { color: #9aa79a; font-size: 12px; }
+.decider { width: 140px; }
+.filter-row { margin-bottom: var(--space-3); }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 480px), 1fr)); gap: var(--space-4); margin-top: var(--space-4); }
+.dim { color: var(--text-secondary); font-size: var(--fs-12); }
 .rev-card {
-  background: #fff;
-  border: 1px solid #e2e8e2;
-  border-radius: 10px;
-  padding: 12px;
   height: 100%;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-1);
 }
-.rev-head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
-.section { margin: 8px 0; }
-.label { font-size: 12px; color: #7a8a7e; }
-.reason { font-size: 13px; margin: 4px 0; }
+.rev-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
+.section { margin: var(--space-2) 0; }
+.label { font-size: var(--fs-12); color: var(--text-secondary); }
+.reason { margin: var(--space-1) 0; font-size: var(--fs-13); color: var(--text-primary); }
 /* 不能叫 .draft：卡片带状态类名 draft，会把整张待审卡片截成 180px */
 .draft-json {
-  font-size: 11px;
-  background: #f8faf8;
-  border: 1px solid #e8eee8;
-  border-radius: 6px;
-  padding: 8px;
   max-height: 180px;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-2);
   overflow: auto;
-  margin: 4px 0 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
-.shadow { display: flex; gap: 14px; font-size: 13px; margin-top: 4px; }
-.shadow .added { color: #16a34a; }
-.shadow .removed { color: #dc2626; }
-.ops { margin-top: 10px; display: flex; gap: 8px; align-items: center; }
+.shadow { display: flex; gap: var(--space-4); margin-top: var(--space-1); font-size: var(--fs-13); }
+.shadow .added { color: var(--success-ink); }
+.shadow .removed { color: var(--danger-ink); }
+.ops { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-3); }
 .rev-card.rejected { opacity: 0.65; }
 </style>

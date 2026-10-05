@@ -5,8 +5,12 @@ import type { FormInstance, FormRules } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { cropsApi } from '../api'
 import { errMsg } from '../api/http'
+import PageHeader from '../components/ui/PageHeader.vue'
+import SectionCard from '../components/ui/SectionCard.vue'
+import { useAuthStore } from '../stores/auth'
 import type { Crop } from '../types'
 
+const auth = useAuthStore()
 const list = ref<Crop[]>([])
 const loading = ref(false)
 
@@ -141,39 +145,43 @@ async function removeRow(row: Crop) {
 </script>
 
 <template>
-  <div class="toolbar">
-    <el-button type="primary" :icon="Plus" @click="openCreate">新增作物</el-button>
-    <el-button :icon="Refresh" circle title="刷新" @click="load" />
-  </div>
+  <PageHeader title="作物管理" subtitle="作物、品种与生育期阶段；种植记录和农事规则按这里的生育期匹配">
+    <template #actions>
+      <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
+      <el-button v-if="!auth.isViewer" type="primary" :icon="Plus" @click="openCreate">新增作物</el-button>
+    </template>
+  </PageHeader>
 
-  <el-table :data="list" v-loading="loading" border stripe>
-    <el-table-column prop="id" label="ID" width="64" />
-    <el-table-column prop="name" label="名称" min-width="120" />
-    <el-table-column label="品种" min-width="120">
-      <template #default="{ row }">{{ row.variety ?? '—' }}</template>
-    </el-table-column>
-    <el-table-column prop="lifecycle_days" label="生命周期(天)" width="120" />
-    <el-table-column label="生育期" min-width="260">
-      <template #default="{ row }">
-        <el-tag
-          v-for="(s, i) in row.stages"
-          :key="i"
-          size="small"
-          effect="plain"
-          class="stage-tag"
-        >
-          {{ s.name }}·{{ s.days }}天
-        </el-tag>
-        <span v-if="!row.stages.length">—</span>
-      </template>
-    </el-table-column>
-    <el-table-column label="操作" width="150" fixed="right">
-      <template #default="{ row }">
-        <el-button size="small" @click="openEdit(row)">编辑</el-button>
-        <el-button size="small" type="danger" plain @click="removeRow(row)">删除</el-button>
-      </template>
-    </el-table-column>
-  </el-table>
+  <SectionCard flush>
+    <el-table :data="list" v-loading="loading">
+      <el-table-column prop="id" label="ID" width="64" />
+      <el-table-column prop="name" label="名称" min-width="120" />
+      <el-table-column label="品种" min-width="120">
+        <template #default="{ row }">{{ row.variety ?? '—' }}</template>
+      </el-table-column>
+      <el-table-column prop="lifecycle_days" label="生命周期(天)" width="120" />
+      <el-table-column label="生育期" min-width="260">
+        <template #default="{ row }">
+          <el-tag
+            v-for="(s, i) in row.stages"
+            :key="i"
+            size="small"
+            effect="plain"
+            class="stage-tag"
+          >
+            {{ s.name }}·{{ s.days }}天
+          </el-tag>
+          <span v-if="!row.stages.length">—</span>
+        </template>
+      </el-table-column>
+      <el-table-column v-if="!auth.isViewer" label="操作" width="150" fixed="right">
+        <template #default="{ row }">
+          <el-button size="small" @click="openEdit(row)">编辑</el-button>
+          <el-button size="small" type="danger" plain @click="removeRow(row)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+  </SectionCard>
 
   <el-dialog
     v-model="dialogVisible"
@@ -216,11 +224,6 @@ async function removeRow(row: Crop) {
 </template>
 
 <style scoped>
-.toolbar {
-  margin-bottom: 14px;
-  display: flex;
-  gap: 10px;
-}
 .stage-tag {
   margin-right: 6px;
   margin-bottom: 4px;
@@ -236,11 +239,11 @@ async function removeRow(row: Crop) {
 }
 .hint {
   margin-left: 12px;
-  color: #8a978a;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 .warn {
-  color: #c67a28;
+  color: var(--warning-ink);
   font-style: normal;
 }
 </style>

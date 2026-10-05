@@ -1,31 +1,46 @@
 <script setup lang="ts">
-/** 研究软件闭环：风险预测 → 主动任务 → 人工随访 → 模型评估记录。 */
+/**
+ * 研究软件闭环：风险预测 → 主动任务 → 人工随访 → 数据集与模型评估闸门（计划 0018 阶段 B 换外壳）。
+ * 大棚按株关联，「观察对象」是株号，可点进单株时间线；大田是网格区域。只读账号看不到写操作。
+ */
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { patrolsApi, softwareLoopApi } from '../api'
+import { DataAnalysis } from '@element-plus/icons-vue'
+import EmptyState from '../components/ui/EmptyState.vue'
+import PageHeader from '../components/ui/PageHeader.vue'
+import SectionCard from '../components/ui/SectionCard.vue'
+import { observationUnitsApi, patrolsApi, softwareLoopApi } from '../api'
 import { errMsg } from '../api/http'
 import { useAuthStore } from '../stores/auth'
 import type { DatasetVersion, ModelEvaluation, Patrol, RiskPrediction, RevisitTask } from '../types'
+import { fieldClock } from '../utils/fieldTime'
+import { taskReasons as planTaskReasons } from '../utils/planTask'
 
+const auth = useAuthStore()
 const patrols = ref<Patrol[]>([])
 const selectedPatrol = ref<number | null>(null)
 const predictions = ref<RiskPrediction[]>([])
 const tasks = ref<RevisitTask[]>([])
 const datasets = ref<DatasetVersion[]>([])
 const evaluations = ref<ModelEvaluation[]>([])
+/** 株号 → 株 id（大棚地块），观察对象和任务里的株号据此链到单株时间线 */
+const unitIds = ref(new Map<string, number>())
 const loading = ref(false)
 const generating = ref(false)
 // 复核人默认取当前登录用户（D15）；服务端按登录用户署名记技术债
-const reviewer = ref(useAuthStore().user?.display_name ?? localStorage.getItem('agriscout_annotator') ?? '')
+const reviewer = ref(auth.user?.display_name ?? readAnnotator())
+function readAnnotator(): string {
+  try { return localStorage.getItem('agriscout_annotator') ?? '' } catch { return '' }
+}
 
-const selected = computed(() => patrols.value.find(p => p.id === selectedPatrol.value) ?? null)
+const selected = computed(() => patrols.value.find((p) => p.id === selectedPatrol.value) ?? null)
 
 /** 后端枚举值 → 界面文案（后端保持英文代码，展示层翻译）。 */
 const LEVEL_TEXT: Record<string, string> = { high: '高风险', medium: '中风险', low: '低风险', unknown: '证据不足' }
 const LEVEL_TAG: Record<string, 'danger' | 'warning' | 'info' | 'success'> = { high: 'danger', medium: 'warning', unknown: 'info', low: 'success' }
 const LEVEL_RANK: Record<string, number> = { high: 3, medium: 2, unknown: 1, low: 0 }
 const TREND_TEXT: Record<string, string> = { rising: '↑ 上升', falling: '↓ 下降', stable: '→ 平稳', unknown: '无历史对比' }
-const TASK_TYPE_TEXT: Record<string, string> = { revisit: '复巡', label: '专家标注', random: '随机抽查' }
+const TASK_TYPE_TEXT: Record<string, string> = { revisit: '复巡', label: '专家标注', random: '随机抽查', coverage: '低频全覆盖' }
 const TASK_STATUS_TEXT: Record<string, string> = { queued: '待派发', assigned: '已派发', running: '执行中', completed: '已完成', cancelled: '已取消' }
 const TASK_STATUS_TAG: Record<string, 'success' | 'warning' | 'info' | 'primary'> = { completed: 'success', running: 'warning', cancelled: 'info' }
 const REASON_TEXT: Record<string, string> = {
@@ -46,20 +61,23 @@ const EVAL_STATUS_TEXT: Record<string, string> = { candidate: '待审批', appro
 const SPLIT_TEXT: Record<string, string> = { train: '训练集', val: '验证集', test: '测试集' }
 const text = (map: Record<string, string>, value: string) => map[value] ?? value
 
+/** 研究闭环生成的任务写 reasons，巡检计划生成的写 triggers（0015），两种都认 */
 function taskReasons(task: RevisitTask) {
   const reasons = task.rationale?.reasons
-  return Array.isArray(reasons) ? reasons.map(r => text(REASON_TEXT, String(r))).join('、') : '系统排序'
+  if (Array.isArray(reasons)) return reasons.map((r) => text(REASON_TEXT, String(r))).join('、')
+  const triggers = planTaskReasons(task)
+  return triggers.length ? triggers.join('、') : '系统排序'
 }
 
-/** field-5/grid2.5m/3_7 → 网格 3-7（2.5 m）；非网格键原样显示。 */
+/** field-5/grid2.5m/3_7 → 网格 3-7（2.5 m）；株号等非网格键原样显示。 */
 function regionLabel(key: string) {
   const m = /grid([\d.]+)m\/(-?\d+)_(-?\d+)$/.exec(key)
   return m ? `网格 ${m[2]}-${m[3]}（${m[1]} m）` : key
 }
 
 /**
- * 预测按采样点落库（复巡要落到具体点位），同一区域的点共享区域级结果；
- * 表格按「模型版本 + 区域」归并成一行，展开后逐点随访（随访仍是逐点记录，评估口径不变）。
+ * 预测按采样点落库（复巡要落到具体点位），同一观察对象（株或网格）的点共享结果；
+ * 表格按「模型版本 + 观察对象」归并成一行，展开后逐点随访（随访仍是逐点记录，评估口径不变）。
  */
 interface RegionRow {
   key: string
@@ -92,7 +110,6 @@ const levelCounts = computed(() => {
   for (const r of regions.value) counts[r.level] = (counts[r.level] ?? 0) + 1
   return counts
 })
-const fmtTime = (value: string) => new Date(value).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 
 async function load() {
   loading.value = true
@@ -104,17 +121,25 @@ async function load() {
 }
 
 async function refreshGovernance() {
-  const [datasetRows, evaluationRows] = await Promise.all([
-    softwareLoopApi.datasets(), softwareLoopApi.evaluations(),
-  ])
+  const [datasetRows, evaluationRows] = await Promise.all([softwareLoopApi.datasets(), softwareLoopApi.evaluations()])
   datasets.value = datasetRows
   evaluations.value = evaluationRows
 }
 
 async function refreshLoop() {
   if (!selectedPatrol.value) return
-  predictions.value = await softwareLoopApi.predictions(selectedPatrol.value)
-  tasks.value = await softwareLoopApi.tasks(selected.value?.field_id)
+  const fieldId = selected.value?.field_id
+  const [rows, taskRows] = await Promise.all([softwareLoopApi.predictions(selectedPatrol.value), softwareLoopApi.tasks(fieldId)])
+  predictions.value = rows
+  tasks.value = taskRows
+  if (fieldId != null) {
+    try {
+      unitIds.value = new Map((await observationUnitsApi.list(fieldId)).map((u) => [u.key, u.id]))
+    } catch { unitIds.value = new Map() /* 没有株档案只是不出链接 */ }
+  }
+}
+async function onPatrolChange() {
+  try { await refreshLoop() } catch (e) { ElMessage.error(errMsg(e)) }
 }
 
 async function generate() {
@@ -181,14 +206,12 @@ async function confirmPrediction(row: RiskPrediction, status: 'confirmed_positiv
     })
     ElMessage.success('随访结论已保存')
     await refreshLoop()
-  } catch (e) { ElMessage.error(errMsg(e)) }
+  } catch (e) { if (e !== 'cancel') ElMessage.error(errMsg(e)) }
 }
 
 async function completeTask(row: RevisitTask) {
   try {
-    if (row.status === 'queued') await softwareLoopApi.updateTask(row.id, { status: 'assigned' })
-    if (row.status === 'queued' || row.status === 'assigned') await softwareLoopApi.updateTask(row.id, { status: 'running' })
-    await softwareLoopApi.updateTask(row.id, { status: 'completed', result_note: '已完成人工确认' })
+    await softwareLoopApi.completeTask(row, '已完成人工确认')
     await refreshLoop()
   } catch (e) { ElMessage.error(errMsg(e)) }
 }
@@ -197,119 +220,128 @@ onMounted(load)
 </script>
 
 <template>
-  <div v-loading="loading">
-    <div class="head">
-      <div>
-        <h3>研究软件闭环 <span class="dim">风险预测 · 主动复巡 · 证据随访</span></h3>
-        <p class="desc">这里展示可追溯的软件流程；启发式预测结果必须经过真实病种数据和独立测试验证。</p>
-      </div>
-      <div class="actions">
-        <el-select v-model="selectedPatrol" placeholder="选择已分析巡检" style="width: 220px" @change="refreshLoop">
-          <el-option v-for="p in patrols" :key="p.id" :label="`#${p.id} ${p.field_name ?? '未命名地块'}`" :value="p.id" />
-        </el-select>
-        <el-input v-model="reviewer" placeholder="复核人" style="width: 110px" />
+  <PageHeader title="研究闭环" subtitle="风险预测 · 主动复巡 · 证据随访；启发式预测结果必须经过真实病种数据和独立测试验证">
+    <template #actions>
+      <el-select v-model="selectedPatrol" placeholder="选择已分析巡检" class="patrol-select" @change="onPatrolChange">
+        <el-option v-for="p in patrols" :key="p.id" :label="`#${p.id} ${p.field_name ?? '未命名地块'}`" :value="p.id" />
+      </el-select>
+      <template v-if="!auth.isViewer">
+        <el-input v-model="reviewer" placeholder="复核人" class="reviewer" />
         <el-button type="primary" :loading="generating" :disabled="!selectedPatrol" @click="generate">生成预测与任务</el-button>
-      </div>
-    </div>
+      </template>
+    </template>
+  </PageHeader>
 
-    <el-alert v-if="!patrols.length && !loading" type="info" :closable="false" title="暂无已分析巡检，请先完成一次巡检上传和分析。" />
+  <EmptyState v-if="!patrols.length && !loading" :icon="DataAnalysis" title="还没有分析完成的巡检" description="先完成一次巡检上传和分析。" />
 
-    <el-row :gutter="14">
-      <el-col :span="14">
-        <el-card shadow="never">
-          <template #header>
-            <div class="card-head">
-              <span>区域风险预测</span>
-              <span v-if="regions.length" class="dim">
-                {{ regions.length }} 个区域 · 高 {{ levelCounts.high }} · 中 {{ levelCounts.medium }}
-                · 证据不足 {{ levelCounts.unknown }} · 低 {{ levelCounts.low }} · 覆盖 {{ predictions.length }} 个采样点
-              </span>
-            </div>
+  <div v-loading="loading" class="grid">
+    <SectionCard title="风险预测" class="predictions" flush
+                 :subtitle="regions.length ? `${regions.length} 个观察对象 · 高 ${levelCounts.high} · 中 ${levelCounts.medium} · 证据不足 ${levelCounts.unknown} · 低 ${levelCounts.low} · 覆盖 ${predictions.length} 个采样点` : '大棚按株、大田按网格区域'">
+      <el-table v-if="regions.length" :data="regions" row-key="key" max-height="560">
+        <el-table-column type="expand">
+          <template #default="{ row }">
+            <el-table :data="row.points" size="small" class="points" max-height="260">
+              <el-table-column label="采样点" width="110"><template #default="{ row: p }">ID {{ p.capture_point_id }}</template></el-table-column>
+              <el-table-column label="预测窗口" min-width="200">
+                <template #default="{ row: p }"><span class="tabular">{{ fieldClock(p.forecast_start) }} ~ {{ fieldClock(p.forecast_end) }}</span></template>
+              </el-table-column>
+              <el-table-column label="随访" width="80">
+                <template #default="{ row: p }"><span :class="p.status === 'closed' ? 'ok' : 'muted'">{{ p.status === 'closed' ? '已随访' : '待随访' }}</span></template>
+              </el-table-column>
+              <el-table-column v-if="!auth.isViewer" label="操作" width="190">
+                <template #default="{ row: p }">
+                  <el-button size="small" type="danger" plain :disabled="p.status === 'closed'" @click="confirmPrediction(p, 'confirmed_positive')">确认阳性</el-button>
+                  <el-button size="small" type="success" plain :disabled="p.status === 'closed' || !windowEnded(p)"
+                             :title="windowEnded(p) ? '' : '预测窗口未结束，窗口内未发病不能确认阴性'" @click="confirmPrediction(p, 'confirmed_negative')">确认阴性</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
           </template>
-          <el-table v-if="regions.length" :data="regions" row-key="key" size="small" stripe max-height="560">
-            <el-table-column type="expand">
-              <template #default="{ row }">
-                <el-table :data="row.points" size="small" class="points" max-height="260">
-                  <el-table-column label="采样点" width="110"><template #default="{ row: p }">ID {{ p.capture_point_id }}</template></el-table-column>
-                  <el-table-column label="预测窗口" min-width="170"><template #default="{ row: p }">{{ fmtTime(p.forecast_start) }} ~ {{ fmtTime(p.forecast_end) }}</template></el-table-column>
-                  <el-table-column label="随访" width="80"><template #default="{ row: p }"><span :class="p.status === 'closed' ? 'ok' : 'dim'">{{ p.status === 'closed' ? '已随访' : '待随访' }}</span></template></el-table-column>
-                  <el-table-column label="操作" width="190">
-                    <template #default="{ row: p }">
-                      <el-button size="small" type="danger" plain :disabled="p.status === 'closed'" @click="confirmPrediction(p, 'confirmed_positive')">确认阳性</el-button>
-                      <el-button size="small" type="success" plain :disabled="p.status === 'closed' || !windowEnded(p)" :title="windowEnded(p) ? '' : '预测窗口未结束，窗口内未发病不能确认阴性'" @click="confirmPrediction(p, 'confirmed_negative')">确认阴性</el-button>
-                    </template>
-                  </el-table-column>
-                </el-table>
-              </template>
-            </el-table-column>
-            <el-table-column label="观察区域" min-width="140">
-              <template #default="{ row }"><span :title="row.observation_key">{{ regionLabel(row.observation_key) }}</span></template>
-            </el-table-column>
-            <el-table-column label="风险" width="120">
-              <template #default="{ row }"><el-tag :type="LEVEL_TAG[row.level] ?? 'info'">{{ text(LEVEL_TEXT, row.level) }} · {{ Math.round(row.probability * 100) }}%</el-tag></template>
-            </el-table-column>
-            <el-table-column label="趋势" width="100">
-              <template #default="{ row }"><span :class="row.trend === 'unknown' ? 'dim' : ''" :title="row.trend === 'unknown' ? '回看窗口内该区域只有一次有效观测，无法判断趋势' : ''">{{ text(TREND_TEXT, row.trend) }}</span></template>
-            </el-table-column>
-            <el-table-column label="随访" width="90">
-              <template #default="{ row }"><span :class="row.closed ? 'ok' : 'dim'">{{ row.closed }}/{{ row.points.length }} 点</span></template>
-            </el-table-column>
-            <el-table-column prop="model_version" label="模型" min-width="130" />
-          </el-table>
-          <el-empty v-else description="尚未生成预测" />
-        </el-card>
-      </el-col>
-      <el-col :span="10">
-        <el-card shadow="never" header="复巡与主动学习任务" class="tasks-card">
-          <el-timeline v-if="tasks.length">
-            <el-timeline-item v-for="task in tasks" :key="task.id" :type="task.status === 'completed' ? 'success' : 'primary'">
-              <div class="task-row"><b>{{ text(TASK_TYPE_TEXT, task.task_type) }} #{{ task.id }}</b><el-tag size="small" :type="TASK_STATUS_TAG[task.status] ?? 'primary'">{{ text(TASK_STATUS_TEXT, task.status) }}</el-tag></div>
-              <div class="dim">优先级 {{ Math.round(task.priority * 100) }}% · {{ taskReasons(task) }}</div>
-              <el-button v-if="task.status !== 'completed'" size="small" text type="primary" @click="completeTask(task)">标记完成</el-button>
-            </el-timeline-item>
-          </el-timeline>
-          <el-empty v-else description="暂无待执行任务" />
-        </el-card>
-      </el-col>
-    </el-row>
+        </el-table-column>
+        <el-table-column label="观察对象" min-width="140">
+          <template #default="{ row }">
+            <router-link v-if="unitIds.has(row.observation_key)" :to="`/units/${unitIds.get(row.observation_key)}`" class="mono">
+              {{ row.observation_key }}
+            </router-link>
+            <span v-else :title="row.observation_key">{{ regionLabel(row.observation_key) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="风险" width="130">
+          <template #default="{ row }">
+            <el-tag :type="LEVEL_TAG[row.level] ?? 'info'" effect="plain">{{ text(LEVEL_TEXT, row.level) }} · {{ Math.round(row.probability * 100) }}%</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="趋势" width="100">
+          <template #default="{ row }">
+            <span :class="{ muted: row.trend === 'unknown' }" :title="row.trend === 'unknown' ? '回看窗口内只有一次有效观测，无法判断趋势' : ''">{{ text(TREND_TEXT, row.trend) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="随访" width="90">
+          <template #default="{ row }"><span :class="row.closed ? 'ok' : 'muted'">{{ row.closed }}/{{ row.points.length }} 点</span></template>
+        </el-table-column>
+        <el-table-column prop="model_version" label="模型" min-width="130" />
+      </el-table>
+      <EmptyState v-else compact title="尚未生成预测" :description="auth.isViewer ? '' : '选好巡检后点「生成预测与任务」'" />
+    </SectionCard>
 
-    <el-row :gutter="14" class="governance">
-      <el-col :span="12">
-        <el-card shadow="never">
-          <template #header><div class="card-head"><span>数据集版本</span><el-button size="small" type="primary" plain @click="createDatasetDraft">创建草稿</el-button></div></template>
-          <el-table :data="datasets" size="small">
-            <el-table-column label="版本" min-width="150"><template #default="{ row }">{{ row.name }} / {{ row.version }}</template></el-table-column>
-            <el-table-column prop="row_count" label="样本" width="70" />
-            <el-table-column label="状态" width="80"><template #default="{ row }">{{ text(DATASET_STATUS_TEXT, row.status) }}</template></el-table-column>
-            <el-table-column label="操作" width="90"><template #default="{ row }"><el-button v-if="row.status === 'draft'" size="small" text type="primary" @click="freezeDataset(row)">冻结</el-button></template></el-table-column>
-          </el-table>
-          <el-empty v-if="!datasets.length" description="暂无数据集版本" />
-        </el-card>
-      </el-col>
-      <el-col :span="12">
-        <el-card shadow="never" header="模型评估闸门">
-          <el-table :data="evaluations" size="small">
-            <el-table-column label="模型" min-width="140"><template #default="{ row }">{{ row.model_name }} / {{ row.model_version }}</template></el-table-column>
-            <el-table-column label="数据划分" width="80"><template #default="{ row }">{{ text(SPLIT_TEXT, row.split) }}</template></el-table-column>
-            <el-table-column label="状态" width="80"><template #default="{ row }">{{ text(EVAL_STATUS_TEXT, row.status) }}</template></el-table-column>
-            <el-table-column label="操作" width="90"><template #default="{ row }"><el-button v-if="row.status === 'candidate'" size="small" text type="primary" @click="approveEvaluation(row)">批准</el-button></template></el-table-column>
-          </el-table>
-          <el-empty v-if="!evaluations.length" description="暂无评估记录" />
-        </el-card>
-      </el-col>
-    </el-row>
+    <SectionCard title="复巡与主动学习任务" :subtitle="selected ? `${selected.field_name ?? `地块 #${selected.field_id}`} 的全部任务` : ''" class="tasks">
+      <el-timeline v-if="tasks.length">
+        <el-timeline-item v-for="task in tasks" :key="task.id" :type="task.status === 'completed' ? 'success' : 'primary'">
+          <div class="task-row">
+            <b>{{ text(TASK_TYPE_TEXT, task.task_type) }} #{{ task.id }}</b>
+            <router-link v-if="task.observation_unit_id" :to="`/units/${task.observation_unit_id}`" class="mono text-13">
+              {{ (task.parameters.observation_key as string | undefined) ?? `株 #${task.observation_unit_id}` }}
+            </router-link>
+            <el-tag size="small" effect="plain" :type="TASK_STATUS_TAG[task.status] ?? 'primary'">{{ text(TASK_STATUS_TEXT, task.status) }}</el-tag>
+          </div>
+          <div class="muted text-12">优先级 {{ Math.round(task.priority * 100) }}% · {{ taskReasons(task) }}</div>
+          <el-button v-if="!auth.isViewer && task.status !== 'completed' && task.status !== 'cancelled'" size="small" text type="primary"
+                     @click="completeTask(task)">标记完成</el-button>
+        </el-timeline-item>
+      </el-timeline>
+      <EmptyState v-else compact title="暂无待执行任务" />
+    </SectionCard>
+
+    <SectionCard title="数据集版本" subtitle="冻结后才能绑定模型评估" flush>
+      <template v-if="!auth.isViewer" #actions>
+        <el-button size="small" type="primary" plain @click="createDatasetDraft">创建草稿</el-button>
+      </template>
+      <el-table :data="datasets">
+        <el-table-column label="版本" min-width="150"><template #default="{ row }">{{ row.name }} / {{ row.version }}</template></el-table-column>
+        <el-table-column prop="row_count" label="样本" width="80" align="right" />
+        <el-table-column label="状态" width="90"><template #default="{ row }">{{ text(DATASET_STATUS_TEXT, row.status) }}</template></el-table-column>
+        <el-table-column v-if="!auth.isViewer" label="操作" width="90">
+          <template #default="{ row }"><el-button v-if="row.status === 'draft'" size="small" text type="primary" @click="freezeDataset(row)">冻结</el-button></template>
+        </el-table-column>
+        <template #empty><span class="muted text-13">暂无数据集版本</span></template>
+      </el-table>
+    </SectionCard>
+
+    <SectionCard title="模型评估闸门" subtitle="只能绑定已冻结数据集的测试集才能批准发布" flush>
+      <el-table :data="evaluations">
+        <el-table-column label="模型" min-width="140"><template #default="{ row }">{{ row.model_name }} / {{ row.model_version }}</template></el-table-column>
+        <el-table-column label="数据划分" width="90"><template #default="{ row }">{{ text(SPLIT_TEXT, row.split) }}</template></el-table-column>
+        <el-table-column label="状态" width="90"><template #default="{ row }">{{ text(EVAL_STATUS_TEXT, row.status) }}</template></el-table-column>
+        <el-table-column v-if="!auth.isViewer" label="操作" width="90">
+          <template #default="{ row }"><el-button v-if="row.status === 'candidate'" size="small" text type="primary" @click="approveEvaluation(row)">批准</el-button></template>
+        </el-table-column>
+        <template #empty><span class="muted text-13">暂无评估记录</span></template>
+      </el-table>
+    </SectionCard>
   </div>
 </template>
 
 <style scoped>
-.head { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; margin-bottom: 14px; }
-.head h3 { margin: 0 0 5px; }
-.desc, .dim { color: #8a978a; font-size: 12px; }
-.actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.task-row { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
-.governance { margin-top: 14px; }
-.card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-.ok { color: #2f7d32; }
-.points { margin: 0 12px 0 48px; width: auto; }
-.tasks-card :deep(.el-card__body) { max-height: 600px; overflow-y: auto; }
+.patrol-select { width: 220px; }
+.reviewer { width: 120px; }
+.grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--space-4); align-items: start; }
+.tasks :deep(.sc-body) { max-height: 620px; overflow-y: auto; }
+.task-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.task-row .el-tag { margin-left: auto; }
+.mono { font-family: var(--font-mono); }
+.ok { color: var(--success-ink); }
+.points { margin: 0 var(--space-3) 0 48px; width: auto; }
+@media (max-width: 1023px) {
+  .grid { grid-template-columns: minmax(0, 1fr); }
+}
 </style>

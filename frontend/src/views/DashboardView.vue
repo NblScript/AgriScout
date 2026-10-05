@@ -1,5 +1,9 @@
 <script setup lang="ts">
+/** 系统状态：后端健康检查（公开接口 /health）。计划 0018 阶段 B 换外壳，表情符号换成图标 + 文字。 */
 import { onMounted, ref } from 'vue'
+import { CircleCheckFilled, CircleCloseFilled, Refresh } from '@element-plus/icons-vue'
+import PageHeader from '../components/ui/PageHeader.vue'
+import SectionCard from '../components/ui/SectionCard.vue'
 import { errMsg } from '../api/http'
 
 interface HealthInfo {
@@ -32,61 +36,44 @@ onMounted(fetchHealth)
 </script>
 
 <template>
-  <section class="card">
-    <h2>系统状态</h2>
-    <p v-if="loading" class="status loading">⏳ 正在连接后端…</p>
+  <PageHeader title="系统状态" subtitle="后端服务和数据库是否在线">
+    <template #actions>
+      <el-button :icon="Refresh" :loading="loading" @click="fetchHealth">重新检测</el-button>
+    </template>
+  </PageHeader>
+
+  <SectionCard>
+    <el-skeleton v-if="loading && !health" animated :rows="2" />
     <template v-else-if="health">
-      <p class="status ok">✅ 系统在线</p>
+      <p class="status ok"><el-icon><CircleCheckFilled /></el-icon>系统在线</p>
       <dl class="grid">
         <div><dt>应用</dt><dd>{{ health.app }}</dd></div>
-        <div><dt>版本</dt><dd>v{{ health.version }}</dd></div>
+        <div><dt>版本</dt><dd class="tabular">v{{ health.version }}</dd></div>
         <div><dt>环境</dt><dd>{{ health.environment }}</dd></div>
         <div>
           <dt>数据库</dt>
-          <dd :class="health.database === 'ok' ? 'ok-text' : 'err-text'">
-            {{ health.database === 'ok' ? '连接正常' : '异常' }}
-          </dd>
+          <dd :class="health.database === 'ok' ? 'ok-text' : 'err-text'">{{ health.database === 'ok' ? '连接正常' : '异常' }}</dd>
         </div>
       </dl>
-      <el-button type="primary" plain @click="fetchHealth">重新检测</el-button>
     </template>
-    <p v-else class="status err">
-      ❌ 后端不可达（{{ error }}）——请先启动后端：<code>cd backend && .venv/bin/python -m uvicorn app.main:app --port 8000</code>
-    </p>
-  </section>
+    <div v-else class="status err">
+      <p><el-icon><CircleCloseFilled /></el-icon>后端不可达（{{ error }}）</p>
+      <p class="hint">请先启动后端：<code>cd backend && .venv/bin/python -m uvicorn app.main:app --port 8000</code></p>
+    </div>
+  </SectionCard>
 </template>
 
 <style scoped>
-.card {
-  background: #fff;
-  border: 1px solid #e2e8e2;
-  border-radius: 12px;
-  padding: 24px;
-}
-.card h2 {
-  font-size: 18px;
-  margin-bottom: 16px;
-}
-.status {
-  font-size: 16px;
-  margin-bottom: 16px;
-}
-.status.ok { color: #2e7d32; }
-.status.err { color: #c62828; }
-.status.loading { color: #6b7a6b; }
-.grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  margin-bottom: 20px;
-}
-.grid dt { font-size: 12px; color: #8a978a; }
-.grid dd { font-size: 15px; margin-top: 2px; }
-.ok-text { color: #2e7d32; }
-.err-text { color: #c62828; }
-code {
-  background: #f0f3f0;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
+.status { margin: 0 0 var(--space-4); font-size: var(--fs-16); font-weight: var(--fw-medium); }
+.status p { margin: 0; }
+.status p:first-child, p.status { display: flex; align-items: center; gap: var(--space-2); }
+.status.ok { color: var(--success-ink); }
+.status.err { color: var(--danger-ink); }
+.hint { margin-top: var(--space-2) !important; font-size: var(--fs-13); font-weight: var(--fw-regular); color: var(--text-secondary); }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-4); margin: 0; }
+.grid dt { font-size: var(--fs-12); color: var(--text-secondary); }
+.grid dd { margin: 2px 0 0; font-size: var(--fs-16); color: var(--text-primary); }
+.ok-text { color: var(--success-ink); }
+.err-text { color: var(--danger-ink); }
+code { padding: 2px 6px; border-radius: var(--radius-sm); background: var(--bg-subtle); font-family: var(--font-mono); }
 </style>
