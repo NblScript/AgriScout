@@ -7,9 +7,11 @@ import { computed, ref } from 'vue'
 import { Picture } from '@element-plus/icons-vue'
 import { detectionLabel, isDiseaseModelDetection, type CapturePointFull } from '../../types'
 
-const props = withDefaults(defineProps<{ point: CapturePointFull; maxHeight?: number; gray?: boolean }>(), {
+/** fill：按容器宽度放大（最宽 360px，单株卡用）；否则按原尺寸、限高显示 */
+const props = withDefaults(defineProps<{ point: CapturePointFull; maxHeight?: number; gray?: boolean; fill?: boolean }>(), {
   maxHeight: 220,
   gray: false,
+  fill: false,
 })
 
 const showBoxes = ref(true)
@@ -20,7 +22,7 @@ const boxLabel = computed(() => [...new Set(modelDetections.value.map(detectionL
 
 <template>
   <div class="point-photo">
-    <div v-if="point.photo_url" class="wrap">
+    <div v-if="point.photo_url" class="wrap" :class="{ fill }">
       <el-image :src="point.photo_url" :preview-src-list="[point.photo_url]" preview-teleported hide-on-click-modal
                 class="photo" :class="{ gray }" :style="{ '--max-h': `${maxHeight}px` }" alt="采样照片（点击放大）" />
       <template v-if="showBoxes">
@@ -41,6 +43,8 @@ const boxLabel = computed(() => [...new Set(modelDetections.value.map(detectionL
 .wrap { position: relative; display: inline-block; max-width: 100%; line-height: 0; }
 .photo { display: block; border-radius: var(--radius-sm); }
 .photo :deep(.el-image__inner) { display: block; max-width: 100%; max-height: var(--max-h); width: auto; height: auto; }
+.wrap.fill { width: 100%; max-width: 360px; }
+.wrap.fill .photo :deep(.el-image__inner) { width: 100%; max-height: none; }
 .photo.gray :deep(.el-image__inner) { filter: grayscale(1); opacity: 0.6; }
 .box {
   position: absolute;

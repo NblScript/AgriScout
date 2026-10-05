@@ -94,7 +94,7 @@ function viewText(p: CapturePointFull): string {
         <span class="text-13">采样点 #{{ point.seq }} · {{ fieldClock(point.captured_at) }}</span>
         <QualityBadge :quality="pointQuality(point)" :accepted="accepted(point)" />
       </div>
-      <PatrolPointPhoto :point="point" :max-height="280" :gray="accepted(point) === false" />
+      <PatrolPointPhoto :point="point" fill :gray="accepted(point) === false" />
       <p class="muted text-12 view">{{ viewText(point) }}</p>
       <dl v-if="analysis" class="kv">
         <div>
