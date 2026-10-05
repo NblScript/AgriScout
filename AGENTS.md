@@ -3,7 +3,7 @@
 巡知（AgriScout）：面向病害风险预测与主动学习的农田智能巡检系统。小车沿垄近地拍照 → 平台异步逐点分析 →
 区域风险预测 → 复巡/标注任务 → 人工随访与复核 → 数据集冻结与模型闸门；规则引擎给出可溯源农事建议。
 2027 挑战杯科技发明 A 类。2026-10 起方向调整为设施大棚黄瓜霜霉病的风险驱动闭环主动采集（D16，以计划 0013 为准，
-docs/09 申报书待重写）。已完成：平台软件闭环、离线重放（H1–H3）、risk-lr-v1、rust-cls-v1、登录与角色权限（D15）；
+docs/09 申报书待重写）。已完成：平台软件闭环、离线重放（H1–H3）、risk-lr-v1、rust-cls-v1、登录与角色权限（D15）、前端按大棚工作流重做（D19、D20）；
 进行中：计划 0013（温室方向总览，接子计划 0014–0017 前先读其「共同约定」）、0007（与作物无关的剩余项）。
 
 **本文件是地图不是说明书**——约束看红线节，细节按「文档导航」按需读。
@@ -59,9 +59,9 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 | `backend/rules/wheat.yaml` | 规则种子库 18 条（单一事实源，经 sync_rules 同步入表） |
 | `backend/app/schemas/` | DTO + 巡检包协议 v1 + 设备协议（对采集端的合同） |
 | `backend/migrations/versions/` | 手写 Alembic 迁移，`00NN_主题` 命名（当前 0016） |
-| `frontend/src/views/` | HomeView（/home 工作台，登录后落脚）+ ConfirmQueueView（待确认）+ 七个管理页（系统状态/地块/作物/种植/设备/规则修订审批/研究闭环）+ PatrolsView/PatrolDetailView（回放/复核/问一问/报告）+ BigScreenView（/screen 展示屏）+ LoginView/UsersView + UnitsView/UnitTimelineView（株档案、单株时间线与确认状态）+ PlanView（巡检计划） |
+| `frontend/src/views/` | HomeView（/home 工作台）+ ConfirmQueueView（待确认，侧滑确认）+ FieldDetailView 与 `field/` 五个标签页（概览/巡检计划/株档案/环境/巡检记录；旧 `/fields/:id/units`、`/plan` 即其子路由）+ UnitTimelineView（单株时间线）+ PatrolsView/PatrolDetailView（回放外壳，大棚按株 / 大田地图两种模式，D19）+ ResearchLoopView + 七个管理页（地块/作物/种植/设备/用户/规则修订审批/系统状态）+ BigScreenView（/screen 展示屏）+ LoginView |
 | `frontend/src/layouts/` · `styles/` | 外壳（计划 0018）：AppShell + 分组侧栏 + 顶栏（面包屑、地块切换器、展示屏、用户菜单），导航定义在 `nav.ts`；`styles/tokens.css` 设计令牌是颜色、间距、字号的唯一来源（株状态色、任务类型色在此），`theme.css` 把 Element Plus 变量映射到令牌 |
-| `frontend/src/components/` | `ui/` 通用组件（PageHeader/SectionCard/StatCard/StateTag/TaskTypeTag/QualityBadge/EmptyState）+ PlantGrid（「垄 × 株」状态网格）+ `screen/` 展示屏分区 + MapCanvas（Leaflet 封装）、EChart；工作台与展示屏共用的大棚数据加载在 `composables/useGreenhouseBoard.ts` |
+| `frontend/src/components/` | `ui/` 通用组件（PageHeader/SectionCard/StatCard/StateTag/TaskTypeTag/QualityBadge/EmptyState）+ PlantGrid（「垄 × 株」状态网格）+ EnvPanel/ConfirmPanel（工作台、大棚详情、展示屏共用）+ `plant/`（单株照片、状态、确认表单，D20）+ `patrol/`（回放各块：播放条、照片与病斑框、单株卡、采样点卡、问一问/报告/建议分区）+ MapCanvas、EChart；`composables/` 放共用数据加载（useGreenhouseBoard、useFieldDetail、useTimelineCache） |
 | `frontend/src/api/index.ts` · `types.ts` | 每资源一个 api 对象；类型单一事实源，对齐 backend schemas |
 | `simulator/` | 独立虚拟巡田，只走 HTTP（禁止 import 后端内部）；`season.py` 多日期病害扩散模拟季 |
 | `rover/` | 真车采集端：`run.py` 编排上传与 spool 断网续传；`hardware`（硬件接口+假实现）/`quality`（iq-rule-v1）/`acquire`（视角补拍）/`point_store`（逐点落盘）/`env_upload`（温湿度 CSV 上传）；只走 HTTP |
@@ -102,6 +102,7 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 | 动规则/建议逻辑 | `backend/rules/wheat.yaml` 文件头（格式）、`services/advice.py`、注册表「规则引擎生命周期」 |
 | 动风险预测/复巡/数据集闸门 | 决策 D10–D13、D17，`api/v1/software_loop.py`、`services/revisit_planning.py`、`services/offline_replay.py` |
 | 动大棚环境 / 每株状态 / 巡检计划 | 决策 D18、`services/patrol_planner.py`、`services/greenhouse_plans.py` |
+| 动前端页面 / 颜色与样式 / 人工确认 | 决策 D19、D20，`styles/tokens.css`、`layouts/nav.ts`、`api/index.ts` 的 `confirmApi` |
 | 查某个编号决策（D/B/T/L） | `docs/design-docs/decision-registry.md` |
 | 动认证 / 角色 / 公开接口 | 决策 D15、`core/deps.py`、`core/security.py`、`tests/test_auth.py` |
 | 理解整体架构 | `ARCHITECTURE.md`（本仓库） |

@@ -4,7 +4,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { NO_ANALYSIS_COLOR, VIGOR_COLORS, type CapturePointFull } from '../types'
+import { NO_ANALYSIS_COLOR, VIGOR_COLORS, detectionLabel, isDiseaseModelDetection, type CapturePointFull } from '../types'
 
 const props = defineProps<{
   boundary: { type: string; coordinates: number[][][] } | null
@@ -103,9 +103,11 @@ function renderPoints() {
   pointsLayer?.remove()
   pointsLayer = L.layerGroup().addTo(map)
   for (const p of props.points) {
-    const stressed = !!p.analysis?.disease_detections?.length
-    // 病害模型检出（stripe_rust）红圈优先于颜色胁迫的黄圈
-    const diseased = !!p.analysis?.disease_detections?.some((d) => d.type === 'stripe_rust')
+    const detections = p.analysis?.disease_detections ?? []
+    const stressed = detections.length > 0
+    // 病害模型检出（类型见 types.ts DISEASE_MODEL_TYPES）红圈优先于颜色胁迫的黄圈
+    const disease = detections.find(isDiseaseModelDetection)
+    const diseased = disease != null
     L.circleMarker([p.lat, p.lng], {
       radius: diseased ? 5.5 : 4.5,
       color: diseased ? '#dc2626' : stressed ? '#ffd54f' : '#ffffff',
@@ -113,7 +115,7 @@ function renderPoints() {
       fillColor: pointColor(p),
       fillOpacity: 0.9,
     })
-      .bindTooltip(`#${p.seq} · ${pointColor(p) === NO_ANALYSIS_COLOR ? '未分析' : `长势${p.analysis?.vigor_level}`}${diseased ? ' · 疑似条锈病' : ''}`)
+      .bindTooltip(`#${p.seq} · ${pointColor(p) === NO_ANALYSIS_COLOR ? '未分析' : `长势${p.analysis?.vigor_level}`}${disease ? ` · 疑似${detectionLabel(disease)}` : ''}`)
       .on('click', () => emit('select', p.id))
       .addTo(pointsLayer)
   }

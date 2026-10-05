@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 顶栏地块切换器（计划 0018 设计 3）：记住上次选择（localStorage，读写包 try/catch，在 ui store 里）。
- * 在某个大棚的子页（计划、株档案）上切换时留在同一子页；其余页面切换即进入该地块的落脚页。
+ * 在大棚详情的某个标签页上切换时留在同一标签（目标是大田而它没有这个标签时进概览）；其余页面切换即进入该地块的详情页。
  */
 import { computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -41,11 +41,14 @@ watch(() => [route.meta.fieldScoped, route.params.id] as const, ([scoped, id]) =
   if (scoped && Number.isInteger(n) && n > 0) ui.setCurrentField(n)
 }, { immediate: true })
 
+/** 大田的详情页只有这两个标签 */
+const OPEN_FIELD_TABS = new Set(['field-detail', 'field-patrols'])
+
 function pick(id: number) {
   const field = fields.byId.get(id)
   if (!field) return
   ui.setCurrentField(id)
-  if (route.meta.fieldScoped && route.name && isGreenhouse(field)) {
+  if (route.meta.fieldScoped && route.name && (isGreenhouse(field) || OPEN_FIELD_TABS.has(String(route.name)))) {
     void router.push({ name: route.name, params: { ...route.params, id }, query: route.query })
     return
   }

@@ -2,7 +2,7 @@
 /** PlantGrid 的悬停提示：挂在 body 上（不受网格容器滚动裁切），显示株号、状态、来源、模型分、上次叶背、今日任务与原因。 */
 import StateTag from './ui/StateTag.vue'
 import TaskTypeTag from './ui/TaskTypeTag.vue'
-import { PLAN_TRIGGER_LABELS, TASK_STATUS_LABELS, type PlanItem, type PlantState } from '../types'
+import { PLAN_TRIGGER_LABELS, PLANT_SOURCE_LABELS, TASK_STATUS_LABELS, type PlanItem, type PlantState } from '../types'
 import { fieldClock } from '../utils/fieldTime'
 
 defineProps<{
@@ -15,8 +15,6 @@ defineProps<{
   below: boolean
   navigable: boolean
 }>()
-
-const SOURCE_LABELS: Record<PlantState['source'], string> = { human: '人工确认', model: '模型（占位）', none: '还没有结论' }
 
 function underText(p: PlantState): string {
   if (p.last_under_accepted === false) return '不合格，需要补拍'
@@ -37,7 +35,7 @@ function reasons(item: PlanItem): string {
         <StateTag :state="plant.state" size="small" />
       </div>
       <dl>
-        <dt>来源</dt><dd>{{ SOURCE_LABELS[plant.source] }}</dd>
+        <dt>来源</dt><dd>{{ PLANT_SOURCE_LABELS[plant.source] }}</dd>
         <template v-if="plant.model_score != null"><dt>模型分</dt><dd class="tabular">{{ plant.model_score.toFixed(2) }}</dd></template>
         <dt>上次叶背</dt><dd>{{ underText(plant) }}</dd>
         <template v-if="task">

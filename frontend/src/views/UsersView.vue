@@ -4,10 +4,13 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
+import PageHeader from '../components/ui/PageHeader.vue'
+import SectionCard from '../components/ui/SectionCard.vue'
 import { usersApi } from '../api'
 import { errMsg } from '../api/http'
 import { useAuthStore } from '../stores/auth'
 import { ROLE_LABELS, type User, type UserRole } from '../types'
+import { fieldClock } from '../utils/fieldTime'
 
 const auth = useAuthStore()
 const users = ref<User[]>([])
@@ -100,52 +103,54 @@ async function resetPassword(row: User) {
   }
 }
 
-const fmtTime = (v: string | null) => (v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '—')
+const fmtTime = (v: string | null) => fieldClock(v)
 
 onMounted(load)
 </script>
 
 <template>
-  <div class="toolbar">
-    <el-button type="primary" :icon="Plus" @click="openCreate">新建用户</el-button>
-    <el-button :icon="Refresh" circle title="刷新" @click="load" />
-    <span class="dim">账号由管理员分配，不开放注册；不提供删除，离开团队的成员请停用。</span>
-  </div>
+  <PageHeader title="用户管理" subtitle="账号由管理员分配，不开放注册；不提供删除，离开团队的成员请停用">
+    <template #actions>
+      <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
+      <el-button type="primary" :icon="Plus" @click="openCreate">新建用户</el-button>
+    </template>
+  </PageHeader>
 
-  <el-table :data="users" v-loading="loading" border stripe>
-    <el-table-column prop="username" label="用户名" min-width="120" />
-    <el-table-column prop="display_name" label="姓名" min-width="120" />
-    <el-table-column label="角色" width="150">
-      <template #default="{ row }">
-        <el-select :model-value="row.role" size="small" :disabled="row.id === auth.user?.id"
-                   @change="(role: UserRole) => changeRole(row, role)">
-          <el-option v-for="o in ROLE_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
-        </el-select>
-      </template>
-    </el-table-column>
-    <el-table-column label="状态" width="90">
-      <template #default="{ row }">
-        <el-tag :type="row.is_active ? 'success' : 'info'" effect="plain">{{ row.is_active ? '启用' : '已停用' }}</el-tag>
-      </template>
-    </el-table-column>
-    <el-table-column label="最近登录" min-width="160"><template #default="{ row }">{{ fmtTime(row.last_login_at) }}</template></el-table-column>
-    <el-table-column label="创建时间" min-width="160"><template #default="{ row }">{{ fmtTime(row.created_at) }}</template></el-table-column>
-    <el-table-column label="操作" width="170" fixed="right">
-      <template #default="{ row }">
-        <el-button size="small" text type="primary" @click="resetPassword(row)">重置口令</el-button>
-        <el-button size="small" text :type="row.is_active ? 'danger' : 'success'" :disabled="row.id === auth.user?.id"
-                   @click="toggleActive(row)">{{ row.is_active ? '停用' : '启用' }}</el-button>
-      </template>
-    </el-table-column>
-  </el-table>
+  <SectionCard flush>
+    <el-table :data="users" v-loading="loading">
+      <el-table-column prop="username" label="用户名" min-width="120" />
+      <el-table-column prop="display_name" label="姓名" min-width="120" />
+      <el-table-column label="角色" width="150">
+        <template #default="{ row }">
+          <el-select :model-value="row.role" size="small" :disabled="row.id === auth.user?.id"
+                     @change="(role: UserRole) => changeRole(row, role)">
+            <el-option v-for="o in ROLE_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </template>
+      </el-table-column>
+      <el-table-column label="状态" width="90">
+        <template #default="{ row }">
+          <el-tag :type="row.is_active ? 'success' : 'info'" effect="plain">{{ row.is_active ? '启用' : '已停用' }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="最近登录" min-width="160"><template #default="{ row }">{{ fmtTime(row.last_login_at) }}</template></el-table-column>
+      <el-table-column label="创建时间" min-width="160"><template #default="{ row }">{{ fmtTime(row.created_at) }}</template></el-table-column>
+      <el-table-column label="操作" width="170" fixed="right">
+        <template #default="{ row }">
+          <el-button size="small" text type="primary" @click="resetPassword(row)">重置口令</el-button>
+          <el-button size="small" text :type="row.is_active ? 'danger' : 'success'" :disabled="row.id === auth.user?.id"
+                     @click="toggleActive(row)">{{ row.is_active ? '停用' : '启用' }}</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+  </SectionCard>
 
-  <el-card shadow="never" class="roles">
-    <template #header>角色说明</template>
+  <SectionCard title="角色说明" class="roles">
     <div v-for="o in ROLE_OPTIONS" :key="o.value" class="role-row">
       <el-tag :type="ROLE_TAG[o.value]" effect="plain" size="small">{{ o.label }}</el-tag>
       <span>{{ ROLE_HELP[o.value] }}</span>
     </div>
-  </el-card>
+  </SectionCard>
 
   <el-dialog v-model="dialogVisible" title="新建用户" width="440px">
     <el-form ref="formRef" :model="form" :rules="rules" label-width="72px">
@@ -169,9 +174,8 @@ onMounted(load)
 </template>
 
 <style scoped>
-.toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
-.dim { color: #8a978a; font-size: 12px; }
+.dim { color: var(--text-secondary); font-size: var(--fs-12); }
 .help { margin: 4px 0 0; width: 100%; }
-.roles { margin-top: 14px; }
-.role-row { display: flex; gap: 10px; align-items: center; font-size: 13px; color: #4a5d4e; padding: 4px 0; }
+.roles { margin-top: var(--space-4); }
+.role-row { display: flex; gap: var(--space-3); align-items: center; padding: var(--space-1) 0; font-size: var(--fs-13); color: var(--text-regular); }
 </style>

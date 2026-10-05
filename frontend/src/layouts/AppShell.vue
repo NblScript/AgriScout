@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 管理台外壳（计划 0018 设计 3）：固定侧栏 + 吸顶顶栏 + 内容区；768px 以下侧栏变抽屉。 */
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUiStore } from '../stores/ui'
 import AppSidebar from './AppSidebar.vue'
@@ -18,6 +18,15 @@ function onMedia(event: MediaQueryListEvent) {
 onMounted(() => query.addEventListener('change', onMedia))
 onBeforeUnmount(() => query.removeEventListener('change', onMedia))
 
+/**
+ * 页面重建的键：一般按路径（各页在 setup 里只读一次路由参数，顶栏切换地块只换参数）；
+ * 有子路由的页（大棚详情的标签页）按父路由 + 参数，切标签只换子页，页头和已拉的数据留着。
+ */
+const viewKey = computed(() => {
+  const parent = route.matched.length > 1 ? route.matched[0] : null
+  return parent ? `${parent.path}?${JSON.stringify(route.params)}` : route.path
+})
+
 // 换页：手机抽屉收起；待确认角标顺带刷新（15 秒内不重复请求）
 watch(() => route.fullPath, () => {
   ui.mobileNavOpen = false
@@ -32,8 +41,7 @@ watch(() => route.fullPath, () => {
     <div class="shell-main">
       <AppTopbar :mobile="mobile" />
       <main class="content">
-        <!-- 按路径重建页面：顶栏切换地块只换路由参数，各页在 setup 里只读一次参数 -->
-        <div class="content-inner"><router-view :key="route.path" /></div>
+        <div class="content-inner"><router-view :key="viewKey" /></div>
       </main>
     </div>
   </div>

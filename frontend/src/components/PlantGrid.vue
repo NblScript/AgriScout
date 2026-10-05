@@ -3,6 +3,7 @@
  * 「垄 × 株」状态网格（计划 0018 设计 6）：行 = 垄，列 = 株序号；解析不出垄号的株排在末尾「未编号」行。
  * 格子填株状态色（「不明」另加斜线底纹）；今日计划里有任务的格子加任务类型色描边（确认实线、补拍虚线、全覆盖点线、抽查双线）；
  * 上次叶背不合格的加白色角标；格子够大时异常状态另画形状。悬停看株号、状态、原因，点击进单株时间线；图例兼作筛选。
+ * 巡检回放（阶段 B）另传 visited（本次巡到的株，其余淡显）和 selected（正在看的株，加深色框），点击改为发 pick 事件。
  * 渲染用一个 CSS Grid（一株一个元素，3000 株实测见计划 0018）；fit="both" 时按容器宽高算格子边长，放不下就在组件内滚动。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -21,7 +22,12 @@ const props = withDefaults(defineProps<{
   maxCell?: number
   minCell?: number
   navigable?: boolean
-}>(), { plan: null, fit: 'width', maxCell: 28, minCell: 6, navigable: true })
+  /** 只突出这些株（巡检回放：本次巡到的株）；为空时全部正常显示 */
+  visited?: ReadonlySet<number> | null
+  /** 加深色框的株（巡检回放：正在看的株） */
+  selected?: number | null
+}>(), { plan: null, fit: 'width', maxCell: 28, minCell: 6, navigable: true, visited: null, selected: null })
+const emit = defineEmits<{ pick: [unitId: number] }>()
 
 const STATES: PlantStateValue[] = ['healthy', 'early', 'symptomatic', 'unknown']
 const LISTS: PlanListName[] = ['confirm', 'reshoot', 'coverage', 'random']
@@ -151,9 +157,13 @@ function cellClass(c: Cell): string {
   let cls = `pg-cell s-${c.plant.state}`
   if (c.task) cls += ` tk t-${c.task.list_name}`
   if (c.underBad) cls += ' u-bad'
+  if (props.visited && !props.visited.has(c.plant.unit_id)) cls += ' nv'
+  if (c.plant.unit_id === props.selected) cls += ' sel'
   if (!matches(c)) cls += ' dim'
   return cls
 }
+
+const visitedCount = computed(() => (props.visited ? layout.value.cells.filter((c) => props.visited!.has(c.plant.unit_id)).length : 0))
 
 const summary = computed(() => {
   const s = counts.value.state
@@ -178,7 +188,9 @@ function onOver(event: MouseEvent) {
 const router = useRouter()
 function onClick(event: MouseEvent) {
   const c = cellAt(event)
-  if (c && props.navigable) void router.push(`/units/${c.plant.unit_id}`)
+  if (!c) return
+  emit('pick', c.plant.unit_id)
+  if (props.navigable) void router.push(`/units/${c.plant.unit_id}`)
 }
 </script>
 
@@ -192,7 +204,7 @@ function onClick(event: MouseEvent) {
         <span v-for="c in colLabels" :key="`c${c}`" class="pg-col-label" :style="{ gridColumn: c + 1 }">{{ c }}</span>
         <span v-for="row in rowLabels" :key="`l${row.line}`" class="pg-row-label" :style="{ gridRow: row.line + 1 }">{{ row.label }}</span>
         <!-- v-memo：悬停、换格子尺寸时不重建 3000 个格子，只有布局或筛选变了才重渲染 -->
-        <i v-for="c in layout.cells" :key="c.plant.unit_id" v-memo="[c, filter]" :class="cellClass(c)" :data-i="c.index"
+        <i v-for="c in layout.cells" :key="c.plant.unit_id" v-memo="[c, filter, visited, c.plant.unit_id === selected]" :class="cellClass(c)" :data-i="c.index"
            :style="c.area" />
       </div>
       <p v-else-if="!layout.cells.length" class="pg-empty">还没有株档案</p>
@@ -205,7 +217,10 @@ function onClick(event: MouseEvent) {
           <StateTag :state="s" size="small" /><b>{{ counts.state[s] }}</b>
         </button>
       </span>
-      <span class="pg-legend-group">
+      <span v-if="visited" class="pg-legend-group">
+        <span class="pg-visited"><i class="pg-visited-swatch" aria-hidden="true" />本次巡到 <b>{{ visitedCount }}</b> 株，其余淡显</span>
+      </span>
+      <span v-if="plan" class="pg-legend-group">
         <span class="pg-legend-title">今日任务</span>
         <button v-for="t in LISTS" :key="t" type="button" class="pg-chip" :class="{ on: isActive({ kind: 'task', value: t }) }"
                 :aria-pressed="isActive({ kind: 'task', value: t })" @click="toggle({ kind: 'task', value: t })">
@@ -292,6 +307,8 @@ function onClick(event: MouseEvent) {
 .glyphs .s-early::before { width: 38%; height: 34%; clip-path: polygon(50% 0, 100% 100%, 0 100%); background: var(--state-early-ink); }
 .glyphs .s-symptomatic::before { width: 28%; height: 28%; background: #fff; }
 .glyphs .s-unknown::before { width: 30%; height: 30%; border-radius: 50%; box-shadow: 0 0 0 2px var(--neutral-500); }
+.nv { opacity: 0.28; }
+.sel { box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 4px var(--neutral-900); z-index: 2; }
 .dim { opacity: 0.16; outline-color: transparent; }
 .pg-empty { margin: 0; padding: var(--space-5); text-align: center; color: var(--text-secondary); font-size: var(--fs-13); }
 
@@ -345,6 +362,9 @@ function onClick(event: MouseEvent) {
   background: #fff;
   box-shadow: 0 0 0 1px var(--neutral-900);
 }
+.pg-visited { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-12); color: var(--text-secondary); }
+.pg-visited b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.pg-visited-swatch { width: 12px; height: 12px; border-radius: 2px; background: var(--state-healthy); }
 .pg-clear {
   border: none;
   background: none;

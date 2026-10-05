@@ -32,6 +32,18 @@ export function fieldClock(at: Instant | null | undefined): string {
   return `${day} ${pad(hour)}:${pad(minute)}`
 }
 
+/** 「HH:mm」 */
+export function fieldHm(at: Instant): string {
+  const { hour, minute } = fieldParts(at)
+  return `${pad(hour)}:${pad(minute)}`
+}
+
+/** 田间日期（YYYY-MM-DD，如时间线的 field_date）→「10/03 星期五」 */
+export function fieldDayLabel(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`)
+  return `${pad(d.getUTCMonth() + 1)}/${pad(d.getUTCDate())} 星期${WEEKDAYS[d.getUTCDay()]}`
+}
+
 /** 「HH:mm:ss」（展示屏时钟） */
 export function fieldTimeHms(at: Instant = Date.now()): string {
   const d = shifted(at)

@@ -51,16 +51,17 @@ const router = createRouter({
       meta: { title: '大棚与地块' },
     },
     {
-      path: '/fields/:id/units',
-      name: 'field-units',
-      component: () => import('../views/UnitsView.vue'),
-      meta: { title: '株档案', fieldScoped: true },
-    },
-    {
-      path: '/fields/:id/plan',
-      name: 'field-plan',
-      component: () => import('../views/PlanView.vue'),
-      meta: { title: '巡检计划', fieldScoped: true },
+      // 大棚详情（计划 0018 阶段 B）：标签页是子路由；0014/0015 的 /fields/:id/units、/fields/:id/plan 原样可用
+      path: '/fields/:id',
+      component: () => import('../views/FieldDetailView.vue'),
+      meta: { title: '大棚详情', fieldScoped: true },
+      children: [
+        { path: '', name: 'field-detail', component: () => import('../views/field/FieldOverviewTab.vue'), meta: { title: '大棚详情' } },
+        { path: 'plan', name: 'field-plan', component: () => import('../views/field/FieldPlanTab.vue'), meta: { title: '巡检计划' } },
+        { path: 'units', name: 'field-units', component: () => import('../views/field/FieldUnitsTab.vue'), meta: { title: '株档案' } },
+        { path: 'env', name: 'field-env', component: () => import('../views/field/FieldEnvTab.vue'), meta: { title: '棚内环境' } },
+        { path: 'patrols', name: 'field-patrols', component: () => import('../views/field/FieldPatrolsTab.vue'), meta: { title: '巡检记录' } },
+      ],
     },
     {
       path: '/units/:id',

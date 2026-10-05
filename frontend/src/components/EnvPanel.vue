@@ -1,16 +1,16 @@
 <script setup lang="ts">
 /**
- * 展示屏 · 棚内环境：最近一小时温湿度、环境风险（env_index）、清晨叶背窗口、近 72 小时曲线。
+ * 棚内环境卡（展示屏、大棚详情概览共用）：最近一小时温湿度、环境风险（env_index）、清晨叶背窗口、近 72 小时曲线。
  * 「实时」以记录仪最近一次上传为准，副标题写明读数截至何时；env_index 为空写「环境数据不足」，不当成低风险。
  */
 import { computed } from 'vue'
 import { Sunrise } from '@element-plus/icons-vue'
-import EChart from '../EChart.vue'
-import SectionCard from '../ui/SectionCard.vue'
-import { latestReadingAt } from '../../composables/useGreenhouseBoard'
-import type { EnvSummary } from '../../types'
-import { hourlyEnvOption } from '../../utils/envChart'
-import { fieldClock, relativeTime } from '../../utils/fieldTime'
+import EChart from './EChart.vue'
+import SectionCard from './ui/SectionCard.vue'
+import { latestReadingAt } from '../composables/useGreenhouseBoard'
+import type { EnvSummary } from '../types'
+import { hourlyEnvOption } from '../utils/envChart'
+import { fieldClock, relativeTime } from '../utils/fieldTime'
 
 const props = defineProps<{ env: EnvSummary | null; now: number; fontSize?: number }>()
 
@@ -91,8 +91,9 @@ function pct(value: number | null | undefined): string {
   align-self: flex-start;
   margin-top: 4px;
   padding: 2px var(--space-2);
-  font-size: var(--fs-16);
+  font-size: var(--fs-14);
   line-height: var(--lh-16);
+  white-space: nowrap;
   font-weight: var(--fw-medium);
   color: var(--info-ink);
   border: 1px dashed var(--neutral-400);
