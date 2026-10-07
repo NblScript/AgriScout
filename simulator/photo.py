@@ -1,4 +1,4 @@
-"""合成"农田照片"（Pillow 纯绘制）：healthy 茂密绿 / stress 枯黄斑 / soil 裸土缺苗。
+"""合成"农田照片"（Pillow 纯绘制）：healthy 茂密绿 / stress 枯黄斑 / soil 裸土缺苗；另有大棚黄瓜叶片近景（计划 0017）。
 
 说明：这不是真实照片，而是给占位识别算法(颜色统计)与将来 YOLO
 联调用的可控视觉样本——斑块的密度/位置由场景参数决定，可复现。
@@ -8,7 +8,7 @@ from __future__ import annotations
 import io
 import random
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 SIZE = (160, 120)
 
@@ -54,4 +54,38 @@ def make_photo_bytes(mode: str, intensity: float, rng: random.Random,
 
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=82)
+    return buf.getvalue()
+
+
+# 叶片近景的病斑颜色：占位分析器把黄褐色像素记为「胁迫」，风险分约等于 2.5 × 病斑像素占比。
+# 真实的霜霉病叶背是灰紫色霉层，这里只为让占位分析器给出可控的分数，不追求像。
+LESION_COLOR = (176, 148, 52)
+
+
+def make_leaf_photo_bytes(lesion_fraction: float, rng: random.Random, *, side: str = "under",
+                          blurred: bool = False, size: tuple[int, int] = SIZE) -> bytes:
+    """黄瓜叶片近景：绿底加叶脉，多边形病斑铺到 lesion_fraction（0–0.6）为止；blurred 模拟虚焦（拍摄不合格）。"""
+    base = (70, 158, 78) if side == "under" else (46, 150, 62)  # 叶背颜色稍浅
+    img = Image.new("RGB", size, base)
+    draw = ImageDraw.Draw(img)
+    w, h = size
+    for i in range(1, 7):  # 主脉与侧脉
+        x = i * w // 7
+        draw.line([(w // 2, h), (x, 0)], fill=(base[0] + 30, base[1] + 34, base[2] + 22), width=1)
+    mask = Image.new("L", size, 0)
+    mask_draw = ImageDraw.Draw(mask)
+    target = max(0.0, min(lesion_fraction, 0.6)) * w * h
+    for _ in range(400):  # 叶脉限制下的多角形病斑，铺够面积即停
+        if mask.histogram()[255] >= target:
+            break
+        cx, cy = rng.randrange(w), rng.randrange(h)
+        r = rng.randint(5, 12)
+        poly = [(cx + rng.randint(-r, r), cy + rng.randint(-r, r)) for _ in range(5)]
+        color = tuple(c + rng.randint(-8, 8) for c in LESION_COLOR)
+        draw.polygon(poly, fill=color)
+        mask_draw.polygon(poly, fill=255)
+    if blurred:
+        img = img.filter(ImageFilter.GaussianBlur(3))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
     return buf.getvalue()

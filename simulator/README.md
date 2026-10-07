@@ -53,10 +53,13 @@ simulator/
 ├── client.py      # 平台 HTTP 客户端 + 幂等建档助手
 ├── geo.py         # 米制局部坐标→经纬度；S形垄行路径；边界 GeoJSON
 ├── weather.py     # 日变化天气曲线 + 墒情衰减剖面
-├── photo.py       # Pillow 合成农田照片（绿苗/枯斑/裸土）
+├── photo.py       # Pillow 合成农田照片（绿苗/枯斑/裸土）+ 黄瓜叶片近景（按病斑面积标定占位分析器分数）
 ├── scenarios.py   # 场景预设（问题注入策略）
 ├── epidemic.py    # 病害扩散元胞模型（潜伏期 + 天气 + 空间扩散）
 ├── season.py      # 多日期模拟季：上传、风险预测、模拟随访、导出真值
+├── greenhouse.py  # 大棚黄瓜霜霉病模型（布局、小时温湿度、侵染与发展、可见性、人工确认），纯模型无 IO
+├── greenhouse_run.py  # 大棚闭环：建档 → 环境 → 每天拉计划、拍照、确认 → 导出真值
+├── test_greenhouse.py # 大棚模型单测（仓库根目录 python -m unittest simulator.test_greenhouse）
 ├── test_epidemic.py  # 病害模型单测（仓库根目录 python -m unittest simulator.test_epidemic）
 └── test_geo_v2.py    # --v2 株号推导单测（仓库根目录 python -m unittest simulator.test_geo_v2）
 ```
@@ -80,3 +83,30 @@ cd simulator
   同一种子的随访会抽到相同的区域和巡检，两个模型可以直接对比。
 - **输出**：`simulator/out/season-truth-field<id>.json`（逐点逐日严重度、逐日气象站记录、巡检映射），
   交给 `backend/app/tools/replay_eval.py` 做 H1–H3 离线重放。
+
+## 大棚黄瓜闭环与策略比较（计划 0017）
+
+`greenhouse.py` 生成一份大棚「真值世界」，`greenhouse_run.py` 用它把 0014–0016 的闭环通过 HTTP 跑一遍：
+
+```bash
+cd simulator
+../backend/.venv/bin/python greenhouse_run.py --days 10                        # 闭环：需操作员账号，每次新建一个模拟大棚
+../backend/.venv/bin/python greenhouse_run.py --facility plastic_tunnel --rows 6 --plants 40 --seed 3
+for s in $(seq 1 20); do ../backend/.venv/bin/python greenhouse_run.py --offline --days 30 --seed $s; done   # 只导出真值
+cd ../backend && .venv/bin/python -m app.tools.greenhouse_replay --truth ../simulator/out/greenhouse-truth-*.json
+```
+
+- **模型**：日光温室或塑料大棚，`R{垄}-P{株}` 布局；逐小时温湿度（塑料大棚昼夜温差大、夜间更湿）；
+  每个湿润且温度适宜的小时按「外源基数 + β × 明显期邻株数」侵染，之后潜伏 → 早期 → 明显；
+  可见性按 视角 × 时段 × 状态 给出检出概率，另有拍摄不合格和补拍成功概率。**全部是设计假设，不是实测。**
+- **闭环每天**：`POST /fields/{id}/patrol-plans` 拉计划 → 补拍名单只拍叶背、不合格重拍，全覆盖和抽查拍正面和叶背 →
+  发 v2 包（`view.accepted` 写拍摄当场的质量结论）→ 等分析 → 拍照任务走完状态机 →
+  确认名单按真值写三阶段标注（人工误判率 `--human-error`）并关确认任务（与前端 D20 同一做法）。
+- **照片**：合成叶片图的病斑面积按占位分析器标定，叶背合格图的风险分约为：明显期 0.85、早期 0.55、健康株误检 0.5、看不出 0.1。
+- **日期**：闭环的模拟季放在过去（第 0 天 = 今天 − days），只上报到季末的环境；`--offline` 默认第 0 天固定为 2026-03-02，
+  同一种子导出的真值逐字节一致。
+- **已知差异**：标注时间是平台写入的真实时间，晚于所有模拟照片，所以闭环里被人看过的株要等分数达到 0.7 才会再推给人；
+  离线比较按模拟时间记标注，不受影响。
+- **输出**：`simulator/out/greenhouse-truth-<seed>.json`（`agriscout.greenhouse-truth.v1`：逐小时环境、每株侵染/早期/明显时刻、
+  每天状态码、可见性与分数参数、闭环记录），交给后端 `app.tools.greenhouse_replay` 比较巡检策略。
+  报告开头写明「模拟结论只证明流程」：病害规律是按设计放进来的，数字不能当作效果证据（D5）。

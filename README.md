@@ -65,6 +65,9 @@ AgriScout（巡知）是一套面向病害风险预测与主动学习的农田�
 - 研究闭环：按逐点分析生成带时间窗和证据的风险预测，主动排序复巡/标注任务（线上与离线重放共用同一联合策略，质量取实测图像质量，D17），记录人工随访结论，并以冻结数据集和模型评估闸门管理发布。
 - 设备协议：设备幂等注册、心跳、设备/任务事件、可回放故障注入，以及设备领取复巡任务（`/devices/{id}/tasks/next`）。
 - 虚拟巡田：独立模拟器提供 `healthy`、`dry`、`patchy_disease` 三种可复现场景；`season.py` 模拟整季多日期巡检，病害按潜伏期、天气和空间扩散发展，并模拟农技员随访。
+  `greenhouse_run.py` 用大棚黄瓜模型（逐小时温湿度、侵染与发展、叶背 / 正面可见性）通过 HTTP 跑通「拉计划 → 拍照 → 分析 → 人工确认」闭环并导出真值。
+- 巡检策略比较：`greenhouse_replay` 在同一份大棚真值上、每天同样的照片和人工确认上限下，比较固定巡检与风险驱动（每天调用线上 planner-v0），
+  另列「只换清晨拍」「只换按模型分确认」两个对照；**模拟结论只证明流程**，病害规律是设计进模拟器的，不是效果证据（D21）。
 - 实验评估：风险预测按观察区域串联历史巡检；`GET /risk-predictions/metrics` 从随访结果计算 PR-AUC、Brier、固定误报负担下的召回率和提前量；`replay_eval` 离线重放 H1 特征消融、H2 复巡策略、H3 标注选样。H3 另在 NWRD 真实图块上验证（`al_replay_images`）：候选池阳性比例抽稀到 ≤10% 时，平台联合选样达到随机选样 200 个标注的效果只需 100–120 个；NWRD 原始比例（约 1/3 阳性）下三种策略没有差别。抽稀条件是看到原始结果后追加的对照，结论需在试验田数据上复验。
 - 可训练风险模型：`train_risk_lr` 用逻辑回归训练 `risk-lr-v1`（本区域图像、历史、邻近区域 5 个特征），生成预测时指定 `model_version=risk-lr-v1` 使用；训练与线上共用同一特征实现。
 - 真车采集端：`rover/` 支持 USB 摄像头或合成图采集、本地 spool 断网续传、临时错误指数退避重试。
@@ -86,6 +89,7 @@ AgriScout（巡知）是一套面向病害风险预测与主动学习的农田�
 | 真车采集端软件 | 已完成 | `rover/` 可用 `--fake` 无硬件跑通上传，烟测覆盖上传、断网续传与登录 |
 | 大棚按株建档与巡检计划 | 已完成 | 计划 0014、0015：株档案、协议 v2 子集、环境读数、每株状态、planner-v0 计划页；参数是启发式，待试拍校准 |
 | 前端按大棚工作流重做 | 已完成 | 计划 0018：工作台、大棚详情、待确认与单株时间线（手机可用）、巡检回放两种模式、展示屏；3000 株状态网格首屏约 0.2 秒 |
+| 大棚模拟与策略比较 | 已完成 | 计划 0017：大棚黄瓜模型与 HTTP 闭环、固定巡检与风险驱动同预算离线比较；模拟结论只证明流程（D21） |
 | M7 真车接入 | 下一阶段 | 编码器/GPS/天气传感器尚未接入；目标是平台业务代码不因数据源改变而修改 |
 
 需要明确的是：当前模型效果主要由公开数据和模拟数据验证，真实车载照片、农技阈值复核和田间对比实验仍是下一阶段的核心工作。
@@ -282,7 +286,6 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 与作物无关的剩余改造见 [0007](docs/exec-plans/active/0007-application-alignment.md)）。场地核实与试拍前只做不依赖场地的部分：
 
 - rover 协议 v2 与分步上传（0016-B），离线执行巡检计划（0016-C）；按预设角度拍摄 + 逐张质量判断 + 补拍、图像质量进入分析结果已完成（0016-A）；
-- 大棚黄瓜模拟场景，端到端跑通闭环，并离线比较固定巡检与风险驱动两种策略（0017）；
 - 试拍拿到真实照片后：霜霉病识别基线、黄瓜规则草稿（待农技复核）；
 - 时钟同步、盲法复核、数据集分组划分、TX2 部署验证（计划 0007）。
 
@@ -310,7 +313,7 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 - [docs/01-reference-research.md](docs/01-reference-research.md)：同类案例与论文调研。
 - [rover/README.md](rover/README.md)：真车采集端安装、参数与失败行为。
 - [docs/design-docs/decision-registry.md](docs/design-docs/decision-registry.md)：编号决策注册表与规则引擎生命周期。
-- [docs/exec-plans/active/0013-greenhouse-active-acquisition.md](docs/exec-plans/active/0013-greenhouse-active-acquisition.md)：温室方向软件线总览（拆分、依赖顺序、共同约定）；子计划 0014–0017 在同一目录。
+- [docs/exec-plans/active/0013-greenhouse-active-acquisition.md](docs/exec-plans/active/0013-greenhouse-active-acquisition.md)：温室方向软件线总览（拆分、依赖顺序、共同约定）；未完成的子计划 0016 在同一目录。
 - [docs/exec-plans/active/0007-application-alignment.md](docs/exec-plans/active/0007-application-alignment.md)：进行中的执行计划（与作物无关的剩余改造：时钟、盲法复核、数据集划分、TX2）。
 - [docs/exec-plans/tech-debt-tracker.md](docs/exec-plans/tech-debt-tracker.md)：技术债台账（含历次审查未修项）。
 - [docs/exec-plans/README.md](docs/exec-plans/README.md)：执行计划约定；已删除历史文档的取回方式。

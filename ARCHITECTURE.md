@@ -41,6 +41,8 @@
 ```
 
   三个计算服务都是纯函数，`greenhouse_plans` 负责取数和落库；计划头存在任务 `parameters` 里，重新生成时作废上一版排队任务。
+  离线验证（计划 0017，D21）：`simulator/greenhouse_run.py` 用大棚真值世界通过 HTTP 跑这条链路并导出真值 JSON，
+  `services/greenhouse_replay.py` 在同一份真值上逐日调用同一个 `patrol_planner`，与固定巡检同预算比较；模拟结论只证明流程。
 
 ## backend 分层与依赖方向（自上而下，禁止反向）
 
