@@ -68,6 +68,8 @@ class PlantState:
     last_under_accepted: bool | None = None
     reviewed_at: datetime | None = None  # 采用的人工结论的时间
     analyzer_version: str | None = None
+    # model_score 来自哪张照片（拍摄时间）：计划据此判断这张图是不是在人工结论之后拍的（D22）
+    model_scored_at: datetime | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -75,6 +77,7 @@ class PlantState:
             "model_score": self.model_score, "last_seen_at": self.last_seen_at,
             "last_under_ok_at": self.last_under_ok_at, "last_under_accepted": self.last_under_accepted,
             "reviewed_at": self.reviewed_at, "analyzer_version": self.analyzer_version,
+            "model_scored_at": self.model_scored_at,
         }
 
 
@@ -101,6 +104,7 @@ def plant_state(
         "last_under_ok_at": under_ok[-1].captured_at if under_ok else None,
         "last_under_accepted": under[-1].accepted is True if under else None,
         "analyzer_version": latest_scored.analyzer_version if latest_scored is not None else None,
+        "model_scored_at": latest_scored.captured_at if latest_scored is not None else None,
     }
     human = [h for h in labels if h.label in HUMAN_LABEL_STATES]
     if human:
