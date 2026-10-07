@@ -36,7 +36,7 @@
 ```
 温湿度记录仪 CSV ─ rover/env_upload.py ─→ env_readings ─→ greenhouse_env（小时聚合、逐日指标、环境指数、清晨窗口）─┐
 株档案 + 叶背照片 + 质量 + 人工确认标注 ─→ plant_state（每株状态：人工优先，模型分占位）──────────────────────┤
-                                                                     patrol_planner（planner-v0，纯函数）←┘
+                                                                     patrol_planner（planner-v1，纯函数）←┘
                                          → 四张名单写成 revisit_tasks（确认/补拍/全覆盖/抽查）→ 车领任务 / 人在时间线确认
 ```
 
@@ -94,7 +94,7 @@ core/            config(pydantic-settings) / db(Session) / deps(认证与角色�
 | 照片存储 | `Storage` | LocalStorage 内容寻址 | 生产换对象存储只改实现类 |
 | 规则源 | wheat.yaml | 18 条 | sync-yaml 幂等 upsert，version 自增 |
 | 风险模型 | `model_version` | risk-heuristic-v2 / risk-lr-v1（模型文件） | 生成预测时指定版本，D12 |
-| 巡检计划 | `PlannerParams` / `DownyMildewEnvParams` | planner-v0 / dm-env-v0（启发式，D18） | 请求里 `overrides` 调参；换策略改 `patrol_planner`，版本号写进每条任务 |
+| 巡检计划 | `PlannerParams` / `DownyMildewEnvParams` | planner-v1 / dm-env-v0（启发式，D18、D22） | 请求里 `overrides` 调参；换策略改 `patrol_planner`，版本号写进每条任务 |
 | 数据库 | SQLAlchemy | SQLite 开发 / PostgreSQL 生产 | DATABASE_URL 切换 + Alembic 迁移 |
 
 ## 能力分级
