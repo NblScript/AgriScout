@@ -38,7 +38,7 @@ docs/exec-plans/active/<编号>-<主题>.md   ← 开工时创建，随进展更
 
 ## 在档计划
 
-- active：见目录（当前为 0007、0013、0016；0007 只剩与作物无关的项；0013 是温室方向软件线总览，0016 是可交给代理执行的子计划）
+- active：见目录（当前为 0007、0013；0007 只剩与作物无关的项；0013 是温室方向软件线总览，子计划 0014–0018 都已完成归档）
 - 技术债与可选打磨统一记 `tech-debt-tracker.md`，不单独开计划
 
 ## 已删除的历史文档（2026-09-29 清理）
@@ -52,6 +52,7 @@ docs/exec-plans/active/<编号>-<主题>.md   ← 开工时创建，随进展更
 | 执行计划 0012（登录与角色权限） | `ae22fb6` | `docs/exec-plans/completed/0012-user-auth.md` |
 | 执行计划 0014（按株建档、协议 v2 最小子集、单株时间线；含执行中的决策记录） | 「docs: 计划 0014 完成」commit（`git log --grep "计划 0014 完成"` 查哈希） | `docs/exec-plans/active/0014-plant-identity-protocol-v2.md` |
 | 执行计划 0015（棚内环境、每株状态、风险驱动巡检计划、旧复巡下沉；含执行中的决策记录） | 「docs: 计划 0015 完成」commit（`git log --grep "计划 0015 完成"` 查哈希） | `docs/exec-plans/active/0015-env-risk-patrol-planner.md` |
+| 执行计划 0016（rover 主动采集：质量反馈补拍、逐点落盘、协议 v2 与照片分步上传、株号定位、离线执行巡检计划；含三个阶段的决策记录） | 「docs: 归档计划 0016」commit（`git log --grep "归档计划 0016"` 查哈希） | `docs/exec-plans/active/0016-rover-active-capture.md` |
 | 执行计划 0017（大棚黄瓜模拟与巡检策略离线比较；含执行中的决策记录） | 「docs: 计划 0017 完成」commit（`git log --grep "计划 0017 完成"` 查哈希） | `docs/exec-plans/active/0017-greenhouse-simulator-replay.md` |
 | 执行计划 0018（前端重做：设计系统、外壳、各页面；含两个阶段的决策记录、色板与色盲检查数据） | 「docs: 计划 0018 完成」commit（`git log --grep "计划 0018 完成"` 查哈希） | `docs/exec-plans/active/0018-frontend-redesign.md` |
 | 代码审查记录（三轮）、申报书方案评审 | `5ab7309` | `docs/reviews/2026-09-25-code-review.md`、`docs/reviews/2026-09-25-application-review.md` |
@@ -68,3 +69,5 @@ docs/exec-plans/active/<编号>-<主题>.md   ← 开工时创建，随进展更
 技术债台账（确认两步非原子、工作台逐棚请求、待确认逐株拉时间线、展示屏低分辨率裁切；清掉只读账号写按钮、确认任务不随确认完成）。
 计划 0017 → 决策 D21，simulator/README「大棚黄瓜闭环与策略比较」，README「当前能力」「当前状态」，ARCHITECTURE「数据流」，
 AGENTS 命令速查与代码地图，计划 0013「进度」（多种子结论，只证明流程），技术债台账（人工判健康后早期分数不再推给人）。
+计划 0016 → 决策 D23，rover/README「停车补拍模式」「按巡检计划执行」，ARCHITECTURE「契约」（图像质量、照片分步上传、按计划离线执行），
+README「当前能力」，AGENTS 命令速查与代码地图，计划 0013「进度」，技术债台账（分步上传的照片不清理；清掉 rover 重传遇 409、更新设备领任务不分类型）。
