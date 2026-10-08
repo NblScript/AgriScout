@@ -115,7 +115,7 @@ def test_patrol_plan_is_idempotent_and_latest_matches(client):
     first = client.post(f"{BASE}/fields/{field_id}/patrol-plans", json=body)
     assert first.status_code == 200, first.text
     plan = first.json()
-    assert plan["plan_version"] == "planner-v0" and plan["units"] == 10
+    assert plan["plan_version"] == "planner-v1" and plan["units"] == 10
     assert plan["env"]["env_index"] is None and plan["env"]["env_missing"] is True  # 没有环境读数：按中值处理
     ids = sorted(item["task_id"] for name in ("confirm", "reshoot", "coverage", "random") for item in plan[name])
     assert len(ids) == len(set(ids)) > 0

@@ -27,6 +27,11 @@ def test_model_placeholder_uses_latest_accepted_under_photo_and_thresholds():
     assert (state.state, state.source, state.confidence, state.model_score) == ("early", "model", 0.3, 0.5)
     assert state.last_seen_at == T0 + timedelta(hours=3) and state.last_under_ok_at == T0 + timedelta(hours=3)
     assert state.last_under_accepted is True
+    assert state.model_scored_at == T0 + timedelta(hours=3)
+    # 最新的合格叶背图还没分析完：分数和它的拍摄时间都取上一张有分数的
+    pending = plant_state([_obs(0, score=0.6), _obs(4, score=None)], [])
+    assert (pending.model_score, pending.model_scored_at) == (0.6, T0)
+    assert pending.last_under_ok_at == T0 + timedelta(hours=4)
     assert plant_state([_obs(0, score=0.7)], []).state == "symptomatic"
     assert plant_state([_obs(0, score=0.39)], []).state == "healthy"
     custom = PlantStateParams(early_threshold=0.2, symptomatic_threshold=0.3)

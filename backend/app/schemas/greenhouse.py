@@ -101,7 +101,7 @@ class PlantStateOut(BaseModel):
 
 class PatrolPlanIn(BaseModel):
     plan_date: date | None = Field(default=None, description="计划日（田间日期），默认今天")
-    overrides: dict[str, float] | None = Field(default=None, description="覆盖 planner-v0 的数值参数")
+    overrides: dict[str, float] | None = Field(default=None, description="覆盖巡检计划 PlannerParams 的数值参数")
     created_by: str = Field(default="system", min_length=1, max_length=80)
 
 
