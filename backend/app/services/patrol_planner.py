@@ -1,8 +1,9 @@
-"""风险驱动巡检计划 planner-v0（计划 0015，纯函数，不读写数据库）。
+"""风险驱动巡检计划 planner-v1（计划 0015 的 planner-v0 + D22，纯函数，不读写数据库）。
 
 输入全部在用的株（每株状态 + 距上次看到 / 上次合格叶背的天数 + 邻株最高模型分）和环境摘要，输出四张名单：
 
 - **确认**（推给人看）：模型判为早期、或模型分达到确认阈值的株，按分数排序，受人工预算限制。
+  人工判为健康的株，之后又拍到的合格叶背图分数达到早期阈值，也重新推给人（D22，v1 起）。
 - **补拍**（叶背多角度重拍）：按模型分、邻株、环境、叶背陈旧程度打分，预算随环境指数在基础比例和高风险比例之间插值。
 - **全覆盖**：太久没看到的株全部进入。
 - **抽查**：从剩下的株里按固定比例随机抽，种子由 (地块, 计划日) 决定，结果可复现。
@@ -18,9 +19,10 @@ from dataclasses import asdict, dataclass, field, fields, replace
 from datetime import date
 from typing import Any
 
+from app.core.timeutil import to_utc
 from app.services.plant_state import PlantState
 
-PLAN_VERSION = "planner-v0"
+PLAN_VERSION = "planner-v1"
 LISTS = ("confirm", "reshoot", "coverage", "random")
 # 名单 → RevisitTask.task_type
 TASK_TYPES = {"confirm": "label", "reshoot": "revisit", "coverage": "coverage", "random": "random"}
@@ -40,6 +42,8 @@ class PlannerParams:
     # 确认：模型分达到这个阈值就推给人（与每株状态的「明显」占位阈值一致）；人工每天最多确认的株数
     confirm_threshold: float = 0.7
     human_budget: int = 5
+    # 人工判为健康后又拍到合格叶背图、分数达到这个值就重新推给人（与每株状态的「早期」占位阈值一致，D22）
+    healthy_recheck_threshold: float = 0.4
     # 补拍打分权重：模型分、邻株最高分、环境指数、叶背陈旧程度；上次叶背不合格再加分
     w_model: float = 0.4
     w_neighbor: float = 0.2
@@ -143,6 +147,12 @@ def _human_symptomatic(unit: UnitInput) -> bool:
     return unit.state.source == "human" and unit.state.state == "symptomatic"
 
 
+def _scored_after_review(st: PlantState) -> bool:
+    """模型分所依据的叶背图是在人工结论之后拍的（人还没看过这张图）。"""
+    return (st.reviewed_at is not None and st.model_scored_at is not None
+            and to_utc(st.model_scored_at) > to_utc(st.reviewed_at))
+
+
 def _confirm_entry(unit: UnitInput, params: PlannerParams) -> dict[str, Any] | None:
     st = unit.state
     if _human_symptomatic(unit):
@@ -153,12 +163,19 @@ def _confirm_entry(unit: UnitInput, params: PlannerParams) -> dict[str, Any] | N
     triggers = []
     if st.state == "early" and st.source != "human":
         triggers.append("model_early")
+    # 人工判为健康不等于以后都健康：之后的新叶背图分数达到早期阈值，重新推给人（D22）
+    if (st.source == "human" and st.state == "healthy" and st.model_score is not None
+            and st.model_score >= params.healthy_recheck_threshold and _scored_after_review(st)):
+        triggers.append("model_early_after_human_healthy")
     if st.model_score is not None and st.model_score >= params.confirm_threshold and not reviewed:
         triggers.append("model_score_over_confirm_threshold")
     if not triggers:
         return None
-    return {"triggers": triggers, "state": st.state, "source": st.source, "model_score": st.model_score,
-            "confirm_threshold": params.confirm_threshold}
+    entry = {"triggers": triggers, "state": st.state, "source": st.source, "model_score": st.model_score,
+             "confirm_threshold": params.confirm_threshold}
+    if "model_early_after_human_healthy" in triggers:
+        entry["healthy_recheck_threshold"] = params.healthy_recheck_threshold
+    return entry
 
 
 def _reshoot_components(unit: UnitInput, env: float, env_missing: bool, params: PlannerParams) -> dict[str, Any]:

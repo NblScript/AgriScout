@@ -32,7 +32,7 @@ REPORT_VERSION = "gh-replay-v1"
 DISCLAIMER = "模拟结论只证明流程：病害规律与可见性参数都是设计假设（D5），下面的数字不能当作效果证据。"
 STRATEGIES = ("fixed", "fixed_morning", "fixed_ranked", "risk")
 STRATEGY_TITLES = {"fixed": "固定巡检", "fixed_morning": "固定巡检·清晨拍", "fixed_ranked": "固定巡检·按模型分确认",
-                   "risk": "风险驱动（planner-v0）"}
+                   "risk": f"风险驱动（{patrol_planner.PLAN_VERSION}）"}
 SHOOT_TIME = {"morning": time(6, 30), "day": time(10, 0)}
 SECONDS_PER_SHOT = 15
 CONFIRM_TIME = time(14, 0)

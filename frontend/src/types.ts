@@ -770,6 +770,7 @@ export const TASK_TYPE_LIST: Record<RevisitTask['task_type'], PlanListName> = {
 export const PLAN_TRIGGER_LABELS: Record<string, string> = {
   model_early: '模型判早期',
   model_score_over_confirm_threshold: '模型分超确认阈值',
+  model_early_after_human_healthy: '判健康后新叶背达早期',
   top_reshoot_score: '补拍分靠前',
   last_under_rejected: '上次叶背不合格',
   morning_window: '清晨窗口',

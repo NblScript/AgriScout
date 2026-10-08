@@ -1,4 +1,4 @@
-"""计划 0015：风险驱动巡检计划 planner-v0（纯函数）。"""
+"""计划 0015：风险驱动巡检计划（纯函数）；planner-v1 的「判健康后重新推给人」见 D22。"""
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -101,6 +101,36 @@ def test_human_reviewed_after_latest_photo_is_not_pushed_again():
     stale_review = _unit(2, _state("healthy", "human", 0.9, reviewed_hours=-2))  # 新照片在人工结论之后
     plan = _plan([reviewed, stale_review, *[_unit(i) for i in range(3, 20)]], _env(0.5))
     assert _keys(plan, "confirm") == ["R01-P002"]
+
+
+def _healthy_by_human(score, *, scored_hours, reviewed_hours=0):
+    """人工判为健康；模型分来自 scored_hours 小时拍的合格叶背图（相对 NOW − 1 天），人工结论在 reviewed_hours。"""
+    base = NOW - timedelta(days=1)
+    scored = base + timedelta(hours=scored_hours)
+    return PlantState(state="healthy", source="human", confidence=1.0, model_score=score,
+                      last_seen_at=scored, last_under_ok_at=scored, last_under_accepted=True,
+                      reviewed_at=base + timedelta(hours=reviewed_hours), model_scored_at=scored)
+
+
+def test_new_early_score_after_human_healthy_is_pushed_again():
+    units = [
+        _unit(1, _healthy_by_human(0.55, scored_hours=5)),  # 判健康后新拍的叶背图到了早期区间：推
+        _unit(2, _healthy_by_human(0.55, scored_hours=-5)),  # 人看过的就是这张图：不推
+        _unit(3, _healthy_by_human(0.3, scored_hours=5)),  # 新图分数没到早期：不推
+        _unit(4, _healthy_by_human(0.8, scored_hours=5)),  # 新图已到确认阈值：两个原因都记
+        _unit(5, _state("early", "human", 0.55, reviewed_hours=-5)),  # 人工判早期的株不因早期分数重推
+        *[_unit(i) for i in range(6, 20)],
+    ]
+    plan = _plan(units, _env(0.5))
+    assert _keys(plan, "confirm") == ["R01-P004", "R01-P001"]
+    first = next(item for item in plan["lists"]["confirm"] if item.key == "R01-P001")
+    assert first.rationale["triggers"] == ["model_early_after_human_healthy"]
+    assert first.rationale["healthy_recheck_threshold"] == 0.4
+    both = next(item for item in plan["lists"]["confirm"] if item.key == "R01-P004")
+    assert both.rationale["triggers"] == ["model_early_after_human_healthy", "model_score_over_confirm_threshold"]
+    stricter = _plan(units, _env(0.5), DEFAULT_PARAMS.with_overrides({"healthy_recheck_threshold": 0.6}))
+    assert _keys(stricter, "confirm") == ["R01-P004"]
+    assert plan["plan_version"] == "planner-v1"
 
 
 def test_same_inputs_and_seed_give_identical_plan():
