@@ -154,8 +154,8 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 class _Platform(HTTPServer):
-    def __init__(self) -> None:
-        super().__init__(("127.0.0.1", 0), _Handler)
+    def __init__(self, handler: type[BaseHTTPRequestHandler] = _Handler) -> None:
+        super().__init__(("127.0.0.1", 0), handler)
         self.log: list[tuple[str, str]] = []
         self.records: dict[str, list[dict]] = {}
         self.media: dict[str, str] = {}

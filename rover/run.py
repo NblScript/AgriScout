@@ -25,11 +25,12 @@ from typing import Any
 import httpx
 
 try:
-    from . import acquire, hardware, positioning, upload
+    from . import acquire, hardware, plan, positioning, upload
     from .point_store import PointStore
 except ImportError:  # 在 rover/ 目录下直接运行 python run.py
     import acquire  # type: ignore[no-redef]
     import hardware  # type: ignore[no-redef]
+    import plan  # type: ignore[no-redef]
     import positioning  # type: ignore[no-redef]
     import upload  # type: ignore[no-redef]
     from point_store import PointStore  # type: ignore[no-redef]
@@ -88,6 +89,7 @@ class PackageSpool:
 
     stops 模式的 v2 包（计划 0016-B）不内嵌照片：信封里的 ``photo_dir`` 指向封存的逐点目录，
     照片在那里一直留到平台确认收包。409 的包标 ``needs_manual``，补传时跳过，等人核对。
+    按计划执行的巡检（计划 0016-C）信封里另有 ``task_reports``：包收下后再回报任务，回报完才删队列文件。
     """
 
     def __init__(self, directory: str | Path):
@@ -108,6 +110,7 @@ class PackageSpool:
 
     def save(
         self, package: dict[str, Any], *, last_error: str | None = None, photo_dir: str | None = None,
+        task_reports: dict[str, Any] | None = None,
     ) -> Path:
         target = self.path_for(package)
         envelope = {
@@ -119,6 +122,8 @@ class PackageSpool:
         }
         if photo_dir is not None:
             envelope["photo_dir"] = photo_dir
+        if task_reports is not None:
+            envelope["task_reports"] = task_reports
         self._write(target, envelope)
         return target
 
@@ -288,6 +293,19 @@ class ApiClient(AbstractContextManager["ApiClient"]):
             body["result_note"] = result_note
         return self._req("PATCH", f"/api/v1/revisit-tasks/{task_id}", json_body=body, expect=(200,))
 
+    def note_task(self, task_id: int, note: str) -> dict[str, Any]:
+        """只写任务的结果说明、不改状态，返回任务当前状态；已结束的任务平台返回 409（计划 0016-C）。"""
+        return self._req("PATCH", f"/api/v1/revisit-tasks/{task_id}", json_body={"result_note": note},
+                         expect=(200,))
+
+    def latest_plan(self, field_id: int) -> dict[str, Any]:
+        """大棚最近一次巡检计划（D18 四张名单）；没生成过时平台返回 404。"""
+        return self.get(f"/api/v1/fields/{field_id}/patrol-plans/latest")
+
+    def list_tasks(self, **filters: Any) -> list[dict[str, Any]]:
+        """按 field_id / status / task_type / limit 列任务（含 ``parameters``）。"""
+        return self._req("GET", "/api/v1/revisit-tasks", params=filters, expect=(200,))
+
     def ensure_field(self, name: str, boundary: dict[str, Any]):
         for field in self.get("/api/v1/fields"):
             if field["name"] == name:
@@ -382,23 +400,30 @@ def send_queued(
     """上传队列里的一个包。v2 包先逐张查重并上传照片，再提交只含 URL 的元数据包（计划 0016-B）。
 
     成功（含平台判为重复补传的 200 + duplicate）后删除队列文件和照片目录；409 标记待人工处理；
-    其余失败记下原因留在队列，下次补传。
+    其余失败记下原因留在队列，下次补传。按计划拍的包（计划 0016-C）收下后先回报任务，回报完才删。
     """
     package, envelope = spool.read(path)
     package_id = envelope.get("package_id") or spool.package_id(package)
     photo_root = spool.photo_root(envelope)
+
+    def retry(label: str) -> Callable[[Callable[[], Any]], Any]:
+        return lambda fn: call_with_retry(fn, retries=retries, retry_delay=retry_delay, sleeper=sleeper,
+                                          label=f"{label} package={package_id}")
+
     try:
         if photo_root is not None:
-            urls, uploaded = upload.upload_photos(
-                client, photo_root, package,
-                call=lambda fn: call_with_retry(fn, retries=retries, retry_delay=retry_delay, sleeper=sleeper,
-                                                label=f"photo package={package_id}"),
-            )
+            urls, uploaded = upload.upload_photos(client, photo_root, package, call=retry("photo"))
             print(f"[照片] package={package_id} 新传 {uploaded} 张，平台已有 {len(urls) - uploaded} 张")
             package = upload.wire_package(package, urls)
         result = upload_with_retry(
             client, package, retries=retries, retry_delay=retry_delay, sleeper=sleeper, package_id=package_id,
         )
+        reports = envelope.get("task_reports")
+        if reports:
+            # 包收下了再回报任务（计划 0016-C）；回报中断时整包留在队列，重传按重复补传处理，回报接着做
+            counts = plan.report_tasks(client, reports, patrol_id=result["patrol_id"], call=retry("task"))
+            print(f"[任务] package={package_id} 已完成 {counts['completed']} 条，写明未完成原因 {counts['noted']} 条，"
+                  f"平台上已结束跳过 {counts['skipped']} 条")
     except (OSError, ValueError, RuntimeError, KeyError) as exc:
         conflict = isinstance(exc, ApiError) and exc.status_code == 409
         try:
@@ -514,6 +539,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--resume", action="store_true",
         help="stops 模式：继续上次中断的巡检（默认把中断的巡检直接组包排队）",
     )
+    # 按巡检计划执行（计划 0016 阶段 C）：有网处下载，进棚离线执行，回到有网处上传并回报任务
+    parser.add_argument("--plan-fetch", metavar="PATH", default=None,
+                        help="下载 --field-id 大棚最近一次巡检计划，存成本地计划文件后退出（需联网）")
+    parser.add_argument("--plan", metavar="PATH", default=None,
+                        help="按本地计划文件执行：只在名单株停车，补拍株用任务指定的视角；可断网（需 --layout）")
     # 登录凭据（决策 D15）：口令建议走环境变量，避免留在命令行历史里
     parser.add_argument("--username", default=os.environ.get("AGRISCOUT_USERNAME"), help="平台账号（操作员及以上）")
     parser.add_argument("--password", default=os.environ.get("AGRISCOUT_PASSWORD"), help="口令（建议用环境变量）")
@@ -535,10 +565,35 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--upload-retries 不能为负数")
     if args.retry_delay < 0:
         parser.error("--retry-delay 不能为负数")
+    if args.plan_fetch and args.plan:
+        parser.error("--plan-fetch 和 --plan 不能同时用：先在有网处下载，再进棚执行")
+    if (args.plan_fetch or args.plan) and args.flush_spool:
+        parser.error("--flush-spool 不和 --plan-fetch/--plan 一起用")
+    if args.plan_fetch:
+        if args.field_id == 0:
+            parser.error("--plan-fetch 需要 --field-id（平台上这个大棚的地块 id）")
+        if Path(args.plan_fetch).resolve().parent == Path(args.spool_dir).resolve():
+            parser.error("计划文件不要放在上传队列目录里（队列目录下的 .json 都会被当成待传的包）")
+    args.plan_data = None
+    if args.plan:
+        if args.mode != "stops":
+            parser.error("--plan 只能用停车拍摄模式（--mode stops）")
+        if not args.layout:
+            parser.error("--plan 需要 --layout（按布局把计划株换算成行内位置）")
+        if args.row is not None or args.stops is not None or args.stop_spacing is not None:
+            parser.error("--plan 按计划跨垄、只在名单株停车，不用 --row/--stops/--stop-spacing")
+        try:
+            args.plan_data = plan.load_plan(args.plan)
+        except (OSError, ValueError) as exc:
+            parser.error(f"--plan 读取失败：{exc}")
+        if args.field_id and args.field_id != args.plan_data["field_id"]:
+            parser.error(f"--field-id {args.field_id} 与计划文件的地块 {args.plan_data['field_id']} 不一致")
     args.row_layout = None
+    args.layout_rows = []
     if args.layout:
         try:
-            args.row_layout = positioning.pick_row(positioning.load_layout(args.layout), args.row)
+            args.layout_rows = positioning.load_layout(args.layout)
+            args.row_layout = positioning.pick_row(args.layout_rows, args.row)
         except (OSError, ValueError) as exc:
             parser.error(f"--layout 读取失败：{exc}")
     elif args.row is not None:
@@ -661,8 +716,14 @@ def seal_patrol(spool: PackageSpool, store: PointStore, *, last_error: str | Non
     包号 ``client_package_id`` 就是队列包号（设备、地块、开始时间的哈希），重传时不变。
     先写队列再封存：中间断电时目录仍算未完成，下次启动重新组包，覆盖成同一个队列文件。
     """
-    package_id = PackageSpool.package_id({"patrol": store.meta})
-    path = spool.save(store.build_package(package_id), last_error=last_error, photo_dir=store.directory.name)
+    meta = store.meta
+    package_id = PackageSpool.package_id({"patrol": meta})
+    reports = None
+    if meta.get("plan"):  # 按计划执行的巡检：每条任务拍成没有，随包排队，上传后回报（计划 0016-C）
+        reports = plan.task_reports(store.points, meta["plan"], plan.rows_by_no(meta["layout"]))
+        print(f"[计划] {plan.summarize(reports)}")
+    path = spool.save(store.build_package(package_id), last_error=last_error, photo_dir=store.directory.name,
+                      task_reports=reports)
     store.seal(package_id)
     return path
 
@@ -704,15 +765,24 @@ def make_rig(args: argparse.Namespace) -> tuple[acquire.Rig, Any]:
     return acquire.Rig(camera, gimbal, light, hardware.QrTagReader()), odometer
 
 
+def resume_patrol(resume_dir: Path) -> PointStore:
+    store = PointStore(resume_dir)
+    store.resume()
+    print(f"[续拍] 继续巡检 {resume_dir.name}：已落盘 {store.next_seq} 个点")
+    return store
+
+
+def create_patrol(spool: PackageSpool, args: argparse.Namespace, started: datetime, meta: dict[str, Any]) -> PointStore:
+    safe_device = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in args.device)
+    return PointStore.create(spool.directory, f"{safe_device}-{started:%Y%m%dT%H%M%S%f}", meta)
+
+
 def open_stops_patrol(
     client: ApiClient, spool: PackageSpool, args: argparse.Namespace, resume_dir: Path | None,
 ) -> PointStore:
     """新建一趟 stops 巡检的逐点目录；--resume 时打开上次中断的目录。"""
     if resume_dir is not None:
-        store = PointStore(resume_dir)
-        store.resume()
-        print(f"[续拍] 继续巡检 {resume_dir.name}：已落盘 {store.next_seq} 个点")
-        return store
+        return resume_patrol(resume_dir)
     device, field, planting = ensure_records(client, args)
     print(f"[建档] 设备={device['code']} 地块=#{field['id']} 作物={CROPS[args.crop][0]} 种植#{planting['id']}")
     views = acquire.load_views(args.views)
@@ -735,8 +805,104 @@ def open_stops_patrol(
         "row_layout": asdict(args.row_layout) if args.row_layout else None,
         "fake_odometer": bool(args.fake),
     }
-    safe_device = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in args.device)
-    return PointStore.create(spool.directory, f"{safe_device}-{started:%Y%m%dT%H%M%S%f}", meta)
+    return create_patrol(spool, args, started, meta)
+
+
+def open_plan_patrol(spool: PackageSpool, args: argparse.Namespace, resume_dir: Path | None) -> PointStore:
+    """新建一趟按计划执行的巡检目录（不联网：地块取计划文件里的，种植记录由平台按地块解析）；续拍时打开中断的目录。"""
+    if resume_dir is not None:
+        return resume_patrol(resume_dir)
+    data = args.plan_data
+    if data.get("device") and data["device"] != args.device:
+        print(f"[提示] 计划是用设备 {data['device']} 下载的，本趟用 {args.device}；平台上须已登记这台车")
+    started = datetime.now(TZ_CN)
+    meta = {
+        "field_id": data["field_id"],
+        "planting_id": None,
+        "device": args.device,
+        "started_at": started.isoformat(),
+        "notes": (f"rover:{args.device} mode=plan plan={data['plan_date']}#{data.get('generation')} "
+                  f"real/fake={args.fake}"),
+        "views": acquire.views_to_json(acquire.load_views(args.views)),
+        "max_attempts": args.max_attempts,
+        "pitch_step_deg": args.pitch_step,
+        "base_lng": args.base_lng,
+        "base_lat": args.base_lat,
+        "layout": [asdict(row) for row in args.layout_rows],
+        "fake_odometer": bool(args.fake),
+        # 续拍和组包都以这里存的计划为准，执行中换了计划文件也不影响这一趟
+        "plan": {key: data.get(key) for key in ("field_id", "plan_version", "plan_date", "generation", "window",
+                                                "stops")},
+    }
+    return create_patrol(spool, args, started, meta)
+
+
+def make_plan_rig(args: argparse.Namespace, rows: dict[int, positioning.RowLayout]) -> tuple[acquire.Rig, Any, Any]:
+    """返回 (Rig, 底盘, 里程计)。假底盘直接到位，假标签读的是车此刻所在的株；真实底盘等驱动未接入，非 --fake 时报错。"""
+    if args.fake:
+        drive = hardware.FakeDrive()
+
+        def tag_here() -> str | None:
+            row = rows.get(drive.row_no)
+            plant_no = row.plant_at(drive.position_m) if row else None
+            return positioning.plant_key(row.row_no, plant_no) if plant_no else None
+
+        rig = acquire.Rig(
+            camera=hardware.FakeCamera(args.width, args.height, args.fake_script),
+            gimbal=hardware.FakeGimbal(),
+            light=hardware.FakeLight(),
+            tag_reader=hardware.FakeTagReader([], source=tag_here),
+        )
+        return rig, drive, drive
+    gimbal, light, odometer = hardware.ServoGimbal(), hardware.GpioLight(), hardware.EncoderOdometer()
+    drive = hardware.ChassisDrive()
+    camera = hardware.CameraCapture(args.camera, args.width, args.height)
+    return acquire.Rig(camera, gimbal, light, hardware.QrTagReader()), drive, odometer
+
+
+def collect_plan(store: PointStore, rig: acquire.Rig, drive: Any, odometer: Any, args: argparse.Namespace) -> None:
+    """按 meta 里存的计划逐株拍（逐点落盘，组包另由 ``seal_patrol`` 做）。"""
+    meta = store.meta
+    data = meta["plan"]
+    views = acquire.parse_views(meta["views"])
+    policy = acquire.ShootPolicy(max_attempts=meta["max_attempts"], pitch_step_deg=meta["pitch_step_deg"])
+    counts = "、".join(f"{plan.LIST_LABELS[name]} {sum(1 for s in data['stops'] if s['list_name'] == name)}"
+                      for name in plan.LISTS)
+    print(f"[计划] {data['plan_date']} 第 {data.get('generation') or '?'} 版：{len(data['stops'])} 株（{counts}），"
+          f"补拍株用任务视角，其余 {len(views)} 个标准视角（{'合成图' if args.fake else 'USB 摄像头'}）")
+    for warning in plan.window_warnings(data, datetime.now(TZ_CN)):
+        print(f"[提示] {warning}")
+    fake = meta.get("fake_odometer", True)
+    plan.run_plan(
+        store, rig, data["stops"], drive=drive, odometer=odometer, rows=plan.rows_by_no(meta["layout"]),
+        standard_views=views, policy=policy, clock=lambda: datetime.now(TZ_CN),
+        base_lng=meta["base_lng"], base_lat=meta["base_lat"],
+        odometer_source="estimated" if fake else "encoder",
+        distance_source="configured" if fake else "encoder", interval=args.interval,
+    )
+
+
+def fetch_plan_file(client: ApiClient, args: argparse.Namespace) -> int:
+    """下载最近一次巡检计划存成本地文件；顺带登记这台车，离线拍完的包上传时平台才认得。"""
+    client.ensure_device(args.device, f"真车({args.device})")
+    try:
+        data = plan.fetch_plan(client, args.field_id, device=args.device, now=datetime.now(TZ_CN))
+    except ApiError as exc:
+        if exc.status_code != 404:
+            raise
+        print(f"[错误] 取计划失败：{exc}（地块不存在，或还没生成过巡检计划：先在前端大棚详情的「巡检计划」页生成）")
+        return 1
+    path = plan.save_plan(args.plan_fetch, data)
+    counts = "、".join(f"{plan.LIST_LABELS[name]} {sum(1 for s in data['stops'] if s['list_name'] == name)}"
+                      for name in plan.LISTS)
+    print(f"[计划] 已存 {path}：地块 #{data['field_id']} {data['plan_date']} 第 {data.get('generation') or '?'} 版，"
+          f"{len(data['stops'])} 株（{counts}）；任务已结束不再去拍的 {len(data['skipped'])} 株")
+    window = data.get("window")
+    if window:
+        print(f"[计划] 清晨叶背窗口 {window['date']} {window['start']}–{window['end']}")
+    for warning in data["warnings"]:
+        print(f"[提示] {warning}")
+    return 0
 
 
 def collect_stops(store: PointStore, rig: acquire.Rig, odometer: Any, args: argparse.Namespace) -> None:
@@ -767,18 +933,27 @@ def run(args: argparse.Namespace) -> int:
     store: PointStore | None = None
     queued_path: Path | None = None
     try:
-        health = client.get("/api/v1/health")
-        print(
-            f"[联通] 平台 v{health['version']} ({health['environment']}) "
-            f"数据库 {health['database']}",
-        )
+        online = True
+        try:
+            health = client.get("/api/v1/health")
+        except ApiError as exc:
+            # 按计划执行和续拍在拍完之前用不到平台，棚里没网照常拍，包留在队列（计划 0016-C）
+            if not (exc.retryable and (args.plan or (args.resume and args.mode == "stops"))):
+                raise
+            online = False
+            print(f"[离线] 连不上平台，照常拍摄，包留在队列：{exc}")
+        else:
+            print(
+                f"[联通] 平台 v{health['version']} ({health['environment']}) "
+                f"数据库 {health['database']}",
+            )
         unfinished = PointStore.unfinished(spool.directory)
         resume_dir = unfinished[-1] if args.mode == "stops" and args.resume and unfinished else None
         if args.resume and resume_dir is None and args.mode == "stops":
             print("[续拍] 没有中断的巡检，开始新的一趟")
         finalize_unfinished(spool, keep=resume_dir)
         pending = spool.pending()
-        if pending:
+        if pending and online:
             sent, failed = flush_spool(
                 client,
                 spool,
@@ -788,7 +963,32 @@ def run(args: argparse.Namespace) -> int:
             print(f"[队列] 补传完成：成功 {sent}，保留 {failed}")
         if args.flush_spool:
             return 1 if spool.pending() else 0
-        if args.mode == "stops":
+        if args.plan_fetch:
+            return fetch_plan_file(client, args)
+        plan_trip = args.plan is not None
+        if resume_dir is not None:
+            plan_trip = PointStore(resume_dir).meta.get("plan") is not None
+            if args.plan and not plan_trip:
+                print("[续拍] 先续拍上次中断的那趟（不是按计划的），这次不执行计划；拍完后再运行一次 --plan")
+        if plan_trip:
+            if resume_dir is not None:
+                rows = plan.rows_by_no(PointStore(resume_dir).meta["layout"])
+            else:
+                rows = plan.rows_by_no(args.layout_rows)
+                stops = args.plan_data["stops"]
+                if not stops:
+                    print("[计划] 计划里没有要拍的株（名单上的任务都已完成或作废），不出车")
+                    return 0
+                if not any(plan.locate_row(stop, rows) for stop in stops):
+                    raise ValueError(f"计划里的株在布局 {args.layout} 里一株都找不到，检查是不是这个大棚的布局")
+            # 先备好硬件再建目录：真实云台、底盘未接入时直接报错，不留下空的巡检目录
+            rig, drive, odometer = make_plan_rig(args, rows)
+            source = rig.camera
+            store = open_plan_patrol(spool, args, resume_dir)
+            collect_plan(store, rig, drive, odometer, args)
+            queued_path = seal_patrol(spool, store)
+            store = None  # 已封存进上传队列
+        elif args.mode == "stops":
             # 先备好硬件再建目录：真实云台等未接入时直接报错，不留下空的巡检目录
             rig, odometer = make_rig(args)
             source = rig.camera
@@ -810,6 +1010,10 @@ def run(args: argparse.Namespace) -> int:
                 field["id"], planting["id"], args.device, points, track, start_dt, args.fake,
             )
             queued_path = spool.save(package)
+        if not online:
+            print(f"[离线] 已拍完并排进上传队列：{queued_path}；回到有网处运行 --flush-spool 上传"
+                  "（按计划拍的同时回报任务）")
+            return 0
         result = send_queued(
             client, spool, queued_path, retries=args.upload_retries, retry_delay=args.retry_delay,
         )
