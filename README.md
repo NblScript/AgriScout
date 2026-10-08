@@ -286,7 +286,7 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 下一阶段是 **温室方向软件线**（执行计划见 [0013](docs/exec-plans/active/0013-greenhouse-active-acquisition.md)，
 与作物无关的剩余改造见 [0007](docs/exec-plans/active/0007-application-alignment.md)）。场地核实与试拍前只做不依赖场地的部分：
 
-- rover 主动采集（0016）三个阶段都已完成：停车补拍与图像质量（A）、协议 v2 与照片分步上传和株号定位（B）、离线执行巡检计划与任务回报（C）；
+- rover 主动采集（0016）三个阶段都已完成：停车补拍与图像质量（A）、协议 v2 与照片分步上传和株号定位（B）、离线执行巡检计划与任务回报（C），口径见决策 D23；
 - 试拍拿到真实照片后：霜霉病识别基线、黄瓜规则草稿（待农技复核）；
 - 时钟同步、盲法复核、数据集分组划分、TX2 部署验证（计划 0007）。
 
@@ -314,7 +314,7 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 - [docs/01-reference-research.md](docs/01-reference-research.md)：同类案例与论文调研。
 - [rover/README.md](rover/README.md)：真车采集端安装、参数与失败行为。
 - [docs/design-docs/decision-registry.md](docs/design-docs/decision-registry.md)：编号决策注册表与规则引擎生命周期。
-- [docs/exec-plans/active/0013-greenhouse-active-acquisition.md](docs/exec-plans/active/0013-greenhouse-active-acquisition.md)：温室方向软件线总览（拆分、依赖顺序、共同约定）；未完成的子计划 0016 在同一目录。
+- [docs/exec-plans/active/0013-greenhouse-active-acquisition.md](docs/exec-plans/active/0013-greenhouse-active-acquisition.md)：温室方向软件线总览（拆分、依赖顺序、共同约定）；子计划 0014–0018 都已完成归档，口径见决策注册表。
 - [docs/exec-plans/active/0007-application-alignment.md](docs/exec-plans/active/0007-application-alignment.md)：进行中的执行计划（与作物无关的剩余改造：时钟、盲法复核、数据集划分、TX2）。
 - [docs/exec-plans/tech-debt-tracker.md](docs/exec-plans/tech-debt-tracker.md)：技术债台账（含历次审查未修项）。
 - [docs/exec-plans/README.md](docs/exec-plans/README.md)：执行计划约定；已删除历史文档的取回方式。
