@@ -56,7 +56,7 @@ def _ingest(client, payload):
 
 def test_ingest_roundtrip_with_photos(client, media_dir):
     field_id, device = _setup_field_and_device(client)
-    pkg = _package(field_id, device, points=2, photo=lambda i: TINY_PNG if i == 0 else "/media/external-ref.jpg")
+    pkg = _package(field_id, device, points=2, photo=lambda i: TINY_PNG if i == 0 else "https://example.com/external-ref.jpg")
     resp = _ingest(client, pkg)
     assert resp.status_code == 201
     body = resp.json()

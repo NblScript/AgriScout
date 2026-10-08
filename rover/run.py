@@ -11,11 +11,13 @@ import base64
 import hashlib
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
 from collections.abc import Callable
 from contextlib import AbstractContextManager
+from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -23,11 +25,13 @@ from typing import Any
 import httpx
 
 try:
-    from . import acquire, hardware
+    from . import acquire, hardware, positioning, upload
     from .point_store import PointStore
 except ImportError:  # 在 rover/ 目录下直接运行 python run.py
     import acquire  # type: ignore[no-redef]
     import hardware  # type: ignore[no-redef]
+    import positioning  # type: ignore[no-redef]
+    import upload  # type: ignore[no-redef]
     from point_store import PointStore  # type: ignore[no-redef]
 
 # 相机实现迁到 hardware.py；保留旧名字，旧模式和烟测照常引用
@@ -43,6 +47,18 @@ WHEAT_STAGES = [
     {"name": "灌浆期", "days": 35},
     {"name": "成熟期", "days": 115},
 ]
+# 黄瓜生育期：占位值，待农技复核（计划 0016-B4；WP6 定稿）。天数只供平台推算生育期，不作农事依据
+CUCUMBER_STAGES = [
+    {"name": "发芽期", "days": 7},
+    {"name": "幼苗期", "days": 30},
+    {"name": "初花期", "days": 20},
+    {"name": "结果期", "days": 63},
+]
+CROPS = {
+    # --crop → (作物名, 品种, 生长期天数, 生育期)
+    "cucumber": ("黄瓜", "待定（占位，待农技复核）", 120, CUCUMBER_STAGES),
+    "wheat": ("冬小麦", "济麦22", 240, WHEAT_STAGES),
+}
 
 
 CaptureSource = hardware.Camera
@@ -69,6 +85,9 @@ class PackageSpool:
     A package is written to a temporary file and atomically renamed before an
     upload is attempted.  The queue contains the exact HTTP payload so a
     retry never re-captures images or changes their timestamps.
+
+    stops 模式的 v2 包（计划 0016-B）不内嵌照片：信封里的 ``photo_dir`` 指向封存的逐点目录，
+    照片在那里一直留到平台确认收包。409 的包标 ``needs_manual``，补传时跳过，等人核对。
     """
 
     def __init__(self, directory: str | Path):
@@ -87,7 +106,9 @@ class PackageSpool:
     def path_for(self, package: dict[str, Any]) -> Path:
         return self.directory / f"{self.package_id(package)}.json"
 
-    def save(self, package: dict[str, Any], *, last_error: str | None = None) -> Path:
+    def save(
+        self, package: dict[str, Any], *, last_error: str | None = None, photo_dir: str | None = None,
+    ) -> Path:
         target = self.path_for(package)
         envelope = {
             "package": package,
@@ -96,6 +117,12 @@ class PackageSpool:
             "last_error": last_error,
             "queued_at": datetime.now(TZ_CN).isoformat(),
         }
+        if photo_dir is not None:
+            envelope["photo_dir"] = photo_dir
+        self._write(target, envelope)
+        return target
+
+    def _write(self, target: Path, envelope: dict[str, Any]) -> None:
         fd, temp_name = tempfile.mkstemp(
             prefix=f".{target.stem}.", suffix=".tmp", dir=self.directory,
         )
@@ -111,7 +138,6 @@ class PackageSpool:
             except FileNotFoundError:
                 pass
             raise
-        return target
 
     def pending(self) -> list[Path]:
         return sorted(self.directory.glob("*.json"))
@@ -124,28 +150,30 @@ class PackageSpool:
             raise ValueError("队列文件缺少 package 对象")
         return envelope["package"], envelope
 
-    def record_failure(self, path: Path, envelope: dict[str, Any], error: str) -> None:
+    def record_failure(
+        self, path: Path, envelope: dict[str, Any], error: str, *, needs_manual: bool = False,
+    ) -> None:
         current = dict(envelope)
         current["attempts"] = int(envelope.get("attempts", 0)) + 1
         current["last_error"] = error
-        fd, temp_name = tempfile.mkstemp(
-            prefix=f".{path.stem}.", suffix=".tmp", dir=self.directory,
-        )
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-                json.dump(current, handle, ensure_ascii=False, separators=(",", ":"))
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temp_name, path)
-        except BaseException:
-            try:
-                os.unlink(temp_name)
-            except FileNotFoundError:
-                pass
-            raise
+        if needs_manual:
+            current["needs_manual"] = True
+        self._write(path, current)
 
-    def remove(self, path: Path) -> None:
+    def photo_root(self, envelope: dict[str, Any]) -> Path | None:
+        """v2 包的照片目录；v1 包（照片内嵌）返回 None。"""
+        name = envelope.get("photo_dir")
+        if name is None:
+            return None
+        if not isinstance(name, str) or not name or Path(name).name != name or name in {".", ".."}:
+            raise ValueError(f"队列文件的 photo_dir 不合法：{name!r}")
+        return self.directory / name
+
+    def remove(self, path: Path, photo_root: Path | None = None) -> None:
+        # 先删队列文件再删照片目录：中间断电只会留下已封存的照片目录，下次启动时清掉
         path.unlink(missing_ok=True)
+        if photo_root is not None:
+            shutil.rmtree(photo_root, ignore_errors=True)
 
 
 class ApiClient(AbstractContextManager["ApiClient"]):
@@ -179,12 +207,18 @@ class ApiClient(AbstractContextManager["ApiClient"]):
     def close(self) -> None:
         self._c.close()
 
-    def _req(self, method: str, path: str, json_body: Any = None, expect=(200, 201)):
+    def _req(self, method: str, path: str, json_body: Any = None, expect=(200, 201), *,
+             content: bytes | None = None, headers: dict[str, str] | None = None, params: Any = None):
+        def send() -> httpx.Response:
+            if content is not None:
+                return self._c.request(method, path, content=content, headers=headers, params=params)
+            return self._c.request(method, path, json=json_body, headers=headers, params=params)
+
         try:
-            resp = self._c.request(method, path, json=json_body)
+            resp = send()
             if resp.status_code == 401 and self._username and self._password:
                 self.login()
-                resp = self._c.request(method, path, json=json_body)
+                resp = send()
         except httpx.RequestError as exc:
             raise ApiError(
                 f"{method} {path} 网络请求失败：{exc}", retryable=True,
@@ -281,7 +315,43 @@ class ApiClient(AbstractContextManager["ApiClient"]):
         })
 
     def ingest(self, package: dict[str, Any]) -> dict[str, Any]:
-        return self.post("/api/v1/ingest/patrol", package, expect=(201,))
+        """提交巡检包：新包 201；同包号同内容的重传 200 + ``duplicate=true``（计划 0014）。"""
+        return self.post("/api/v1/ingest/patrol", package, expect=(200, 201))
+
+    def media_exists(self, sha256: str) -> dict[str, Any]:
+        """按内容 SHA-256 查平台上是否已有这张照片（计划 0016-B）。"""
+        return self._req("GET", "/api/v1/media/exists", params={"sha256": sha256}, expect=(200,))
+
+    def upload_media(self, data: bytes, content_type: str) -> dict[str, Any]:
+        """上传一张照片的原始字节，返回 ``{url, sha256, created}``。"""
+        return self._req("POST", "/api/v1/media", content=data, headers={"Content-Type": content_type},
+                         expect=(200, 201))
+
+
+def call_with_retry(
+    fn: Callable[[], Any],
+    *,
+    retries: int,
+    retry_delay: float = 0.5,
+    sleeper: Callable[[float], None] = time.sleep,
+    label: str = "",
+) -> Any:
+    """Call ``fn``; retry only transient failures, never a 409."""
+    attempts = max(0, retries) + 1
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn()
+        except RuntimeError as exc:
+            # 409：同包号内容不同（或 v1 包撞上同一开始时间），重试无用，交给人核对
+            if isinstance(exc, ApiError) and exc.status_code == 409:
+                raise
+            retryable = getattr(exc, "retryable", True)
+            if not retryable or attempt >= attempts:
+                raise
+            delay = min(30.0, retry_delay * (2 ** (attempt - 1)))
+            print(f"[重试] {label or 'request'} attempt={attempt + 1}/{attempts} 等待 {delay:g}s：{exc}")
+            sleeper(delay)
+    raise AssertionError("unreachable")
 
 
 def upload_with_retry(
@@ -294,25 +364,50 @@ def upload_with_retry(
     package_id: str = "",
 ) -> dict[str, Any]:
     """Upload without changing the package; retry only transient failures."""
-    attempts = max(0, retries) + 1
-    for attempt in range(1, attempts + 1):
-        try:
-            return client.ingest(package)
-        except RuntimeError as exc:
-            # A 409 is not treated as success until the backend exposes a
-            # stable client package id and a matching replay lookup.
-            if isinstance(exc, ApiError) and exc.status_code == 409:
-                raise
-            retryable = getattr(exc, "retryable", True)
-            if not retryable or attempt >= attempts:
-                raise
-            delay = min(30.0, retry_delay * (2 ** (attempt - 1)))
-            print(
-                f"[重试] package={package_id or 'unknown'} attempt={attempt + 1}/{attempts} "
-                f"等待 {delay:g}s：{exc}",
+    return call_with_retry(
+        lambda: client.ingest(package), retries=retries, retry_delay=retry_delay, sleeper=sleeper,
+        label=f"package={package_id or 'unknown'}",
+    )
+
+
+def send_queued(
+    client: ApiClient,
+    spool: PackageSpool,
+    path: Path,
+    *,
+    retries: int,
+    retry_delay: float = 0.5,
+    sleeper: Callable[[float], None] = time.sleep,
+) -> dict[str, Any]:
+    """上传队列里的一个包。v2 包先逐张查重并上传照片，再提交只含 URL 的元数据包（计划 0016-B）。
+
+    成功（含平台判为重复补传的 200 + duplicate）后删除队列文件和照片目录；409 标记待人工处理；
+    其余失败记下原因留在队列，下次补传。
+    """
+    package, envelope = spool.read(path)
+    package_id = envelope.get("package_id") or spool.package_id(package)
+    photo_root = spool.photo_root(envelope)
+    try:
+        if photo_root is not None:
+            urls, uploaded = upload.upload_photos(
+                client, photo_root, package,
+                call=lambda fn: call_with_retry(fn, retries=retries, retry_delay=retry_delay, sleeper=sleeper,
+                                                label=f"photo package={package_id}"),
             )
-            sleeper(delay)
-    raise AssertionError("unreachable")
+            print(f"[照片] package={package_id} 新传 {uploaded} 张，平台已有 {len(urls) - uploaded} 张")
+            package = upload.wire_package(package, urls)
+        result = upload_with_retry(
+            client, package, retries=retries, retry_delay=retry_delay, sleeper=sleeper, package_id=package_id,
+        )
+    except (OSError, ValueError, RuntimeError, KeyError) as exc:
+        conflict = isinstance(exc, ApiError) and exc.status_code == 409
+        try:
+            spool.record_failure(path, envelope, str(exc), needs_manual=conflict)
+        except (OSError, ValueError, KeyError):
+            pass
+        raise
+    spool.remove(path, photo_root)
+    return result
 
 
 def flush_spool(
@@ -323,29 +418,23 @@ def flush_spool(
     retry_delay: float = 0.5,
     sleeper: Callable[[float], None] = time.sleep,
 ) -> tuple[int, int]:
-    """Replay pending packages; return ``(sent, failed)``."""
+    """Replay pending packages; return ``(sent, failed)``. 待人工处理的包跳过，算在 failed 里。"""
     sent = failed = 0
     for path in spool.pending():
-        envelope: dict[str, Any] | None = None
         try:
-            package, envelope = spool.read(path)
-            package_id = envelope.get("package_id", spool.package_id(package))
-            upload_with_retry(
-                client, package, retries=retries, retry_delay=retry_delay,
-                sleeper=sleeper, package_id=package_id,
-            )
-        except (OSError, ValueError, RuntimeError) as exc:
+            _, envelope = spool.read(path)
+            if envelope.get("needs_manual"):
+                failed += 1
+                print(f"[队列] {path.name} 待人工处理，跳过：{envelope.get('last_error')}")
+                continue
+            result = send_queued(client, spool, path, retries=retries, retry_delay=retry_delay, sleeper=sleeper)
+        except (OSError, ValueError, RuntimeError, KeyError) as exc:
             failed += 1
-            if envelope is not None:
-                try:
-                    spool.record_failure(path, envelope, str(exc))
-                except (OSError, ValueError, KeyError):
-                    pass
             print(f"[队列] 暂未上传 {path.name}：{exc}")
             continue
-        spool.remove(path)
         sent += 1
-        print(f"[队列] 已补传 {path.name}")
+        duplicate = "（平台已有同一个包，按重复补传处理）" if result.get("duplicate") else ""
+        print(f"[队列] 已补传 {path.name}{duplicate}")
     return sent, failed
 
 
@@ -378,6 +467,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--width", type=int, default=640, help="上传照片宽")
     parser.add_argument("--height", type=int, default=480, help="上传照片高")
     parser.add_argument("--sowing-days-ago", type=int, default=50, help="播种于几天前")
+    parser.add_argument(
+        "--crop", choices=tuple(CROPS), default="cucumber",
+        help="自动建种植记录用的作物（黄瓜生育期为占位值，待农技复核）",
+    )
     parser.add_argument("--fake", action="store_true", help="不用摄像头，用合成图测试链路")
     parser.add_argument(
         "--spool-dir", default=".rover-spool",
@@ -397,15 +490,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     # 停车拍摄模式（计划 0016 阶段 A）：每个停车点按视角序列拍、逐张判断质量并补拍、逐点落盘
     parser.add_argument(
-        "--mode", choices=("legacy", "stops"), default="legacy",
-        help="legacy=沿直线等间隔拍一张；stops=停车按视角序列拍并补拍（阶段 B 起改为默认）",
+        "--mode", choices=("legacy", "stops"), default="stops",
+        help="stops=停车按视角序列拍并补拍，照片分步上传（协议 v2）；legacy=沿直线等间隔拍一张（v1 包）",
     )
     parser.add_argument(
         "--views", default=str(Path(__file__).with_name("views.example.json")),
         help="视角序列 JSON（stops 模式）",
     )
-    parser.add_argument("--stops", type=int, default=5, help="停车点数量（stops 模式）")
-    parser.add_argument("--stop-spacing", type=float, default=0.4, help="假里程计的停车点间距（米，stops 模式）")
+    parser.add_argument("--stops", type=int, default=None,
+                        help="停车点数量（stops 模式；默认给了布局时为该垄株数，否则 5）")
+    parser.add_argument("--stop-spacing", type=float, default=None,
+                        help="假里程计的停车点间距（米，stops 模式；默认给了布局时为株距，否则 0.4）")
+    parser.add_argument("--layout", default=None,
+                        help="棚内布局 JSON（与批量建档同结构，示例 layout.example.json）；给了才按里程推算株号")
+    parser.add_argument("--row", type=int, default=None, help="本趟巡哪一垄（默认布局里的第一垄）")
     parser.add_argument("--max-attempts", type=int, default=3, help="每个视角最多拍几次（stops 模式）")
     parser.add_argument("--pitch-step", type=float, default=5.0, help="叶背视角每次补拍加的仰角（度）")
     parser.add_argument(
@@ -437,6 +535,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error("--upload-retries 不能为负数")
     if args.retry_delay < 0:
         parser.error("--retry-delay 不能为负数")
+    args.row_layout = None
+    if args.layout:
+        try:
+            args.row_layout = positioning.pick_row(positioning.load_layout(args.layout), args.row)
+        except (OSError, ValueError) as exc:
+            parser.error(f"--layout 读取失败：{exc}")
+    elif args.row is not None:
+        parser.error("--row 需要配合 --layout")
+    if args.stops is None:
+        args.stops = args.row_layout.plants if args.row_layout else 5
+    if args.stop_spacing is None:
+        args.stop_spacing = args.row_layout.spacing_m if args.row_layout else 0.4
     if args.stops < 1:
         parser.error("--stops 必须大于 0")
     if args.stop_spacing <= 0:
@@ -471,7 +581,8 @@ def ensure_records(client: ApiClient, args: argparse.Namespace) -> tuple[dict, d
         )
         if args.field_id == 0 else {"id": args.field_id}
     )
-    crop = client.ensure_crop("冬小麦", "济麦22", 240, WHEAT_STAGES)
+    name, variety, lifecycle_days, stages = CROPS[args.crop]
+    crop = client.ensure_crop(name, variety, lifecycle_days, stages)
     sowing = (datetime.now(TZ_CN) - timedelta(days=args.sowing_days_ago)).date().isoformat()
     planting = client.ensure_planting(field["id"], crop["id"], sowing)
     return device, field, planting
@@ -544,8 +655,23 @@ def build_package(
     }
 
 
+def seal_patrol(spool: PackageSpool, store: PointStore, *, last_error: str | None = None) -> Path:
+    """把一趟 stops 巡检组成 v2 元数据包放进上传队列，并封存逐点目录（照片留到平台确认收包）。
+
+    包号 ``client_package_id`` 就是队列包号（设备、地块、开始时间的哈希），重传时不变。
+    先写队列再封存：中间断电时目录仍算未完成，下次启动重新组包，覆盖成同一个队列文件。
+    """
+    package_id = PackageSpool.package_id({"patrol": store.meta})
+    path = spool.save(store.build_package(package_id), last_error=last_error, photo_dir=store.directory.name)
+    store.seal(package_id)
+    return path
+
+
 def finalize_unfinished(spool: PackageSpool, *, keep: Path | None = None) -> None:
-    """把中断的 stops 巡检（逐点目录）直接组包放进上传队列，已拍的点不丢。"""
+    """把中断的 stops 巡检（逐点目录）直接组包放进上传队列，已拍的点不丢；清掉已上传巡检的残留照片目录。"""
+    for directory, package_id in PointStore.sealed(spool.directory):
+        if package_id and not (spool.directory / f"{package_id}.json").exists():
+            shutil.rmtree(directory, ignore_errors=True)  # 平台已收包，删队列文件后没来得及删目录
     for directory in PointStore.unfinished(spool.directory):
         if keep is not None and directory == keep:
             continue
@@ -554,24 +680,25 @@ def finalize_unfinished(spool: PackageSpool, *, keep: Path | None = None) -> Non
             if not store.resume():
                 store.remove()  # 一张都没拍就中断，没有可上传的内容
                 continue
-            spool.save(store.build_package(), last_error="巡检中断，按已拍的点组包")
+            seal_patrol(spool, store, last_error="巡检中断，按已拍的点组包")
         except (OSError, ValueError, KeyError) as exc:
             print(f"[落盘] 中断的巡检 {directory.name} 组包失败，保留目录待人工处理：{exc}")
             continue
-        store.remove()
         print(f"[落盘] 中断的巡检 {directory.name} 已按 {store.next_seq} 个点组包排队")
 
 
 def make_rig(args: argparse.Namespace) -> tuple[acquire.Rig, Any]:
     """返回 (Rig, 里程计)。真实云台/补光/编码器尚未接入，非 --fake 时会明确报错。"""
     if args.fake:
+        row = args.row_layout
+        row_no = row.row_no if row else 1
         rig = acquire.Rig(
             camera=hardware.FakeCamera(args.width, args.height, args.fake_script),
             gimbal=hardware.FakeGimbal(),
             light=hardware.FakeLight(),
-            tag_reader=hardware.FakeTagReader([f"R01-P{n:03d}" for n in range(1, args.stops + 1)]),
+            tag_reader=hardware.FakeTagReader([positioning.plant_key(row_no, n) for n in range(1, args.stops + 1)]),
         )
-        return rig, hardware.FakeOdometer(args.stop_spacing)
+        return rig, hardware.FakeOdometer(args.stop_spacing, start_m=row.start_chainage_m if row else 0.0)
     gimbal, light, odometer = hardware.ServoGimbal(), hardware.GpioLight(), hardware.EncoderOdometer()
     camera = hardware.CameraCapture(args.camera, args.width, args.height)
     return acquire.Rig(camera, gimbal, light, hardware.QrTagReader()), odometer
@@ -587,7 +714,7 @@ def open_stops_patrol(
         print(f"[续拍] 继续巡检 {resume_dir.name}：已落盘 {store.next_seq} 个点")
         return store
     device, field, planting = ensure_records(client, args)
-    print(f"[建档] 设备={device['code']} 地块=#{field['id']} 作物=冬小麦 种植#{planting['id']}")
+    print(f"[建档] 设备={device['code']} 地块=#{field['id']} 作物={CROPS[args.crop][0]} 种植#{planting['id']}")
     views = acquire.load_views(args.views)
     started = datetime.now(TZ_CN)
     meta = {
@@ -604,15 +731,16 @@ def open_stops_patrol(
         "pitch_step_deg": args.pitch_step,
         "base_lng": args.base_lng,
         "base_lat": args.base_lat,
+        # 定位（计划 0016-B3）：本趟巡的那一垄；里程来源决定没读到标签时的 position_source
+        "row_layout": asdict(args.row_layout) if args.row_layout else None,
+        "fake_odometer": bool(args.fake),
     }
     safe_device = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in args.device)
     return PointStore.create(spool.directory, f"{safe_device}-{started:%Y%m%dT%H%M%S%f}", meta)
 
 
-def collect_stops(
-    store: PointStore, rig: acquire.Rig, odometer: Any, args: argparse.Namespace,
-) -> dict[str, Any]:
-    """按 meta 里记下的参数拍完全部停车点，组成巡检包。"""
+def collect_stops(store: PointStore, rig: acquire.Rig, odometer: Any, args: argparse.Namespace) -> None:
+    """按 meta 里记下的参数拍完全部停车点（逐点落盘，组包另由 ``seal_patrol`` 做）。"""
     meta = store.meta
     views = acquire.parse_views(meta["views"])
     policy = acquire.ShootPolicy(max_attempts=meta["max_attempts"], pitch_step_deg=meta["pitch_step_deg"])
@@ -620,12 +748,16 @@ def collect_stops(
         f"[采集] 停车拍摄 {meta['stops']} 个点 × {len(views)} 个视角，每视角最多 {policy.max_attempts} 次"
         f"（{'合成图' if args.fake else 'USB 摄像头'}）",
     )
+    row = positioning.RowLayout(**meta["row_layout"]) if meta.get("row_layout") else None
+    fake = meta.get("fake_odometer", True)
     acquire.run_stops(
         store, rig, views, odometer,
         stops=meta["stops"], base_lng=meta["base_lng"], base_lat=meta["base_lat"],
         policy=policy, clock=lambda: datetime.now(TZ_CN), interval=args.interval,
+        positioner=positioning.Positioner(row, odometer_source="estimated" if fake else "encoder"),
+        # 假里程计按配置的停车间距步进；真车读编码器
+        distance_source="configured" if fake else "encoder",
     )
-    return store.build_package()
 
 
 def run(args: argparse.Namespace) -> int:
@@ -633,6 +765,7 @@ def run(args: argparse.Namespace) -> int:
     spool = PackageSpool(args.spool_dir)
     source: CaptureSource | None = None
     store: PointStore | None = None
+    queued_path: Path | None = None
     try:
         health = client.get("/api/v1/health")
         print(
@@ -660,12 +793,14 @@ def run(args: argparse.Namespace) -> int:
             rig, odometer = make_rig(args)
             source = rig.camera
             store = open_stops_patrol(client, spool, args, resume_dir)
-            package = collect_stops(store, rig, odometer, args)
+            collect_stops(store, rig, odometer, args)
+            queued_path = seal_patrol(spool, store)
+            store = None  # 已封存进上传队列
         else:
             device, field, planting = ensure_records(client, args)
             print(
                 f"[建档] 设备={device['code']} 地块=#{field['id']} "
-                f"作物=冬小麦 种植#{planting['id']}",
+                f"作物={CROPS[args.crop][0]} 种植#{planting['id']}",
             )
             source = FakeCapture(args.width, args.height) if args.fake else CameraCapture(
                 args.camera, args.width, args.height,
@@ -674,28 +809,28 @@ def run(args: argparse.Namespace) -> int:
             package = build_package(
                 field["id"], planting["id"], args.device, points, track, start_dt, args.fake,
             )
-        queued_path = spool.save(package)
-        if store is not None:
-            store.remove()  # 整包已进队列，逐点目录不再需要
-        result = upload_with_retry(
-            client,
-            package,
-            retries=args.upload_retries,
-            retry_delay=args.retry_delay,
-            package_id=spool.package_id(package),
+            queued_path = spool.save(package)
+        result = send_queued(
+            client, spool, queued_path, retries=args.upload_retries, retry_delay=args.retry_delay,
         )
-        spool.remove(queued_path)
-        print(
-            f"[上传] 巡检包入库 patrol_id={result['patrol_id']} "
-            f"照片落盘 {result['photos_saved']} 引用 {result['photos_referenced']}",
-        )
+        if result.get("duplicate"):
+            print(f"[上传] 平台已有同一个巡检包 patrol_id={result['patrol_id']}，按重复补传处理")
+        else:
+            print(
+                f"[上传] 巡检包入库 patrol_id={result['patrol_id']} "
+                f"照片落盘 {result['photos_saved']} 引用 {result['photos_referenced']}",
+            )
         print("[完成] 打开前端巡检任务即可查看轨迹与照片")
         return 0
     except (OSError, RuntimeError, KeyError, ValueError) as exc:
-        print(f"[错误] 采集失败：{exc}")
+        print(f"[错误] 采集或上传失败：{exc}")
         if store is not None and store.directory.exists():
             print(f"[落盘] 已拍的 {store.next_seq} 个点保留在 {store.directory}；下次运行加 --resume 续拍，否则自动组包排队")
-        if "package" in locals() and isinstance(package, dict):
+        if isinstance(exc, ApiError) and exc.status_code == 409 and queued_path is not None:
+            print(f"[队列] 平台上已有冲突的巡检包（HTTP 409），已标记待人工处理：{queued_path}")
+        elif queued_path is not None and queued_path.exists():
+            print(f"[队列] 已保留未确认巡检包：{queued_path}")
+        elif "package" in locals() and isinstance(package, dict):
             try:
                 queued_path = spool.path_for(package)
                 if not queued_path.exists():

@@ -1,0 +1,7 @@
+{
+  "_comment": "示例棚内布局（计划 0016 阶段 B3）：与平台批量建档（POST /fields/{id}/observation-units/bulk）同结构，第 n 株的行内位置 = start_chainage_m + (n-1) × spacing_m。垄数、株数、株距均为示例值，以实测为准。",
+  "rows": [
+    {"row_no": 1, "plants": 30, "spacing_m": 0.4, "start_chainage_m": 0.5},
+    {"row_no": 2, "plants": 30, "spacing_m": 0.4, "start_chainage_m": 0.5}
+  ]
+}

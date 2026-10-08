@@ -139,7 +139,8 @@ def test_reanalyze_is_idempotent(client, media_dir):
 def test_unreadable_photo_skipped_not_error(client, media_dir):
     field_id, _ = _setup(client)
     pkg = _package(field_id, None, {})
-    pkg["capture_points"][0]["photo"] = "/media/not-exists.jpg"  # 引用本地不存在文件
+    # 外部 URL：占位管线不联网抓取（引用缺失的 /media/ 自计划 0016-B 起在接入时就 422）
+    pkg["capture_points"][0]["photo"] = "https://example.com/not-local.jpg"
     resp = client.post(f"{BASE}/ingest/patrol", json=pkg)
     assert resp.status_code == 201
     detail = client.get(f"{BASE}/patrols/{resp.json()['patrol_id']}").json()

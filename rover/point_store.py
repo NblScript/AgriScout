@@ -6,11 +6,13 @@
 - ``points.jsonl``：照片落盘之后再追加一行点记录，flush + fsync。
 
 所以 ``points.jsonl`` 里的每一行都有对应照片；末尾写了一半的行在 ``resume()`` 时截掉。
-阶段 A 仍由 ``build_package()`` 逐张读回照片组成 base64 的 v1 包，交给 ``PackageSpool``。
+
+拍完（或中断后）由 ``build_package()`` 组成协议 v2 的元数据包（计划 0016 阶段 B）：不读照片，点里只记本地
+``photo_file``，上传时先逐张传照片再换成平台 URL，所以内存占用与照片数无关。组包进入上传队列后写 ``queued.json``
+封存目录：照片留在这里直到平台确认收包，封存的目录不再算「未完成」。
 """
 from __future__ import annotations
 
-import base64
 import json
 import os
 import shutil
@@ -19,9 +21,19 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+try:
+    from .positioning import valid_key
+except ImportError:  # 在 rover/ 目录下直接运行 python run.py
+    from positioning import valid_key  # type: ignore[no-redef]
+
 META_FILE = "meta.json"
 POINTS_FILE = "points.jsonl"
 PHOTO_DIR = "photos"
+SEALED_FILE = "queued.json"
+# 协议 v2 的视角字段（计划 0013「共同约定」）；本地记录里的其余字段（tags、reshoot_reason 等）不上传
+VIEW_FIELDS = ("side", "pitch_deg", "yaw_deg", "height_m", "fill_light", "attempt", "accepted", "quality")
+# 停车点级的位置字段：同一停车点拍的是同一株，读到标签的停车点统一取标签那一刻的结果
+STOP_FIELDS = ("observation_key", "route_chainage_m", "position_source", "lng", "lat")
 
 
 def _fsync_dir(directory: Path) -> None:
@@ -74,12 +86,31 @@ class PointStore:
         return cls(directory)
 
     @staticmethod
-    def unfinished(spool_dir: str | Path) -> list[Path]:
-        """列出还没组包的巡检目录（有 meta.json 的子目录），按目录名排序。"""
+    def _trip_dirs(spool_dir: str | Path) -> list[Path]:
         root = Path(spool_dir)
         if not root.is_dir():
             return []
         return sorted(path for path in root.iterdir() if (path / META_FILE).is_file())
+
+    @staticmethod
+    def unfinished(spool_dir: str | Path) -> list[Path]:
+        """列出还没组包的巡检目录（有 meta.json、未封存的子目录），按目录名排序。"""
+        return [path for path in PointStore._trip_dirs(spool_dir) if not (path / SEALED_FILE).exists()]
+
+    @staticmethod
+    def sealed(spool_dir: str | Path) -> list[tuple[Path, str | None]]:
+        """已组包封存的巡检目录及其队列包号（封存文件损坏时包号为 None）。"""
+        result = []
+        for path in PointStore._trip_dirs(spool_dir):
+            marker = path / SEALED_FILE
+            if not marker.exists():
+                continue
+            try:
+                package_id = json.loads(marker.read_text(encoding="utf-8")).get("package_id")
+            except (OSError, ValueError, AttributeError):
+                package_id = None
+            result.append((path, package_id if isinstance(package_id, str) else None))
+        return result
 
     @property
     def meta(self) -> dict[str, Any]:
@@ -141,32 +172,38 @@ class PointStore:
 
     # ---------------------------------------------------------- 组包
 
-    def build_package(self) -> dict[str, Any]:
-        """逐张读回照片，组成巡检包 v1。
-
-        株号、行内位置、视角等字段阶段 A 只留在本地 JSONL，阶段 B 才随协议 v2 上传。
-        """
+    def build_package(self, client_package_id: str) -> dict[str, Any]:
+        """组成协议 v2 的元数据包。照片不读进内存：有照片的点带本地 ``photo_file``，``photo`` 留空，
+        上传时由 ``upload.wire_package`` 换成平台 URL。株号不合平台正则时不上传（留在本地 JSONL）。"""
         if not self._points:
             raise ValueError("本趟巡检没有任何点，无法组包")
         meta = self.meta
+        tagged: dict[Any, dict[str, Any]] = {}
+        for record in self._points:
+            if record.get("position_source") == "tag":
+                tagged.setdefault(record.get("stop"), record)
         capture_points: list[dict[str, Any]] = []
         track: list[list[float]] = []
         for record in self._points:
-            photo_b64 = None
-            if record.get("photo_file"):
-                photo_b64 = base64.b64encode(
-                    (self.directory / record["photo_file"]).read_bytes(),
-                ).decode("ascii")
+            where = tagged.get(record.get("stop"), record)
+            key = where.get("observation_key")
+            view = record.get("view")
             capture_points.append({
                 "seq": record["seq"],
                 "distance_m": record["distance_m"],
-                "lng": record["lng"],
-                "lat": record["lat"],
+                "lng": where["lng"],
+                "lat": where["lat"],
                 "captured_at": record["captured_at"],
-                "photo": photo_b64,
+                "photo": None,
+                "photo_file": record.get("photo_file"),
                 "weather": None,
+                "observation_key": key if valid_key(key) else None,
+                "route_chainage_m": where.get("route_chainage_m"),
+                "distance_source": record.get("distance_source"),
+                "position_source": where.get("position_source"),
+                "view": {k: view[k] for k in VIEW_FIELDS if k in view} if isinstance(view, dict) else None,
             })
-            position = [record["lng"], record["lat"]]
+            position = [where["lng"], where["lat"]]
             if not track or track[-1] != position:
                 track.append(position)
         started = datetime.fromisoformat(meta["started_at"])
@@ -174,6 +211,7 @@ class PointStore:
         if ended <= started:
             ended = started + timedelta(seconds=1)
         return {
+            "schema_version": "2.0",
             "patrol": {
                 "field_id": meta["field_id"],
                 "planting_id": meta.get("planting_id"),
@@ -182,10 +220,15 @@ class PointStore:
                 "ended_at": ended.isoformat(),
                 "track": track,
                 "notes": meta.get("notes"),
+                "client_package_id": client_package_id,
             },
             "capture_points": capture_points,
         }
 
+    def seal(self, package_id: str) -> None:
+        """组包进入上传队列后封存目录：照片留到平台确认收包，之后不再续拍、不再重复组包。"""
+        _atomic_write(self.directory / SEALED_FILE, json.dumps({"package_id": package_id}).encode("utf-8"))
+
     def remove(self) -> None:
-        """组包并进入上传队列后删除本地目录（照片已在队列包里）。"""
+        """删除本地目录（一张都没拍就中断时；上传成功后由队列删除）。"""
         shutil.rmtree(self.directory, ignore_errors=True)

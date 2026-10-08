@@ -5,6 +5,9 @@
 （view 里写 attempt / accepted / quality），作为质量反馈的证据；用满次数仍不合格时，
 最后一次记 ``reshoot_reason="max_attempts"`` 并继续下一个视角。拍照抛异常时记一个
 没有照片的点，不中止整趟。
+
+株号与行内位置由 ``positioning.Positioner`` 按里程推算（计划 0016 阶段 B3）；停车点内读到标签时以标签为准，
+从读到的那一张起改用标签株号和校正后的位置，并校正后续停车点。组包时同一停车点统一取标签结果。
 """
 from __future__ import annotations
 
@@ -17,16 +20,19 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from . import quality
+    from . import positioning, quality
     from .hardware import Camera, Gimbal, Light, Odometer, TagReader
     from .point_store import PointStore
 except ImportError:  # 在 rover/ 目录下直接运行 python run.py
+    import positioning  # type: ignore[no-redef]
     import quality  # type: ignore[no-redef]
     from hardware import Camera, Gimbal, Light, Odometer, TagReader  # type: ignore[no-redef]
     from point_store import PointStore  # type: ignore[no-redef]
 
 SIDES = ("upper", "under", "unknown")
 METERS_PER_DEG_LAT = 111_000.0
+# 停车点级的位置字段（同一停车点的所有点相同；读到标签后整体替换）
+POSITION_KEYS = ("route_chainage_m", "observation_key", "position_source", "offset_m", "lng", "lat")
 
 
 @dataclass(frozen=True)
@@ -141,6 +147,11 @@ def shoot_view(
                     tags = []
                 if tags:
                     tag_state["key"] = tags[0]
+                    on_tag = tag_state.get("on_tag")
+                    fix = on_tag(tags[0]) if on_tag is not None else None
+                    if fix:
+                        # 停车点共用同一个 position：本张起、包括本停车点后面的视角，都用标签校正后的位置
+                        position.update(fix)
             accepted = bool(result["ok"])
             final = accepted or attempt >= policy.max_attempts
             point = {
@@ -148,7 +159,8 @@ def shoot_view(
                 "stop": stop,
                 "view_index": view_index,
                 "captured_at": captured_at.isoformat(),
-                "observation_key": tag_state.get("key"),
+                # 有定位器时取推算或标签校正后的株号；没有定位器（阶段 A 的用法）时直接用标签
+                "observation_key": position.get("observation_key") or tag_state.get("key"),
                 "tags": tags,
                 "view": {
                     "side": view.side,
@@ -183,13 +195,17 @@ def shoot_stop(
     position: dict[str, Any],
     policy: ShootPolicy,
     clock: Callable[[], datetime],
+    on_tag: Callable[[str], dict[str, Any] | None] | None = None,
 ) -> list[dict]:
-    """在一个停车点按视角序列拍摄；已完成的视角（断点续拍时）跳过。"""
+    """在一个停车点按视角序列拍摄；已完成的视角（断点续拍时）跳过。
+
+    ``on_tag`` 在本停车点第一次读到标签时调用，返回要并入 ``position`` 的校正字段（None 表示不校正）。
+    """
     existing = store.points
     tag_state: dict[str, Any] = {"key": next(
-        (p["observation_key"] for p in existing if p.get("stop") == stop and p.get("observation_key")),
+        (p["tags"][0] for p in existing if p.get("stop") == stop and p.get("tags")),
         None,
-    )}
+    ), "on_tag": on_tag}
     recorded: list[dict] = []
     for view_index, view in enumerate(views):
         last = _last_attempt(existing, stop, view_index)
@@ -223,24 +239,41 @@ def run_stops(
     interval: float = 0.0,
     sleeper: Callable[[float], None] = time.sleep,
     log: Callable[[str], None] = print,
+    positioner: positioning.Positioner | None = None,
+    distance_source: str = "estimated",
 ) -> list[dict]:
-    """逐个停车点拍摄。坐标沿垄按里程估算（position_source=estimated，计划 0013 已定）。"""
+    """逐个停车点拍摄。
+
+    ``distance_m`` 是里程读数，``route_chainage_m`` 是按定位器偏差校正后的行内位置；坐标沿垄按行内位置估算
+    （计划 0013 已定，不代表真实定位）。没给定位器时只认标签，株号推不出来。
+    """
     existing = store.points
+    positioner = positioner or positioning.Positioner(None)
+    # 续拍：偏差恢复到断电前最后一个点记下的值（标签校正过的偏差不丢）
+    positioner.offset_m = next((p["offset_m"] for p in reversed(existing) if "offset_m" in p), positioner.offset_m)
+
+    def located(fix: dict[str, Any]) -> dict[str, Any]:
+        return {**fix, "lng": base_lng, "lat": round(base_lat + fix["route_chainage_m"] / METERS_PER_DEG_LAT, 7)}
+
     for stop in range(stops):
         distance = odometer.distance_m()  # 每个停车点读一次；续拍时也读，保持假里程计的步进一致
-        earlier = next((p for p in existing if p.get("stop") == stop), None)
-        if earlier is not None:
-            distance = earlier["distance_m"]
+        mine = [p for p in existing if p.get("stop") == stop]
+        if mine:
+            distance = mine[0]["distance_m"]
         if stop and interval:
             sleeper(interval)
-        position = {
-            "distance_m": round(distance, 3),
-            "route_chainage_m": round(distance, 3),
-            "lng": base_lng,
-            "lat": round(base_lat + distance / METERS_PER_DEG_LAT, 7),
-            "position_source": "estimated",
-        }
-        shot = shoot_stop(store, rig, views, stop=stop, position=position, policy=policy, clock=clock)
+        position = {"distance_m": round(distance, 3), "distance_source": distance_source}
+        if mine:  # 续拍：沿用断电前这个停车点最后记下的位置（可能已被标签校正）
+            position.update({key: mine[-1].get(key) for key in POSITION_KEYS if key in mine[-1]})
+        else:
+            position.update(located(positioner.estimate(distance)))
+
+        def on_tag(tag: str, distance: float = distance) -> dict[str, Any] | None:
+            fix = positioner.apply_tag(tag, distance)
+            return located(fix) if fix else None
+
+        shot = shoot_stop(store, rig, views, stop=stop, position=position, policy=policy, clock=clock,
+                          on_tag=on_tag)
         if shot:
             accepted = sum(1 for p in shot if p["view"]["accepted"])
             key = next((p["observation_key"] for p in reversed(shot) if p["observation_key"]), None)

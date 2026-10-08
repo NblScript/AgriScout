@@ -30,30 +30,39 @@ export AGRISCOUT_USERNAME=rover AGRISCOUT_PASSWORD='<口令>'
 ```
 
 ```bash
-# 真车：USB 摄像头，拍 20 个点，间隔 3 秒；断网包保存在 .rover-spool
-.venv/bin/python run.py --api http://10.104.160.64:8000 --device rover-001 --points 20 --interval 3 --spool-dir /var/lib/agriscout/spool
+# 无摄像头 / 在电脑上先测链路：合成图 + 假云台、假里程计，停车补拍并分步上传（默认模式）
+.venv/bin/python run.py --api http://10.104.160.64:8000 --fake --layout layout.example.json --stops 5
 
-# 无摄像头 / 在电脑上先测链路：用合成图
-.venv/bin/python run.py --api http://10.104.160.64:8000 --fake
+# 真车：云台、补光、编码器驱动还没接，暂用旧模式——USB 摄像头拍 20 个点，间隔 3 秒
+.venv/bin/python run.py --api http://10.104.160.64:8000 --mode legacy --device rover-001 --points 20 --interval 3 --spool-dir /var/lib/agriscout/spool
 
 # 只补传上次断网或进程中断留下的巡检包
 .venv/bin/python run.py --api http://10.104.160.64:8000 --flush-spool --spool-dir /var/lib/agriscout/spool
 ```
 
-## 停车补拍模式（计划 0016 阶段 A）
+## 停车补拍模式（默认，计划 0016 阶段 A、B）
 
-`--mode stops`：每个停车点按视角序列（默认 `views.example.json`：一张正面 + 两张叶背仰拍补光）逐个拍，
+`--mode stops`（默认）：每个停车点按视角序列（默认 `views.example.json`：一张正面 + 两张叶背仰拍补光）逐个拍，
 每张当场用 `iq-rule-v1` 判断清晰度、过曝、欠曝、逆光，不合格就补拍（叶背视角每次加 `--pitch-step` 度），
 每次尝试都记成一个点上传。照片拍一张落盘一张（`<spool-dir>/<巡检目录>/`），断电不丢；
 下次运行时中断的巡检自动组包排队，加 `--resume` 则从断点续拍。云台、补光、编码器驱动还没接，目前只能配合 `--fake` 使用。
 
 ```bash
 # 假相机按脚本依次给出 normal/blurry/overexposed/dark/backlit，演示补拍
-.venv/bin/python run.py --api http://10.104.160.64:8000 --fake --mode stops --stops 5 --fake-script normal,blurry,blurry
+.venv/bin/python run.py --api http://10.104.160.64:8000 --fake --stops 5 --fake-script normal,blurry,blurry
 ```
 
-阶段 A 上传的仍是 v1 包：株号、行内位置、视角和质量记录只留在本地 `points.jsonl`，阶段 B（协议 v2）才上传；
-平台另对每张照片按同一公式算一遍质量，写进分析结果的 `detail.image_quality`。
+**株号定位**（阶段 B）：`--layout` 给出棚内布局（`layout.example.json`，与平台批量建档同结构：每垄的垄号、株数、株距、第 1 株的行内位置），
+`--row` 选本趟巡哪一垄（默认第一垄）。每个停车点按里程读数推算株号：株序号 = round((行内位置 − 起点) / 株距) + 1。
+读到本垄的标签（二维码内容 = 株号）时以标签为准，并把「标签株的布局位置 − 当时的里程读数」记为偏差，校正后续株；
+同一停车点的照片统一用标签结果。`position_source`：读到标签为 `tag`，按编码器推算为 `encoder`，假里程计为 `estimated`；
+坐标沿垄按行内位置估算，不代表真实定位。不给布局时只认标签。给了布局时 `--stops`、`--stop-spacing` 默认取该垄株数和株距。
+
+**分步上传**（阶段 B，协议 v2）：拍完后组成只含元数据的 v2 包放进队列（`client_package_id` = 队列包号），照片留在逐点目录里。
+上传时先逐张按 SHA-256 查平台上有没有（`GET /api/v1/media/exists`），没有才传（`POST /api/v1/media`），再提交只含照片 URL 的包，
+内存里一次只有一张照片。平台返回 200 + `duplicate`（同一个包已收过，比如上次回执丢了）按成功处理，删队列文件和照片目录；
+返回 409（同包号内容不同）时标记 `needs_manual`，之后的补传跳过它，见下文「失败行为」。平台另对每张照片按同一公式算一遍质量，
+写进分析结果的 `detail.image_quality`。
 
 ## 温湿度记录仪 CSV 上传（计划 0015）
 
@@ -75,10 +84,12 @@ export AGRISCOUT_USERNAME=rover AGRISCOUT_PASSWORD='<口令>'
 安装 `requirements.txt` 后，可从仓库根目录运行最小闭环与失败路径检查：
 
 ```bash
-python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_store rover.test_env_upload
+python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_store rover.test_env_upload \
+  rover.test_positioning rover.test_upload_v2
 ```
 
-烟测使用本地 HTTP mock，不导入后端内部模块，也不需要摄像头；它覆盖 `--fake` 上传、巡检包时间顺序、非 JSON/网络错误，以及采集失败时的资源清理。
+烟测使用本地 HTTP mock，不导入后端内部模块，也不需要摄像头；它覆盖 `--fake` 上传、巡检包时间顺序、非 JSON/网络错误，以及采集失败时的资源清理；
+`test_upload_v2` 用按接口合同写的假平台检查 v2 包的字段约束、先传照片后交包、照片已有时跳过、重复补传与 409。
 
 ## 关键参数
 
@@ -87,18 +98,20 @@ python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_stor
 | `--api` | `http://localhost:8000` | 后端地址（真车填电脑局域网 IP） |
 | `--device` | `rover-001` | 设备编号，须唯一，会幂等建档 |
 | `--field-id` | 0 | 已有地块 id；0 表示自动建一块测试田 |
-| `--points` | 10 | 采样点数量 |
+| `--points` | 10 | 采样点数量（legacy 模式） |
 | `--interval` | 2.0 | 两次拍照间隔（秒），0=不等待 |
-| `--step` | 0.5 | 相邻点间距（米），估算 `distance_m` 用 |
+| `--step` | 0.5 | 相邻点间距（米），legacy 模式估算 `distance_m` 用 |
 | `--camera` | 0 | USB 摄像头索引 |
 | `--width` / `--height` | 640 / 480 | 上传照片分辨率（越小上传越快） |
 | `--fake` | 关 | 不用摄像头，用合成图测链路 |
+| `--crop` | `cucumber` | 自动建种植记录用的作物：`cucumber` 黄瓜（生育期为占位值，待农技复核）或 `wheat` 冬小麦 |
 | `--spool-dir` | `.rover-spool` | 完整巡检包的本地持久队列目录，真车建议使用持久化绝对路径 |
 | `--upload-retries` | 2 | 网络或 5xx/429 等临时错误的额外重试次数 |
 | `--retry-delay` | 0.5 | 指数退避的基础等待秒数 |
 | `--flush-spool` | 关 | 只补传队列，不启动新的采集 |
-| `--mode` | `legacy` | `legacy` 沿直线等间隔拍一张；`stops` 停车按视角序列拍并补拍 |
-| `--views` / `--stops` / `--stop-spacing` | 示例文件 / 5 / 0.4 | stops 模式的视角序列、停车点数、假里程计间距（米） |
+| `--mode` | `stops` | `stops` 停车按视角序列拍并补拍，分步上传 v2 包；`legacy` 沿直线等间隔拍一张，发 v1 包 |
+| `--views` / `--stops` / `--stop-spacing` | 示例文件 / 5 / 0.4 | stops 模式的视角序列、停车点数、假里程计间距（米）；给了布局时后两项默认取该垄株数和株距 |
+| `--layout` / `--row` | 空 / 第一垄 | 棚内布局 JSON 和本趟巡的垄号；给了布局才按里程推算株号 |
 | `--max-attempts` / `--pitch-step` | 3 / 5 | 每个视角最多拍几次；叶背补拍每次加的仰角（度） |
 | `--fake-script` | 空 | `--fake` 时假相机依次产出的图像类型，逗号分隔 |
 | `--resume` | 关 | stops 模式从上次中断处续拍 |
@@ -107,8 +120,8 @@ python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_stor
 
 ## 当前边界（无传感器阶段）
 
-- `distance_m`：按 `--step` 固定步长估算（匀速假设），**接编码器后改为真实里程**。
-- `lng` / `lat`：从 `--base-lng/--base-lat` 沿正北走直线，**接 GPS/RTK 后填真实坐标**。
+- `distance_m`：legacy 模式按 `--step` 固定步长估算（匀速假设）；stops 模式取里程计读数（`--fake` 时为假里程计，`distance_source=configured`），**接编码器后改为真实里程**。
+- `lng` / `lat`：从 `--base-lng/--base-lat` 沿正北走直线（stops 模式按校正后的行内位置），**接 GPS/RTK 后填真实坐标**；棚内跨日关联以株号为准。
 - `weather`：留空 `null`，**接 DHT22 / BH1750 后填温湿光**。
 
 这些字段替换时，协议（`POST /api/v1/ingest/patrol`）和前端都无需改动——这正是"平台业务不因数据源改变而修改"的设计目标（README 红线第 4 条）。
@@ -121,7 +134,10 @@ python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_stor
 重试不会重新拍照，也不会改变原始时间戳。legacy 模式下参数越界、非 JSON 响应或任一点拍摄失败都会终止当前任务，不上传不完整巡检包
 （stops 模式下单张拍摄失败只记一个无照片的点，继续拍）；无论成功还是失败，HTTP 客户端和摄像头都会释放。
 
-当前后端尚未提供稳定的 client package id。HTTP 409 只会保留在本地队列并提示待核对，不能直接当作幂等成功删除，以免不同巡检包发生时间冲突时丢数据。
+重复补传与冲突（阶段 B）：v2 包带稳定的 `client_package_id`，平台对同一个包的重传返回 200 + `duplicate`，rover 按成功删除队列。
+HTTP 409（v2 包同包号内容不同，或 v1 包撞上同一地块、设备、开始时间）不重试，队列文件标记 `needs_manual: true` 并保留照片目录，
+之后的 `--flush-spool` 跳过它、返回 1。核对平台上的巡检后，要重传就把该文件里的 `needs_manual` 改成 `false`，要放弃就删掉这个队列文件
+（对应的照片目录会在下次启动时清掉）。
 
 ## 下一步接传感器
 

@@ -14,6 +14,7 @@ from app.api.v1 import (
     greenhouse,
     health,
     ingest,
+    media,
     observation_units,
     patrols,
     plantings,
@@ -41,6 +42,7 @@ api_router.include_router(plantings.router)
 api_router.include_router(patrols.router)
 api_router.include_router(capture_points.router)
 api_router.include_router(ingest.router)
+api_router.include_router(media.router)
 api_router.include_router(rules.router)
 api_router.include_router(advices.router)
 api_router.include_router(annotations.router)
