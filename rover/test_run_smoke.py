@@ -277,6 +277,7 @@ class RoverSmokeTests(unittest.TestCase):
                 "--width", "32",
                 "--height", "24",
                 "--fake",
+                "--mode", "legacy",  # 阶段 B 起默认 stops；本例验证旧模式的 v1 包
             ])
 
             self.assertEqual(result, 0)
@@ -330,6 +331,7 @@ class RoverSmokeTests(unittest.TestCase):
             result = rover_run.main([
                 "--api", "http://smoke.invalid",
                 "--fake",
+                "--mode", "legacy",  # 旧模式：任一点拍摄失败整趟中止
                 "--points", "2",
                 "--interval", "0",
             ])

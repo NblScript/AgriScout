@@ -35,9 +35,9 @@ python -m unittest simulator.test_epidemic simulator.test_geo_v2 simulator.test_
 
 # 真车采集端（树莓派 + USB 摄像头；--fake 无摄像头测链路）
 cd rover && .venv/bin/python run.py --api http://<后端IP>:8000 --fake
-cd rover && .venv/bin/python run.py --api http://<后端IP>:8000 --fake --mode stops --fake-script normal,blurry  # 停车补拍模式（0016-A）
+cd rover && .venv/bin/python run.py --api http://<后端IP>:8000 --fake --layout layout.example.json --fake-script normal,blurry  # 默认停车补拍 + 株号定位 + 分步上传（0016-A/B；真车暂用 --mode legacy）
 cd rover && .venv/bin/python env_upload.py --api http://<后端IP>:8000 --field-id 3 --csv th-01.csv --sensor-key th-01  # 温湿度记录仪 CSV（0015）
-python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_store rover.test_env_upload  # 仓库根目录运行，无硬件
+python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_store rover.test_env_upload rover.test_positioning rover.test_upload_v2  # 仓库根目录运行，无硬件
 
 # ML 训练（独立环境）
 cd ml && .venv/bin/python data/prepare_gwd.py && .venv/bin/python train.py
@@ -54,7 +54,7 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 | 路径 | 职责 |
 |---|---|
 | `backend/app/models/` | 24 张表，每实体一文件；`timestamps.py` 公共 mixin；`__init__.py` 为注册中心 |
-| `backend/app/api/v1/` | 路由层：CRUD + ingest + 分析 + 建议 + 标注 + stats + 报告 + Agent + 规则修订 + `device_protocol`（注册/心跳/事件/故障注入）+ `software_loop`（风险/复巡/随访/数据集/模型评估）+ `auth`/`users`（登录与用户管理，D15）+ `observation_units`（株档案/批量建档/单株时间线，计划 0014）+ `greenhouse`（棚内环境上报与查询、每株状态、巡检计划，计划 0015） |
+| `backend/app/api/v1/` | 路由层：CRUD + ingest + 分析 + 建议 + 标注 + stats + 报告 + Agent + 规则修订 + `device_protocol`（注册/心跳/事件/故障注入）+ `software_loop`（风险/复巡/随访/数据集/模型评估）+ `auth`/`users`（登录与用户管理，D15）+ `observation_units`（株档案/批量建档/单株时间线，计划 0014）+ `greenhouse`（棚内环境上报与查询、每株状态、巡检计划，计划 0015）+ `media`（照片分步上传与查重，计划 0016-B） |
 | `backend/app/services/analysis/` | Analyzer 协议（base.py）+ 占位颜色版 + YOLO 版（麦穗，可选）+ disease_classifier（条锈病图块分类，可选）+ image_quality（iq-rule-v1，每点写 detail）+ 后台 runner |
 | `backend/app/services/` | advice(规则引擎) / agent_chat+agent_tools(L2 诊断) / agent_rule_draft+rule_feedback+shadow_run+rule_revision(L1 起草生效) / llm_report(报告) / ingest+observation_units(重传幂等、株号解析与自动建档) / storage / risk_prediction+risk_inputs+region_association+active_learning+evidence_feedback+dataset_governance(M7 研究闭环，纯函数优先) / evaluation_metrics+offline_replay(随访指标与 H1–H3 离线重放) / logistic+risk_features+risk_model(risk-lr 可训练风险模型，D12) / revisit_planning(线上复巡生成，与离线共用联合策略，D17) / greenhouse_env+plant_state+patrol_planner+greenhouse_plans(大棚环境指标、每株状态、planner-v0 与计划落库，D18) / greenhouse_replay(大棚巡检策略离线比较，调用线上 planner，D21) |
 | `backend/app/tools/` | `sync_rules`（YAML 同步）、`gen_db_schema`（表结构快照）、`replay_eval`（离线重放报告）、`train_risk_lr`（训练导出风险模型）、`al_replay_images`（H3 真实图像数据选样对比）、`greenhouse_replay`（大棚巡检策略比较报告）、`create_user`（建号/重置口令） |
@@ -66,7 +66,7 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 | `frontend/src/components/` | `ui/` 通用组件（PageHeader/SectionCard/StatCard/StateTag/TaskTypeTag/QualityBadge/EmptyState）+ PlantGrid（「垄 × 株」状态网格）+ EnvPanel/ConfirmPanel（工作台、大棚详情、展示屏共用）+ `plant/`（单株照片、状态、确认表单，D20）+ `patrol/`（回放各块：播放条、照片与病斑框、单株卡、采样点卡、问一问/报告/建议分区）+ MapCanvas、EChart；`composables/` 放共用数据加载（useGreenhouseBoard、useFieldDetail、useTimelineCache） |
 | `frontend/src/api/index.ts` · `types.ts` | 每资源一个 api 对象；类型单一事实源，对齐 backend schemas |
 | `simulator/` | 独立虚拟巡田，只走 HTTP（禁止 import 后端内部）；`season.py` 多日期病害扩散模拟季；`greenhouse.py` + `greenhouse_run.py` 大棚黄瓜模型与闭环（D21） |
-| `rover/` | 真车采集端：`run.py` 编排上传与 spool 断网续传；`hardware`（硬件接口+假实现）/`quality`（iq-rule-v1）/`acquire`（视角补拍）/`point_store`（逐点落盘）/`env_upload`（温湿度 CSV 上传）；只走 HTTP |
+| `rover/` | 真车采集端：`run.py` 编排上传与 spool 断网续传；`hardware`（硬件接口+假实现）/`quality`（iq-rule-v1）/`acquire`（视角补拍）/`point_store`（逐点落盘）/`positioning`（布局与株号定位）/`upload`（照片分步上传）/`env_upload`（温湿度 CSV 上传）；只走 HTTP |
 | `ml/` | YOLO 训练环境（与后端运行时分离）：麦穗检测（GWD）、条锈病图块分类（NWRD，D14） |
 | `tools/` | download_tiles.py 离线瓦片下载（高德源） |
 

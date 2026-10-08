@@ -1,7 +1,6 @@
 """计划 0016 A4：逐点落盘、断点恢复、组包。仓库根目录运行 ``python -m unittest rover.test_point_store``。"""
 from __future__ import annotations
 
-import base64
 import json
 import tempfile
 import unittest
@@ -75,13 +74,16 @@ class PointStoreTests(unittest.TestCase):
         store = PointStore.create(self.spool, "trip", META)
         self.assertEqual(PointStore(store.directory).resume(), [])
 
-    def test_build_package_is_v1_and_keeps_local_fields_out(self) -> None:
+    def test_build_package_is_v2_metadata_without_photo_bytes(self) -> None:
+        # 阶段 B 起组成 v2 元数据包：照片不读进内存，只记本地文件，上传时换成平台 URL
         store = PointStore.create(self.spool, "trip", META)
-        store.append(_point(0, stop=0), b"jpeg-0")
+        store.append({**_point(0, stop=0), "tags": ["junk"]}, b"jpeg-0")
         store.append(_point(1, stop=0), None)
         store.append(_point(2, stop=1), b"jpeg-2")
-        package = store.build_package()
+        package = store.build_package("pkg-1")
+        self.assertEqual(package["schema_version"], "2.0")
         header = package["patrol"]
+        self.assertEqual(header["client_package_id"], "pkg-1")
         self.assertEqual(header["field_id"], 3)
         self.assertEqual(header["planting_id"], 5)
         self.assertEqual(header["started_at"], META["started_at"])
@@ -89,19 +91,41 @@ class PointStoreTests(unittest.TestCase):
         self.assertEqual(len(header["track"]), 2)  # 同一停车点的多张只记一个轨迹点
         points = package["capture_points"]
         self.assertEqual([p["seq"] for p in points], [0, 1, 2])
-        self.assertEqual(base64.b64decode(points[0]["photo"]), b"jpeg-0")
-        self.assertIsNone(points[1]["photo"])
-        self.assertEqual(
-            set(points[0]), {"seq", "distance_m", "lng", "lat", "captured_at", "photo", "weather"},
-        )
+        self.assertEqual([(p["photo"], p["photo_file"]) for p in points],
+                         [(None, "photos/0.jpg"), (None, None), (None, "photos/2.jpg")])
+        self.assertEqual(set(points[0]), {
+            "seq", "distance_m", "lng", "lat", "captured_at", "photo", "photo_file", "weather",
+            "observation_key", "route_chainage_m", "distance_source", "position_source", "view",
+        })
+        self.assertEqual(points[0]["view"], {"side": "upper", "attempt": 1, "accepted": True})
+
+    def test_points_of_a_tagged_stop_share_the_tag_position(self) -> None:
+        store = PointStore.create(self.spool, "trip", META)
+        estimated = {**_point(0), "observation_key": "R01-P002", "position_source": "estimated"}
+        tagged = {**_point(1), "observation_key": "R01-P003", "position_source": "tag", "route_chainage_m": 1.3,
+                  "lat": 39.2}
+        store.append(estimated, b"a")  # 正面先拍，还没读到标签
+        store.append(tagged, b"b")     # 叶背读到了标签
+        store.append({**_point(2, stop=1), "observation_key": "bad key!", "position_source": "encoder"}, b"c")
+        points = store.build_package("pkg")["capture_points"]
+        self.assertEqual([(p["observation_key"], p["position_source"], p["route_chainage_m"], p["lat"])
+                          for p in points[:2]], [("R01-P003", "tag", 1.3, 39.2)] * 2)
+        self.assertIsNone(points[2]["observation_key"])  # 不合平台正则的株号不上传
 
     def test_build_package_needs_points_and_end_after_start(self) -> None:
         store = PointStore.create(self.spool, "trip", META)
         with self.assertRaises(ValueError):
-            store.build_package()
+            store.build_package("pkg")
         same_time = {**_point(0), "captured_at": META["started_at"]}
         store.append(same_time, b"x")
-        self.assertEqual(store.build_package()["patrol"]["ended_at"], "2026-10-03T06:00:01+08:00")
+        self.assertEqual(store.build_package("pkg")["patrol"]["ended_at"], "2026-10-03T06:00:01+08:00")
+
+    def test_sealed_trip_is_no_longer_unfinished(self) -> None:
+        store = PointStore.create(self.spool, "trip", META)
+        store.append(_point(0), b"x")
+        store.seal("pkg-9")
+        self.assertEqual(PointStore.unfinished(self.spool), [])
+        self.assertEqual(PointStore.sealed(self.spool), [(store.directory, "pkg-9")])
 
     def test_unfinished_lists_trip_dirs_only_and_remove_cleans_up(self) -> None:
         (self.spool / "abc.json").write_text("{}", encoding="utf-8")  # PackageSpool 的队列文件

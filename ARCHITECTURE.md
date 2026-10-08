@@ -72,6 +72,10 @@ core/            config(pydantic-settings) / db(Session) / deps(认证与角色�
   `schema_version` 不是 "2.0" 时 422，v1 包行为不变。其余目标字段见 docs/08 §9。
 - **重传幂等**：带 `client_package_id` 时按（设备, 键）判重，内容哈希取规范 JSON 的 SHA-256：同键同内容 200 +
   `duplicate=true` 且不再调度分析，同键异内容 409（detail 带原 `patrol_id`）；不带键仍按「地块 + 设备 + 开始时间」判重。
+- **照片分步上传**（计划 0016-B）：`POST /api/v1/media` 收原始图片字节（jpeg/png，≤8MB，新建 201、已有 200，返回
+  `{url, sha256, created}`），`GET /api/v1/media/exists?sha256=` 查重；扩展名按魔数定，与包内 base64 照片同一规则，同一份字节
+  永远是同一个 URL。巡检包里 `/media/` 开头的照片引用必须已在存储里，否则整包 422；外部 http(s) URL 不校验。rover stops 模式
+  先逐张查重上传、再交只含 URL 的 v2 包（内存与照片数无关），200 + `duplicate` 按成功删队列，409 留待人工处理。
 - **株号关联**：点带株号就落到 `observation_units`（找不到自动建档，`created_from=ingest` 待核对），风险区域键用
   `field-{id}/unit/{株号}`；没有株号回退 D11 网格。邻居只在同类坐标内算，纯网格数据的 risk-lr 输出与改动前逐位一致。
 - **Analyzer 协议**（`services/analysis/base.py`）：业务层只依赖它，替换实现零改业务。

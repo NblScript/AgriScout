@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import math
 import tempfile
@@ -308,10 +309,16 @@ class _FakeClient:
     def ensure_planting(self, field_id, crop_id, sowing):
         return {"id": 4}
 
+    def media_exists(self, sha256):
+        return {"exists": False, "url": None}
+
+    def upload_media(self, data, content_type):
+        return {"url": f"/media/{hashlib.sha256(data).hexdigest()}.jpg", "created": True}
+
     def ingest(self, package):
         self.ingested.append(package)
         n = len(package["capture_points"])
-        return {"patrol_id": 9, "capture_points": n, "photos_saved": n, "photos_referenced": 0}
+        return {"patrol_id": 9, "capture_points": n, "photos_saved": 0, "photos_referenced": n}
 
     def close(self) -> None:
         self.closed = True

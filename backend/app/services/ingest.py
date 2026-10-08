@@ -20,7 +20,7 @@ from app.schemas.patrol import (
     is_photo_url,
 )
 from app.services.observation_units import UnitResolver
-from app.services.storage import Storage
+from app.services.storage import Storage, photo_suffix
 
 
 def package_digest(package: PatrolPackageIn) -> str:
@@ -77,10 +77,23 @@ def _resolve_photo(payload: CapturePointPayload, storage: Storage) -> tuple[str 
     if is_photo_url(photo):
         return photo, False, False
     data = decode_base64_photo(photo)  # 已在 schema 预校验，这里取字节
-    # 按文件魔数判型：PNG(\x89PNG) / JPEG(\xff\xd8)，其余默认 jpg
-    ext = ".png" if data[:4] == b"\x89PNG" else ".jpg"
-    url, created = storage.save_tracked(data, suffix=ext)
+    url, created = storage.save_tracked(data, suffix=photo_suffix(data))
     return url, True, created
+
+
+def _check_media_refs(package: PatrolPackageIn, storage: Storage) -> None:
+    """``/media/`` 开头的照片引用必须是平台上已有的照片（计划 0016-B）；外部 http(s) URL 不校验。
+
+    rover 分步上传先经 ``POST /media`` 传照片、再提交只含 URL 的包；引用缺失多半是照片没传成功，
+    整包拒绝（422），让采集端把包留在队列里重传，而不是落一批取不到图的点。
+    """
+    missing = sorted({
+        cp.photo for cp in package.capture_points
+        if cp.photo and cp.photo.startswith("/media/") and not storage.exists(cp.photo)
+    })
+    if missing:
+        shown = "、".join(missing[:3]) + (f" 等 {len(missing)} 个" if len(missing) > 3 else "")
+        raise ValueError(f"照片引用在平台上不存在：{shown}（先用 POST /api/v1/media 上传）")
 
 
 def _cleanup_new_photos(db: Session, storage: Storage, urls: list[str]) -> None:
@@ -126,6 +139,7 @@ def ingest_patrol_package(db: Session, package: PatrolPackageIn, storage: Storag
     ).first()
     if duplicate is not None:
         raise DuplicateError(duplicate_id=duplicate.id)
+    _check_media_refs(package, storage)
 
     photos_saved = 0
     photos_referenced = 0
