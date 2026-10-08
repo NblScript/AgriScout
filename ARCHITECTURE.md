@@ -76,6 +76,9 @@ core/            config(pydantic-settings) / db(Session) / deps(认证与角色�
   `{url, sha256, created}`），`GET /api/v1/media/exists?sha256=` 查重；扩展名按魔数定，与包内 base64 照片同一规则，同一份字节
   永远是同一个 URL。巡检包里 `/media/` 开头的照片引用必须已在存储里，否则整包 422；外部 http(s) URL 不校验。rover stops 模式
   先逐张查重上传、再交只含 URL 的 v2 包（内存与照片数无关），200 + `duplicate` 按成功删队列，409 留待人工处理。
+- **按计划离线执行**（计划 0016-C）：rover 只读 `GET /fields/{id}/patrol-plans/latest` 和补拍任务的 `parameters.views`，
+  离线拍完把每条任务的结果随包排队；包收下后用现有 `PATCH /revisit-tasks/{id}` 先写 `result_note`、再按状态机走到 completed，
+  没拍成的只写原因不改状态；确认（label）任务由人关闭，车不回报。后端没有为此改接口。
 - **株号关联**：点带株号就落到 `observation_units`（找不到自动建档，`created_from=ingest` 待核对），风险区域键用
   `field-{id}/unit/{株号}`；没有株号回退 D11 网格。邻居只在同类坐标内算，纯网格数据的 risk-lr 输出与改动前逐位一致。
 - **Analyzer 协议**（`services/analysis/base.py`）：业务层只依赖它，替换实现零改业务。

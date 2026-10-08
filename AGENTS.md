@@ -36,8 +36,9 @@ python -m unittest simulator.test_epidemic simulator.test_geo_v2 simulator.test_
 # 真车采集端（树莓派 + USB 摄像头；--fake 无摄像头测链路）
 cd rover && .venv/bin/python run.py --api http://<后端IP>:8000 --fake
 cd rover && .venv/bin/python run.py --api http://<后端IP>:8000 --fake --layout layout.example.json --fake-script normal,blurry  # 默认停车补拍 + 株号定位 + 分步上传（0016-A/B；真车暂用 --mode legacy）
+cd rover && .venv/bin/python run.py --api http://<后端IP>:8000 --plan-fetch plan.json --field-id 3  # 下载巡检计划；进棚 --plan plan.json --layout <布局> --fake 离线执行（0016-C）
 cd rover && .venv/bin/python env_upload.py --api http://<后端IP>:8000 --field-id 3 --csv th-01.csv --sensor-key th-01  # 温湿度记录仪 CSV（0015）
-python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_store rover.test_env_upload rover.test_positioning rover.test_upload_v2  # 仓库根目录运行，无硬件
+python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_store rover.test_env_upload rover.test_positioning rover.test_upload_v2 rover.test_plan  # 仓库根目录运行，无硬件
 
 # ML 训练（独立环境）
 cd ml && .venv/bin/python data/prepare_gwd.py && .venv/bin/python train.py
@@ -66,7 +67,7 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 | `frontend/src/components/` | `ui/` 通用组件（PageHeader/SectionCard/StatCard/StateTag/TaskTypeTag/QualityBadge/EmptyState）+ PlantGrid（「垄 × 株」状态网格）+ EnvPanel/ConfirmPanel（工作台、大棚详情、展示屏共用）+ `plant/`（单株照片、状态、确认表单，D20）+ `patrol/`（回放各块：播放条、照片与病斑框、单株卡、采样点卡、问一问/报告/建议分区）+ MapCanvas、EChart；`composables/` 放共用数据加载（useGreenhouseBoard、useFieldDetail、useTimelineCache） |
 | `frontend/src/api/index.ts` · `types.ts` | 每资源一个 api 对象；类型单一事实源，对齐 backend schemas |
 | `simulator/` | 独立虚拟巡田，只走 HTTP（禁止 import 后端内部）；`season.py` 多日期病害扩散模拟季；`greenhouse.py` + `greenhouse_run.py` 大棚黄瓜模型与闭环（D21） |
-| `rover/` | 真车采集端：`run.py` 编排上传与 spool 断网续传；`hardware`（硬件接口+假实现）/`quality`（iq-rule-v1）/`acquire`（视角补拍）/`point_store`（逐点落盘）/`positioning`（布局与株号定位）/`upload`（照片分步上传）/`env_upload`（温湿度 CSV 上传）；只走 HTTP |
+| `rover/` | 真车采集端：`run.py` 编排上传与 spool 断网续传；`hardware`（硬件接口+假实现）/`quality`（iq-rule-v1）/`acquire`（视角补拍）/`point_store`（逐点落盘）/`positioning`（布局与株号定位）/`upload`（照片分步上传）/`plan`（按巡检计划离线执行与任务回报）/`env_upload`（温湿度 CSV 上传）；只走 HTTP |
 | `ml/` | YOLO 训练环境（与后端运行时分离）：麦穗检测（GWD）、条锈病图块分类（NWRD，D14） |
 | `tools/` | download_tiles.py 离线瓦片下载（高德源） |
 
