@@ -52,7 +52,7 @@ AgriScout（巡知）是一套面向病害风险预测与主动学习的农田�
 
 - 基础管理：地块、作物、种植批次、设备的 CRUD。
 - 登录与权限：账号登录（令牌有效期默认 12 小时）；管理员 / 操作员 / 只读三种角色，只读账号不能修改任何数据；管理员在「用户管理」页建号、改角色、停用、重置口令。
-- 巡检接入：巡检包 v1 与 v2 最小子集（株号、行内位置、视角元数据），客户端包 ID 重传幂等（同包返回 200，不再 409），照片 SHA-256 内容寻址存储、分页和地理范围查询。
+- 巡检接入：巡检包 v1 与 v2 最小子集（株号、行内位置、视角元数据），客户端包 ID 重传幂等（同包返回 200，不再 409），照片 SHA-256 内容寻址存储、分页和地理范围查询；照片可先经 `POST /api/v1/media` 分步上传、按哈希查重，包里只放 URL（计划 0016-B）。
 - 株档案：按株建档（批量生成 `R{垄}-P{株}`），上传时按株号自动关联、找不到就建档待核对；风险预测按株分区；单株时间线按日期并列正面和叶背照片、补拍次数、质量、复核与预测，并可确认状态（健康 / 早期 / 明显 / 其他）；「待确认」页按株列出模型推给人的株，侧滑看叶背大图后提交，自动跳到下一株，确认后关闭该株的确认任务（D20）。这两页可在手机上用。
 - 大棚环境与巡检计划：温湿度记录仪 CSV 经 `rover/env_upload.py` 上传（重复上传自动跳过）；按小时聚合、缺测只标记，逐日统计霜霉病适宜与湿润时长，给出近 72 小时环境指数（读数不足时为空，不当低风险）和清晨叶背窗口；每株状态人工确认优先，没有人工结论时用模型分占位；planner-v0 每天给出「推给人确认 / 叶背补拍 / 低频全覆盖 / 随机抽查」四张互斥名单，每条带打分分量，写成任务；风险高时补拍名单变长，但全覆盖和抽查始终保留（D18）。大棚详情 `/fields/:id` 把概览（「垄 × 株」状态网格）、巡检计划、株档案、环境、巡检记录收成标签页。
 - 异步分析：上传快速返回，后台逐点执行；支持颜色统计占位分析器、可选 YOLO 麦穗分析器，以及可选条锈病识别模型（NWRD 公开田间数据训练，输出病斑图块位置与风险分）。
@@ -70,7 +70,7 @@ AgriScout（巡知）是一套面向病害风险预测与主动学习的农田�
   另列「只换清晨拍」「只换按模型分确认」两个对照；**模拟结论只证明流程**，病害规律是设计进模拟器的，不是效果证据（D21）。
 - 实验评估：风险预测按观察区域串联历史巡检；`GET /risk-predictions/metrics` 从随访结果计算 PR-AUC、Brier、固定误报负担下的召回率和提前量；`replay_eval` 离线重放 H1 特征消融、H2 复巡策略、H3 标注选样。H3 另在 NWRD 真实图块上验证（`al_replay_images`）：候选池阳性比例抽稀到 ≤10% 时，平台联合选样达到随机选样 200 个标注的效果只需 100–120 个；NWRD 原始比例（约 1/3 阳性）下三种策略没有差别。抽稀条件是看到原始结果后追加的对照，结论需在试验田数据上复验。
 - 可训练风险模型：`train_risk_lr` 用逻辑回归训练 `risk-lr-v1`（本区域图像、历史、邻近区域 5 个特征），生成预测时指定 `model_version=risk-lr-v1` 使用；训练与线上共用同一特征实现。
-- 真车采集端：`rover/` 支持 USB 摄像头或合成图采集、本地 spool 断网续传、临时错误指数退避重试。
+- 真车采集端：`rover/` 默认停车按视角序列拍、逐张判断质量并补拍、逐点落盘；按棚内布局和株号标签定位株号；照片逐张查重分步上传后再交 v2 包，重复补传按成功处理、409 留待人工核对；本地 spool 断网续传、临时错误指数退避重试（计划 0016-A/B）。
 
 ## 当前状态
 
@@ -195,7 +195,7 @@ export AGRISCOUT_USERNAME=sim AGRISCOUT_PASSWORD='<上面设置的口令>'
 cd rover
 python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt
 export AGRISCOUT_USERNAME=<操作员账号> AGRISCOUT_PASSWORD='<口令>'   # 或 --token
-.venv/bin/python run.py --api http://<后端局域网IP>:8000 --fake
+.venv/bin/python run.py --api http://<后端局域网IP>:8000 --fake --layout layout.example.json
 ```
 
 棚内温湿度记录仪导出的 CSV 用同一套凭据上传（列名、时区、编码可配，见 rover/README）：
@@ -221,7 +221,8 @@ GET http://localhost:8000/api/v1/ingest/patrol-schema
 (cd frontend && pnpm typecheck && pnpm build)
 
 # 真车采集端无硬件烟测、病害模型单测（仓库根目录）
-python -m unittest rover.test_run_smoke rover.test_env_upload simulator.test_epidemic simulator.test_geo_v2
+python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_store rover.test_env_upload \
+  rover.test_positioning rover.test_upload_v2 simulator.test_epidemic simulator.test_geo_v2
 
 # 规则 YAML 同步到运行时规则表
 (cd backend && .venv/bin/python -m app.tools.sync_rules)
@@ -285,7 +286,7 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 下一阶段是 **温室方向软件线**（执行计划见 [0013](docs/exec-plans/active/0013-greenhouse-active-acquisition.md)，
 与作物无关的剩余改造见 [0007](docs/exec-plans/active/0007-application-alignment.md)）。场地核实与试拍前只做不依赖场地的部分：
 
-- rover 协议 v2 与分步上传（0016-B），离线执行巡检计划（0016-C）；按预设角度拍摄 + 逐张质量判断 + 补拍、图像质量进入分析结果已完成（0016-A）；
+- rover 离线执行巡检计划（0016-C）；停车补拍与图像质量（0016-A）、协议 v2 与照片分步上传和株号定位（0016-B）已完成；
 - 试拍拿到真实照片后：霜霉病识别基线、黄瓜规则草稿（待农技复核）；
 - 时钟同步、盲法复核、数据集分组划分、TX2 部署验证（计划 0007）。
 
@@ -298,8 +299,8 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 - 登录暂无失败次数限制，部署到公网前需加限流或放在网关之后。
 - 标注目前以整图标签为主，病害检测所需的框标注仍在技术债中。
 - 离线地图瓦片只覆盖演示区域，更换演示田需要重新下载瓦片。
-- 平台已支持客户端包 ID 幂等，但 rover 要到计划 0016 阶段 B 才发 v2 包；在此之前重复上传仍按“地块 + 设备 + 开始时间”判重，rover 收到 409 时保留本地队列等待人工核对。
-- 小车目前用固定步长估算里程、沿直线估算坐标、天气字段为空，需接编码器、GPS/RTK 和温湿光传感器后替换。
+- rover 停车模式发 v2 包，重复补传按包号判为重复并删除本地队列；收到 409 的包标记待人工处理、不再自动重传。分步上传了但没被任何点引用的照片暂不清理。
+- 小车的云台、补光、编码器驱动还没接：停车模式只能配合 `--fake`，真车暂用 `--mode legacy`；里程用假里程计或固定步长，坐标沿垄估算，天气字段为空，需接编码器、GPS/RTK 和温湿光传感器后替换。
 - 巡检计划 planner-v0 与环境指标的阈值、权重是启发式（待农技复核、待试拍校准），不是训练出的模型；每株状态在霜霉病识别模型（WP5）之前只是模型分占位。
 - 设备领任务接口还不区分任务类型和地块，推给人确认的任务也会派给车，要到 0016-C 才按计划执行。
 
