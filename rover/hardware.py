@@ -1,13 +1,13 @@
-"""车端硬件抽象与假实现（计划 0016 阶段 A）。
+"""车端硬件抽象与假实现（计划 0016 阶段 A；底盘接口为阶段 C）。
 
-硬件还没定型：相机和二维码标签有真实实现；云台、补光、编码器只定义接口，
+硬件还没定型：相机和二维码标签有真实实现；云台、补光、编码器、底盘只定义接口，
 真实驱动类抛出明确的 NotImplementedError，等器件选型后再接。
 假实现供 ``--fake`` 链路验收和单测使用，不代表任何真实硬件参数。
 """
 from __future__ import annotations
 
 import io
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Protocol
 
 # ---------------------------------------------------------------- 接口
@@ -32,6 +32,15 @@ class Odometer(Protocol):
 
 class TagReader(Protocol):
     def read(self, image: bytes) -> list[str]: ...
+
+
+class Drive(Protocol):
+    """按计划执行时开到第 ``row_no`` 垄、行内位置 ``chainage_m`` 处停下（计划 0016 阶段 C）。
+
+    换垄、掉头、对齐都是底盘控制器的事；到位后里程计读数应接近该垄的行内位置，余下误差由标签校正。
+    """
+
+    def go_to(self, row_no: int, chainage_m: float) -> None: ...
 
 
 # ---------------------------------------------------------------- 假实现
@@ -139,23 +148,51 @@ class FakeOdometer:
 
 
 class FakeTagReader:
-    """每 N 次调用返回一次配置好的株号（依次轮换），其余调用返回空列表。"""
+    """每 N 次调用返回一次配置好的株号（依次轮换），其余调用返回空列表。
 
-    def __init__(self, tags: Iterable[str], every: int = 1):
+    给了 ``source`` 时改为每 N 次读一次「车此刻所在的株」（``source()`` 返回 None 表示这里没有标签）。
+    """
+
+    def __init__(self, tags: Iterable[str], every: int = 1, *, source: Callable[[], str | None] | None = None):
         if every < 1:
             raise ValueError("every 必须 ≥1")
         self._tags = list(tags)
         self.every = every
+        self.source = source
         self._calls = 0
         self._next_tag = 0
 
     def read(self, image: bytes) -> list[str]:
         self._calls += 1
-        if not self._tags or self._calls % self.every:
+        if self._calls % self.every:
+            return []
+        if self.source is not None:
+            tag = self.source()
+            return [tag] if tag else []
+        if not self._tags:
             return []
         tag = self._tags[self._next_tag % len(self._tags)]
         self._next_tag += 1
         return [tag]
+
+
+class FakeDrive:
+    """假底盘兼假里程计：``go_to`` 直接到位；里程读数 = 真实行内位置 × ``scale``（<1 模拟打滑少计）。"""
+
+    def __init__(self, scale: float = 1.0):
+        if scale <= 0:
+            raise ValueError("scale 必须大于 0")
+        self.scale = scale
+        self.row_no: int | None = None
+        self.position_m = 0.0
+        self.visits: list[tuple[int, float]] = []
+
+    def go_to(self, row_no: int, chainage_m: float) -> None:
+        self.row_no, self.position_m = row_no, chainage_m
+        self.visits.append((row_no, chainage_m))
+
+    def distance_m(self) -> float:
+        return round(self.position_m * self.scale, 3)
 
 
 # ---------------------------------------------------------------- 真实实现
@@ -254,4 +291,11 @@ class EncoderOdometer(_NotWired):
     part = "编码器"
 
     def distance_m(self) -> float:  # pragma: no cover
+        raise NotImplementedError
+
+
+class ChassisDrive(_NotWired):
+    part = "底盘"
+
+    def go_to(self, row_no: int, chainage_m: float) -> None:  # pragma: no cover
         raise NotImplementedError

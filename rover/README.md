@@ -38,6 +38,10 @@ export AGRISCOUT_USERNAME=rover AGRISCOUT_PASSWORD='<口令>'
 
 # 只补传上次断网或进程中断留下的巡检包
 .venv/bin/python run.py --api http://10.104.160.64:8000 --flush-spool --spool-dir /var/lib/agriscout/spool
+
+# 按巡检计划执行：有网处下载计划，进棚离线执行（见下文「按巡检计划执行」）
+.venv/bin/python run.py --api http://10.104.160.64:8000 --plan-fetch plan.json --field-id 3
+.venv/bin/python run.py --api http://10.104.160.64:8000 --plan plan.json --layout layout.json --fake
 ```
 
 ## 停车补拍模式（默认，计划 0016 阶段 A、B）
@@ -64,6 +68,27 @@ export AGRISCOUT_USERNAME=rover AGRISCOUT_PASSWORD='<口令>'
 返回 409（同包号内容不同）时标记 `needs_manual`，之后的补传跳过它，见下文「失败行为」。平台另对每张照片按同一公式算一遍质量，
 写进分析结果的 `detail.image_quality`。
 
+## 按巡检计划执行（计划 0016 阶段 C）
+
+平台每天给大棚生成一份巡检计划（决策 D18：确认、补拍、全覆盖、抽查四张名单，每株一条任务）。在有网处运行
+`--plan-fetch plan.json --field-id <地块 id>`：取最近一次计划，补上补拍任务里的视角，按垄、株排好存成本地计划文件，
+同时登记这台车（离线拍完的包上传时平台要认得它）；任务已完成或作废的株不再列入。计划文件不要放在 `--spool-dir` 里。
+
+进棚后运行 `--plan plan.json --layout <布局>`，不需要联网：
+- 只在名单里的株停车：底盘开到布局里该株的行内位置，按里程推算或读标签核对株号；核对到的是计划株时，照片用平台上那株的键（自定义键也一样）。
+- 补拍株按任务的 `parameters.views` 拍（平台默认三个叶背仰角）；确认、全覆盖、抽查三类按 `--views` 的标准视角序列拍。
+- 计划给了清晨叶背窗口而现在不在窗口内、或计划日期不是今天时，只打印提示，照常执行。
+- 布局里找不到的株（垄号不在布局里、没有垄号株号）不停车，记为没完成。
+- 连不上平台时照常拍，拍完包留在队列；中断后加 `--resume` 续拍（同样不需要联网），已拍完的株不再开过去。
+
+拍完组包时算好每条任务的结果，随包排进队列。回到有网处 `--flush-spool`（或下次运行时自动补传），包收下后再回报任务：
+- 拍成了（补拍要有合格的叶背图，全覆盖和抽查要有一张合格图）：先写 `result_note`，再按状态机走到 `completed`；
+- 没拍成（中断、照片都不合格、核对出停错了株、布局里找不到）：只写原因，状态不动，留给下一版计划复用或作废；
+- 确认名单是推给人确认的：车照常拍新照片供人看，任务由人在前端「待确认」页关闭，车不回报；
+- 平台上已结束的任务（409）跳过。回报中途断网时整包留在队列，下次重传按重复补传处理，回报接着做。
+
+底盘驱动（开到指定位置）还没接，`--plan` 目前也只能配合 `--fake`（假底盘直接到位，假标签读车所在的那株）。
+
 ## 温湿度记录仪 CSV 上传（计划 0015）
 
 棚内冠层温湿度记录仪通常只能导出 CSV。`env_upload.py` 按参数读列名、时区和编码，分批调用
@@ -85,11 +110,12 @@ export AGRISCOUT_USERNAME=rover AGRISCOUT_PASSWORD='<口令>'
 
 ```bash
 python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_store rover.test_env_upload \
-  rover.test_positioning rover.test_upload_v2
+  rover.test_positioning rover.test_upload_v2 rover.test_plan
 ```
 
 烟测使用本地 HTTP mock，不导入后端内部模块，也不需要摄像头；它覆盖 `--fake` 上传、巡检包时间顺序、非 JSON/网络错误，以及采集失败时的资源清理；
-`test_upload_v2` 用按接口合同写的假平台检查 v2 包的字段约束、先传照片后交包、照片已有时跳过、重复补传与 409。
+`test_upload_v2` 用按接口合同写的假平台检查 v2 包的字段约束、先传照片后交包、照片已有时跳过、重复补传与 409；
+`test_plan` 在同一个假平台上加了计划和任务接口，检查下载计划、断网执行、只拍名单株、补拍视角、任务回报与续拍。
 
 ## 关键参数
 
@@ -114,7 +140,9 @@ python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_stor
 | `--layout` / `--row` | 空 / 第一垄 | 棚内布局 JSON 和本趟巡的垄号；给了布局才按里程推算株号 |
 | `--max-attempts` / `--pitch-step` | 3 / 5 | 每个视角最多拍几次；叶背补拍每次加的仰角（度） |
 | `--fake-script` | 空 | `--fake` 时假相机依次产出的图像类型，逗号分隔 |
-| `--resume` | 关 | stops 模式从上次中断处续拍 |
+| `--resume` | 关 | stops 模式从上次中断处续拍（可断网） |
+| `--plan-fetch` | 空 | 下载 `--field-id` 大棚最近一次巡检计划存成本地文件后退出（需联网） |
+| `--plan` | 空 | 按本地计划文件执行，只在名单株停车（需 `--layout`，不用 `--row/--stops/--stop-spacing`；可断网） |
 | `--username` / `--password` | 环境变量 `AGRISCOUT_USERNAME` / `AGRISCOUT_PASSWORD` | 平台账号（操作员及以上）；首次访问受保护接口时自动登录，令牌过期自动重登 |
 | `--token` | 环境变量 `AGRISCOUT_TOKEN` | 已签发的访问令牌，与账号口令二选一 |
 
@@ -129,7 +157,8 @@ python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_stor
 ## 代码结构与失败行为
 
 `run.py` 按职责拆分为 HTTP 客户端、照片采集源、本地队列、建档、点位采集和巡检包组装，
-因此可以用 `--fake` 在没有摄像头时验证链路；相机、云台等实现在 `hardware.py`，可以单独替换 `CameraCapture` 接入其他相机。
+因此可以用 `--fake` 在没有摄像头时验证链路；相机、云台、底盘等实现在 `hardware.py`，可以单独替换 `CameraCapture` 接入其他相机；
+按计划执行与任务回报在 `plan.py`。
 每次完整采集会先以临时文件加原子替换写入本地队列，再尝试上传；上传成功后删除队列文件，网络错误或服务端临时错误会保留原始巡检包，后续可用 `--flush-spool` 补传。
 重试不会重新拍照，也不会改变原始时间戳。legacy 模式下参数越界、非 JSON 响应或任一点拍摄失败都会终止当前任务，不上传不完整巡检包
 （stops 模式下单张拍摄失败只记一个无照片的点，继续拍）；无论成功还是失败，HTTP 客户端和摄像头都会释放。
