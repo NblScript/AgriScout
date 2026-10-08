@@ -93,7 +93,11 @@ class CapturePointPayload(BaseModel):
     lat: float = PField(ge=-90, le=90)
     captured_at: datetime
     # base64 / URL 二选一；None 表示本点无照片
-    photo: str | None = None
+    photo: str | None = PField(
+        default=None,
+        description="base64（可带 data URI 前缀）或 URL；/media/ 开头的必须是平台上已有的照片"
+                    "（先经 POST /api/v1/media 上传，计划 0016-B），外部 http(s) URL 不校验",
+    )
     weather: WeatherPayload | None = None
     # ---- v2 最小子集（schema_version="2.0" 才允许）----
     observation_key: str | None = PField(default=None, pattern=OBSERVATION_KEY_PATTERN, description="株号（标签内容）")

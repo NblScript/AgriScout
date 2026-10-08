@@ -6,8 +6,17 @@ from typing import Protocol
 
 from app.core.config import get_settings
 
-# 允许的扩展名白名单
-_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
+# 允许的扩展名白名单；按 SHA-256 查找时按此顺序试（上传只会产出 .jpg / .png）
+_LOOKUP_ORDER = (".jpg", ".png", ".jpeg", ".webp")
+_SUFFIXES = set(_LOOKUP_ORDER)
+
+
+def photo_suffix(data: bytes) -> str:
+    """按文件魔数定扩展名：PNG 魔数 → .png，其余一律 .jpg。
+
+    巡检包 base64 照片与 ``POST /media`` 共用同一规则，同一份字节无论走哪条路都得到同一个 URL。
+    """
+    return ".png" if data[:4] == b"\x89PNG" else ".jpg"
 
 
 class Storage(Protocol):
@@ -25,6 +34,14 @@ class Storage(Protocol):
 
     def open(self, url: str) -> bytes | None:
         """读回照片字节；非本地引用或文件缺失返回 None（调用方自行跳过）。"""
+        ...
+
+    def exists(self, url: str) -> bool:
+        """``/media/`` 引用对应的文件是否存在（巡检包接入校验用，不读内容）。"""
+        ...
+
+    def find(self, sha256: str) -> str | None:
+        """按内容 SHA-256（小写十六进制）找已存的照片，返回 URL；没有返回 None。"""
         ...
 
     def delete(self, url: str) -> None:
@@ -59,25 +76,43 @@ class LocalStorage:
             created = True
         return f"/media/{name}", created
 
-    def open(self, url: str) -> bytes | None:
+    def _local_path(self, url: str) -> Path | None:
+        """``/media/<名>`` → 本地路径；外部 URL 或可疑名字（防路径穿越）返回 None。"""
         if not url or not url.startswith("/media/"):
-            return None  # 外部 URL 不在本地，占位管线不联网抓取
+            return None
         name = url.removeprefix("/media/")
-        if not name or "/" in name or ".." in name:
-            return None  # 防路径穿越
+        if not name or "/" in name or "\\" in name or ".." in name:
+            return None
+        return self.root / name
+
+    def open(self, url: str) -> bytes | None:
+        path = self._local_path(url)
+        if path is None:
+            return None  # 外部 URL 不在本地，占位管线不联网抓取
         try:
-            return (self.root / name).read_bytes()
+            return path.read_bytes()
         except OSError:
             return None
 
+    def exists(self, url: str) -> bool:
+        path = self._local_path(url)
+        return path is not None and path.is_file()
+
+    def find(self, sha256: str) -> str | None:
+        digest = sha256.lower()
+        if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+            return None
+        for suffix in _LOOKUP_ORDER:
+            if (self.root / f"{digest}{suffix}").is_file():
+                return f"/media/{digest}{suffix}"
+        return None
+
     def delete(self, url: str) -> None:
-        if not url or not url.startswith("/media/"):
+        path = self._local_path(url)
+        if path is None:
             return
-        name = url.removeprefix("/media/")
-        if not name or "/" in name or ".." in name:
-            return  # 防路径穿越
         try:
-            (self.root / name).unlink(missing_ok=True)
+            path.unlink(missing_ok=True)
         except OSError:
             pass
 

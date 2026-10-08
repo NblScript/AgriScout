@@ -224,7 +224,7 @@ def test_generate_without_analysis_is_safe(client):
         "capture_points": [
             {"seq": 0, "distance_m": 0, "lng": 10.001, "lat": 10.0,
              "captured_at": "2026-09-21T08:00:00+00:00",
-             "photo": "/media/ghost.jpg", "weather": {"temp_c": 30}}],
+             "photo": "https://example.com/ghost.jpg", "weather": {"temp_c": 30}}],
     }
     patrol_id = client.post(f"{BASE}/ingest/patrol", json=pkg).json()["patrol_id"]
     advices = client.get(f"{BASE}/patrols/{patrol_id}/advices").json()
