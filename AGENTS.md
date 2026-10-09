@@ -61,7 +61,7 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 | `backend/app/tools/` | `sync_rules`（YAML 同步）、`gen_db_schema`（表结构快照）、`replay_eval`（离线重放报告）、`train_risk_lr`（训练导出风险模型）、`al_replay_images`（H3 真实图像数据选样对比）、`greenhouse_replay`（大棚巡检策略比较报告）、`create_user`（建号/重置口令） |
 | `backend/rules/wheat.yaml` | 规则种子库 18 条（单一事实源，经 sync_rules 同步入表） |
 | `backend/app/schemas/` | DTO + 巡检包协议 v1 + 设备协议（对采集端的合同） |
-| `backend/migrations/versions/` | 手写 Alembic 迁移，`00NN_主题` 命名（当前 0016） |
+| `backend/migrations/versions/` | 手写 Alembic 迁移，`00NN_主题` 命名（当前 0017） |
 | `frontend/src/views/` | HomeView（/home 工作台）+ ConfirmQueueView（待确认，侧滑确认）+ FieldDetailView 与 `field/` 五个标签页（概览/巡检计划/株档案/环境/巡检记录；旧 `/fields/:id/units`、`/plan` 即其子路由）+ UnitTimelineView（单株时间线）+ PatrolsView/PatrolDetailView（回放外壳，大棚按株 / 大田地图两种模式，D19）+ ResearchLoopView + 七个管理页（地块/作物/种植/设备/用户/规则修订审批/系统状态）+ BigScreenView（/screen 展示屏）+ LoginView |
 | `frontend/src/layouts/` · `styles/` | 外壳（计划 0018）：AppShell + 分组侧栏 + 顶栏（面包屑、地块切换器、展示屏、用户菜单），导航定义在 `nav.ts`；`styles/tokens.css` 设计令牌是颜色、间距、字号的唯一来源（株状态色、任务类型色在此），`theme.css` 把 Element Plus 变量映射到令牌 |
 | `frontend/src/components/` | `ui/` 通用组件（PageHeader/SectionCard/StatCard/StateTag/TaskTypeTag/QualityBadge/EmptyState）+ PlantGrid（「垄 × 株」状态网格）+ EnvPanel/ConfirmPanel（工作台、大棚详情、展示屏共用）+ `plant/`（单株照片、状态、确认表单，D20）+ `patrol/`（回放各块：播放条、照片与病斑框、单株卡、采样点卡、问一问/报告/建议分区）+ MapCanvas、EChart；`composables/` 放共用数据加载（useGreenhouseBoard、useFieldDetail、useTimelineCache） |
@@ -103,7 +103,7 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 | 改数据库 / 看表结构 | `docs/generated/db-schema.md`（生成物，勿手改） |
 | 动 Analyzer 或接入新识别模型 | `ARCHITECTURE.md`「契约」「能力分级」、`services/analysis/base.py`、决策 D14 |
 | 动规则/建议逻辑 | `backend/rules/wheat.yaml` 文件头（格式）、`services/advice.py`、注册表「规则引擎生命周期」 |
-| 动风险预测/复巡/数据集闸门 | 决策 D10–D13、D17，`api/v1/software_loop.py`、`services/revisit_planning.py`、`services/offline_replay.py` |
+| 动风险预测/复巡/数据集闸门 | 决策 D10–D13、D17、D24，`api/v1/software_loop.py`、`services/revisit_planning.py`、`services/offline_replay.py` |
 | 动大棚环境 / 每株状态 / 巡检计划 | 决策 D18、D22、`services/patrol_planner.py`、`services/greenhouse_plans.py`；改完用 `greenhouse_replay` 复跑策略比较（D21） |
 | 动前端页面 / 颜色与样式 / 人工确认 | 决策 D19、D20，`styles/tokens.css`、`layouts/nav.ts`、`api/index.ts` 的 `confirmApi` |
 | 查某个编号决策（D/B/T/L） | `docs/design-docs/decision-registry.md` |

@@ -332,6 +332,8 @@
 | model_version | String(80) | NOT NULL | — |
 | split | String(20) | NOT NULL | — |
 | metrics | JSON | NOT NULL | — |
+| predictions | JSON | — | — |
+| platform_metrics | JSON | — | — |
 | status | String(20) | NOT NULL | — |
 | notes | Text | — | — |
 | evaluated_at | DateTime | NOT NULL | — |

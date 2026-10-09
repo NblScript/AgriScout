@@ -85,6 +85,12 @@ def test_software_loop_end_to_end(client):
         json={"label": "suspected_disease", "annotator_name": "农技员", "note": "复核"},
     )
     assert annotation.status_code == 201
+    # 测试组要有一阴一阳，平台才能重算指标（D24）
+    negative = client.post(
+        f"{BASE}/capture-points/{points[1]['id']}/annotations",
+        json={"label": "normal", "annotator_name": "农技员"},
+    )
+    assert negative.status_code == 201
 
     dataset = client.post(
         f"{BASE}/datasets/versions",
@@ -95,13 +101,16 @@ def test_software_loop_end_to_end(client):
         f"{BASE}/datasets/versions/{dataset['id']}/freeze", json={"row_count": 2},
     )
     assert frozen.status_code == 200 and frozen.json()["status"] == "frozen"
-    assert frozen.json()["row_count"] == 1 and frozen.json()["snapshot_sha256"]
+    assert frozen.json()["row_count"] == 2 and frozen.json()["snapshot_sha256"]
 
     evaluation = client.post(
         f"{BASE}/model-evaluations",
         json={"dataset_version_id": dataset["id"], "model_name": "risk", "model_version": "v1",
-              "split": "test", "metrics": {"pr_auc": 0.71}, "evaluated_at": "2026-09-20T10:00:00+00:00"},
+              "split": "test", "metrics": {"pr_auc": 0.71}, "evaluated_at": "2026-09-20T10:00:00+00:00",
+              "predictions": [{"annotation_id": annotation.json()["id"], "score": 0.8},
+                              {"annotation_id": negative.json()["id"], "score": 0.3}]},
     ).json()
+    assert evaluation["platform_metrics"]["pr_auc"] == 1.0 and "predictions" not in evaluation
     approved = client.post(
         f"{BASE}/model-evaluations/{evaluation['id']}/approve", json={"approved_by": "负责人"},
     )
