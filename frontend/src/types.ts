@@ -574,13 +574,37 @@ export interface DatasetVersion {
   updated_at: string
 }
 
+/** 冻结快照摘要里的分组划分（D24）；划分功能之前冻结的快照没有这一项 */
+export interface DatasetSplitSummary {
+  method: string
+  group_by: 'field_date' | 'field'
+  seed: number
+  ratios: Record<'train' | 'val' | 'test', number>
+  counts: Record<'train' | 'val' | 'test', number>
+}
+
+/** 平台对照快照测试组重算的指标（D24）；审批只认这些数 */
+export interface PlatformMetrics {
+  split: string
+  threshold: number
+  n: number
+  positives: number
+  negatives: number
+  precision: number | null
+  recall: number | null
+  f1: number | null
+  pr_auc: number | null
+}
+
 export interface ModelEvaluation {
   id: number
   dataset_version_id: number | null
   model_name: string
   model_version: string
   split: string
+  /** 客户端自报，只留作对照 */
   metrics: Record<string, unknown>
+  platform_metrics: PlatformMetrics | null
   status: string
   notes: string | null
   evaluated_at: string

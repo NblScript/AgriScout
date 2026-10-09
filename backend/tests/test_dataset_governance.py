@@ -25,28 +25,32 @@ def db():
         yield session
 
 
-def _seed(db: Session) -> DatasetVersion:
+def _seed(db: Session, labels: tuple[str, ...] = ("normal",)) -> DatasetVersion:
+    """一块地、一趟巡检（同一天），每个标签一个点；第一个点带分析结果。"""
     field = Field(name="G-1", boundary={"type": "Polygon", "coordinates": []})
     db.add(field)
     db.flush()
     patrol = Patrol(field_id=field.id, started_at=datetime(2026, 1, 1, tzinfo=timezone.utc))
     db.add(patrol)
     db.flush()
-    point = CapturePoint(
-        patrol_id=patrol.id, seq=1, distance_m=0.5, lng=120.1, lat=30.2,
-        captured_at=datetime(2026, 1, 1, tzinfo=timezone.utc), photo_url="/media/hash.jpg",
-    )
-    db.add(point)
-    db.flush()
-    db.add(Analysis(
-        capture_point_id=point.id, patrol_id=patrol.id, analyzer_version="placeholder-v0",
-        growth_stage={"name": "拔节"}, vigor_level=4, ndvi=0.71,
-        disease_detections=[], risk_score=0.1, detail={"green_ratio": 0.7},
-    ))
-    db.add(Annotation(
-        capture_point_id=point.id, patrol_id=patrol.id, label="normal",
-        annotator_name="tester", note="ok",
-    ))
+    for seq, label in enumerate(labels, start=1):
+        point = CapturePoint(
+            patrol_id=patrol.id, seq=seq, distance_m=0.5 * seq, lng=120.1, lat=30.2,
+            captured_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            photo_url="/media/hash.jpg" if seq == 1 else f"/media/hash-{seq}.jpg",
+        )
+        db.add(point)
+        db.flush()
+        if seq == 1:
+            db.add(Analysis(
+                capture_point_id=point.id, patrol_id=patrol.id, analyzer_version="placeholder-v0",
+                growth_stage={"name": "拔节"}, vigor_level=4, ndvi=0.71,
+                disease_detections=[], risk_score=0.1, detail={"green_ratio": 0.7},
+            ))
+        db.add(Annotation(
+            capture_point_id=point.id, patrol_id=patrol.id, label=label,
+            annotator_name="tester", note="ok",
+        ))
     dataset = DatasetVersion(
         name="wheat", version="2026.01", source_filter={"patrol_id": patrol.id},
         label_schema={"labels": ["normal", "suspected_disease"]}, created_by="tester",
@@ -82,11 +86,17 @@ def test_empty_dataset_cannot_freeze(db):
         freeze_dataset_version(db, dataset)
 
 
+def _predictions(db: Session, scores: dict[str, float]) -> list[dict]:
+    """按标签给分：每条标注一条预测。"""
+    return [{"annotation_id": a.id, "score": scores[a.label]} for a in db.query(Annotation).order_by(Annotation.id)]
+
+
 def test_model_approval_requires_frozen_nonempty_test_dataset_and_bounded_metrics(db):
-    dataset = _seed(db)
+    dataset = _seed(db, labels=("normal", "downy_mildew_early"))
     evaluation = ModelEvaluation(
         dataset_version_id=dataset.id, model_name="yolo", model_version="v1", split="test",
         metrics={"f1": 0.83}, evaluated_at=datetime.now(timezone.utc),
+        predictions=_predictions(db, {"normal": 0.2, "downy_mildew_early": 0.9}),
     )
     db.add(evaluation)
     db.commit()
@@ -97,13 +107,17 @@ def test_model_approval_requires_frozen_nonempty_test_dataset_and_bounded_metric
     approve_model_evaluation(db, evaluation, approved_by="reviewer")
     assert evaluation.status == "approved"
     assert evaluation.approved_by == "reviewer"
+    # 审批只认平台重算的指标（D24）：一阴一阳全部判对
+    assert evaluation.platform_metrics["f1"] == 1.0
+    assert evaluation.platform_metrics["pr_auc"] == 1.0
+    assert evaluation.platform_metrics["snapshot_sha256"] == dataset.snapshot_sha256
 
 
 @pytest.mark.parametrize(
     "split,metrics,match",
     [
         ("validation", {"f1": 0.8}, "test split"),
-        ("test", {"accuracy": 0.8}, "至少提供"),
+        ("test", {"accuracy": 0.8}, "逐条预测"),
         ("test", {"f1": 1.2}, "0 到 1"),
         ("test", {"f1": float("nan")}, "有限数值"),
     ],

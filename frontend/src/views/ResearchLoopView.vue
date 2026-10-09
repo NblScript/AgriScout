@@ -13,7 +13,7 @@ import { observationUnitsApi, patrolsApi, softwareLoopApi } from '../api'
 import { errMsg } from '../api/http'
 import { useAuthStore } from '../stores/auth'
 import { useUiStore } from '../stores/ui'
-import type { DatasetVersion, ModelEvaluation, Patrol, RiskPrediction, RevisitTask } from '../types'
+import type { DatasetSplitSummary, DatasetVersion, ModelEvaluation, Patrol, RiskPrediction, RevisitTask } from '../types'
 import { fieldClock } from '../utils/fieldTime'
 import { taskReasons as planTaskReasons } from '../utils/planTask'
 
@@ -165,16 +165,18 @@ async function generate() {
   } catch (e) { ElMessage.error(errMsg(e)) } finally { generating.value = false }
 }
 
+/** 数据集按所选巡检的地块建，收该地块全部已标注照片；冻结时按「地块 + 田间日期」整组划分（D24） */
 async function createDatasetDraft() {
   try {
-    if (!selectedPatrol.value) {
-      ElMessage.warning('请先选择巡检，再创建数据集草稿')
+    if (!selected.value) {
+      ElMessage.warning('请先选择巡检，数据集按这趟巡检所在的地块建')
       return
     }
-    const name = (await ElMessageBox.prompt('数据集名称', '创建数据集草稿', { inputValue: 'wheat-review' })).value.trim()
+    const name = (await ElMessageBox.prompt('数据集名称（收所选地块的全部已标注照片）', '创建数据集草稿',
+      { inputValue: `field-${selected.value.field_id}-review` })).value.trim()
     const version = (await ElMessageBox.prompt('版本号', '创建数据集草稿', { inputValue: 'v1' })).value.trim()
     if (!name || !version) return
-    await softwareLoopApi.createDataset({ name, version, source_filter: { patrol_id: selectedPatrol.value }, label_schema: { target: 'disease' } })
+    await softwareLoopApi.createDataset({ name, version, source_filter: { field_id: selected.value.field_id }, label_schema: { target: 'disease' } })
     ElMessage.success('数据集草稿已创建')
     await refreshGovernance()
   } catch (e) { if (e !== 'cancel') ElMessage.error(errMsg(e)) }
@@ -182,14 +184,19 @@ async function createDatasetDraft() {
 
 async function freezeDataset(row: DatasetVersion) {
   try {
-    const result = await ElMessageBox.prompt('冻结前确认样本行数', '冻结数据集', { inputValue: String(row.row_count) })
-    const count = Number(result.value)
-    if (!Number.isInteger(count) || count < 0) throw new Error('行数必须是非负整数')
-    await softwareLoopApi.freezeDataset(row.id, count)
+    const result = await ElMessageBox.prompt(
+      '同一地块同一天的照片整组进同一份（训练 70% / 验证 15% / 测试 15%），种子决定怎么分组，写进快照。冻结后不能再改。',
+      `冻结 ${row.name} / ${row.version}`, { inputValue: '0', inputPattern: /^\d{1,9}$/, inputErrorMessage: '种子是非负整数' })
+    await softwareLoopApi.freezeDataset(row.id, { seed: Number(result.value) })
     ElMessage.success('数据集已冻结')
     await refreshGovernance()
   } catch (e) { if (e !== 'cancel') ElMessage.error(errMsg(e)) }
 }
+
+function splitOf(row: DatasetVersion): DatasetSplitSummary | null {
+  return (row.snapshot_summary?.split as DatasetSplitSummary | undefined) ?? null
+}
+const metric = (value: number | null) => (value == null ? '—' : value.toFixed(2))
 
 async function approveEvaluation(row: ModelEvaluation) {
   try {
@@ -319,6 +326,15 @@ onMounted(load)
       <el-table :data="datasets">
         <el-table-column label="版本" min-width="150"><template #default="{ row }">{{ row.name }} / {{ row.version }}</template></el-table-column>
         <el-table-column prop="row_count" label="样本" width="80" align="right" />
+        <el-table-column label="训练 / 验证 / 测试" min-width="150">
+          <template #default="{ row }">
+            <template v-if="splitOf(row)">
+              {{ splitOf(row)!.counts.train }} / {{ splitOf(row)!.counts.val }} / {{ splitOf(row)!.counts.test }}
+              <span class="muted text-12">种子 {{ splitOf(row)!.seed }}</span>
+            </template>
+            <span v-else class="muted text-12">{{ row.status === 'frozen' ? '冻结时未划分' : '冻结时划分' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="90"><template #default="{ row }">{{ text(DATASET_STATUS_TEXT, row.status) }}</template></el-table-column>
         <el-table-column v-if="!auth.isViewer" label="操作" width="90">
           <template #default="{ row }"><el-button v-if="row.status === 'draft'" size="small" text type="primary" @click="freezeDataset(row)">冻结</el-button></template>
@@ -327,10 +343,19 @@ onMounted(load)
       </el-table>
     </SectionCard>
 
-    <SectionCard title="模型评估闸门" subtitle="只能绑定已冻结数据集的测试集才能批准发布" flush>
+    <SectionCard title="模型评估闸门" subtitle="提交测试集的逐条预测，平台重算指标后才能批准发布" flush>
       <el-table :data="evaluations">
         <el-table-column label="模型" min-width="140"><template #default="{ row }">{{ row.model_name }} / {{ row.model_version }}</template></el-table-column>
         <el-table-column label="数据划分" width="90"><template #default="{ row }">{{ text(SPLIT_TEXT, row.split) }}</template></el-table-column>
+        <el-table-column label="平台重算" min-width="170">
+          <template #default="{ row }">
+            <template v-if="row.platform_metrics">
+              F1 {{ metric(row.platform_metrics.f1) }} · PR-AUC {{ metric(row.platform_metrics.pr_auc) }}
+              <span class="muted text-12">{{ row.platform_metrics.n }} 条（阳性 {{ row.platform_metrics.positives }}）</span>
+            </template>
+            <span v-else class="muted text-12">未提交逐条预测</span>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="90"><template #default="{ row }">{{ text(EVAL_STATUS_TEXT, row.status) }}</template></el-table-column>
         <el-table-column v-if="!auth.isViewer" label="操作" width="90">
           <template #default="{ row }"><el-button v-if="row.status === 'candidate'" size="small" text type="primary" @click="approveEvaluation(row)">批准</el-button></template>

@@ -140,26 +140,51 @@ class DatasetVersionOut(DatasetVersionCreate):
     updated_at: datetime
 
 
+class DatasetSplitIn(BaseModel):
+    """冻结时的分组划分参数（计划 0007 P1-7，决策 D24）。"""
+
+    seed: int = Field(default=0, ge=0, le=2**31 - 1)
+    group_by: Literal["field_date", "field"] = "field_date"
+    ratios: dict[Literal["train", "val", "test"], float] = Field(
+        default_factory=lambda: {"train": 0.7, "val": 0.15, "test": 0.15},
+    )
+
+
 class DatasetFreezeIn(BaseModel):
     # 兼容旧客户端字段；服务端冻结时始终按实际标注快照计算行数。
     row_count: int | None = Field(default=None, ge=0)
+    split: DatasetSplitIn | None = None
 
 
-class ModelEvaluationCreate(BaseModel):
+class PredictionIn(BaseModel):
+    """一条逐条预测：快照里的标注编号 + 模型给出的阳性分数。"""
+
+    annotation_id: int = Field(gt=0)
+    score: float = Field(ge=0, le=1)
+
+
+class ModelEvaluationBase(BaseModel):
     dataset_version_id: int | None = Field(default=None, gt=0)
     model_name: str = Field(min_length=1, max_length=100)
     model_version: str = Field(min_length=1, max_length=80)
     split: str = Field(default="test", min_length=1, max_length=20)
+    # 客户端自报的指标，只留作对照；审批只认平台重算的 platform_metrics
     metrics: dict[str, Any] = Field(default_factory=dict)
     notes: str | None = None
     evaluated_at: datetime
 
 
-class ModelEvaluationOut(ModelEvaluationCreate):
+class ModelEvaluationCreate(ModelEvaluationBase):
+    predictions: list[PredictionIn] | None = Field(default=None, max_length=200_000)
+    threshold: float = Field(default=0.5, ge=0, le=1)
+
+
+class ModelEvaluationOut(ModelEvaluationBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     status: str
+    platform_metrics: dict[str, Any] | None
     approved_by: str | None
     approved_at: datetime | None
     created_at: datetime

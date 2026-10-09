@@ -10,8 +10,10 @@ from app.core.db import get_db
 from app.core.timeutil import field_date, to_utc
 from app.models import Analysis, CapturePoint, DatasetVersion, Device, Field, FollowUp, ModelEvaluation, Patrol, RevisitTask, RiskPrediction
 from app.services.dataset_governance import (
+    SplitSpec,
     approve_model_evaluation as governance_approve_model_evaluation,
     freeze_dataset_version,
+    recompute_metrics,
 )
 from app.services.evaluation_metrics import LabeledPrediction, WindowPrediction, evaluate_predictions, event_lead_times
 from app.services.evidence_feedback import InvalidTransitionError, check_completeness, transition_status
@@ -541,7 +543,8 @@ def freeze_dataset(dataset_id: int, payload: DatasetFreezeIn, db: Session = Depe
     if obj is None:
         raise HTTPException(status_code=404, detail="数据集版本不存在")
     try:
-        freeze_dataset_version(db, obj, now=_now())
+        split = SplitSpec(**payload.split.model_dump()) if payload.split else None
+        freeze_dataset_version(db, obj, split=split, now=_now())
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     db.commit()
@@ -565,9 +568,22 @@ def get_dataset_snapshot(dataset_id: int, db: Session = Depends(get_db)):
 
 @router.post("/model-evaluations", response_model=ModelEvaluationOut, status_code=201)
 def create_model_evaluation(payload: ModelEvaluationCreate, db: Session = Depends(get_db)):
-    if payload.dataset_version_id and db.get(DatasetVersion, payload.dataset_version_id) is None:
+    dataset = db.get(DatasetVersion, payload.dataset_version_id) if payload.dataset_version_id else None
+    if payload.dataset_version_id and dataset is None:
         raise HTTPException(status_code=404, detail="数据集版本不存在")
-    obj = ModelEvaluation(**payload.model_dump())
+    obj = ModelEvaluation(**payload.model_dump(exclude={"predictions", "threshold"}))
+    if payload.predictions is not None:
+        # 逐条预测当场对照冻结快照核对并重算指标（D24），对不上直接拒收
+        if dataset is None:
+            raise HTTPException(status_code=422, detail="提交逐条预测时必须绑定数据集")
+        items = [item.model_dump() for item in payload.predictions]
+        try:
+            obj.platform_metrics = recompute_metrics(
+                dataset, split=payload.split.lower(), predictions=items, threshold=payload.threshold,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        obj.predictions = items
     db.add(obj)
     db.commit()
     db.refresh(obj)

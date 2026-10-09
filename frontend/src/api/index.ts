@@ -369,8 +369,9 @@ export const softwareLoopApi = {
   datasets: () => request<DatasetVersion[]>('/datasets/versions'),
   createDataset: (payload: { name: string; version: string; source_filter?: Record<string, unknown>; label_schema?: Record<string, unknown> }) =>
     request<DatasetVersion>('/datasets/versions', { method: 'POST', body: payload }),
-  freezeDataset: (id: number, row_count: number) =>
-    request<DatasetVersion>(`/datasets/versions/${id}/freeze`, { method: 'POST', body: { row_count } }),
+  /** 冻结时按「地块 + 田间日期」整组划分训练 / 验证 / 测试，种子写进快照摘要（D24） */
+  freezeDataset: (id: number, split: { seed: number; group_by?: 'field_date' | 'field' }) =>
+    request<DatasetVersion>(`/datasets/versions/${id}/freeze`, { method: 'POST', body: { split } }),
   evaluations: () => request<ModelEvaluation[]>('/model-evaluations'),
   approveEvaluation: (id: number, approved_by: string) =>
     request<ModelEvaluation>(`/model-evaluations/${id}/approve`, { method: 'POST', body: { approved_by } }),
