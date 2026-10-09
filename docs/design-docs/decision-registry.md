@@ -302,6 +302,23 @@
 - **落点**：`rover/hardware.py`、`quality.py`、`acquire.py`、`point_store.py`、`positioning.py`、`upload.py`、`plan.py`、`run.py`；
   后端 `services/analysis/image_quality.py`、`runner.py`、`api/v1/media.py`、ingest 校验；计划 0016（三个阶段，M16）。不涉及迁移。
 
+### D24 · 数据集按「地块 + 田间日期」整组划分，模型评估由平台对照测试组重算指标（2026-10-09）
+- **问题**：冻结快照没有训练 / 验证 / 测试划分，评估闸门只看客户端自报的 `split="test"` 和指标（技术债台账）；
+  同一棚同一天的照片高度相似，随机按张切分会让测试组和训练组几乎重复，指标虚高。
+- **结论**：
+  - 快照升为 `agriscout.dataset.v2`，每行带 `field_id`、`field_date`（D9）、`observation_key`、`group`、`split`；
+    `source_filter` 增加 `field_id`、`date_from`、`date_to`（田间日期，含两端）。旧快照不改（冻结后只读）。
+  - 划分 `group-shuffle-v1`：同组整组进同一份，组键默认「地块 + 田间日期」，可选「地块」（整棚留出）；组按 sha256(种子|组键)
+    排序后依次填满测试、验证（默认各 15%，按行数），其余为训练。测试组比例必须大于 0，比例大于 0 的份至少分到一组。
+    种子、比例、各份行数和组列表写进 `snapshot_summary.split`；阳性标签与不参与评估的标签（缺省「疑似病害、霜霉病早期、明显」为阳性，
+    「其他」不评）在冻结时写进 `snapshot_summary.evaluation`。
+  - 模型评估提交逐条预测 `[{annotation_id, score}]` 和阈值（默认 0.5）；平台当场核对预测正好覆盖该组全部可评估样本（不缺、不多、不重复），
+    重算 precision / recall / f1 / pr_auc（与 sklearn 同定义的 average precision）存 `platform_metrics`；客户端自报的 `metrics` 只留作对照。
+  - 审批只认平台重算的 test 指标，测试组至少一个阳性、一个阴性；没有划分的旧快照不能审批，需按新规则重新冻结一个版本。
+  - 已知局限：按「地块 + 日期」分组时，同一株不同日期的照片仍可能分进不同份；要按株留出时再加组键。
+- **落点**：`services/dataset_governance.py`（`SplitSpec`、`assign_splits`、`recompute_metrics`）、`api/v1/software_loop.py`、
+  迁移 0017（`model_evaluations.predictions`、`platform_metrics`）、前端研究闭环页；计划 0007 P1-7。红线 10 不变，执行得更严。
+
 ## B 系列：开发基线（2026-08 定稿）
 
 | 编号 | 决策 | 结论 | 备注 |
@@ -375,3 +392,4 @@
 | 2026-10-07 | D21 | 新增：大棚模拟与巡检策略离线比较的口径（计划 0017） |
 | 2026-10-07 | D22 | 新增：人工判健康后新叶背图的早期分数重新推给人确认，planner-v1（用户拍板），修订 D18 |
 | 2026-10-08 | D23 | 新增：rover 主动采集的质量判断与补拍、逐点落盘、协议 v2 分步上传、株号定位、离线执行巡检计划的口径（计划 0016） |
+| 2026-10-09 | D24 | 新增：数据集按「地块 + 田间日期」整组划分，模型评估由平台对照测试组重算指标（计划 0007 P1-7） |
