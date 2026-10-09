@@ -1,7 +1,7 @@
 /** 侧栏导航（计划 0018 设计 3）：按「工作 / 研究 / 管理」分组；展示屏在侧栏和顶栏各有一个入口。 */
 import type { Component } from 'vue'
 import {
-  Calendar, Camera, Cherry, Cpu, DataAnalysis, EditPen, House, MapLocation, Monitor, Odometer, Stamp, User,
+  Calendar, Camera, Cherry, Cpu, DataAnalysis, EditPen, Hide, House, MapLocation, Monitor, Odometer, Stamp, User,
 } from '@element-plus/icons-vue'
 import type { Field } from '../types'
 
@@ -36,6 +36,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: '研究',
     items: [
       { label: '研究闭环', path: '/research-loop', icon: DataAnalysis },
+      { label: '盲法复核', path: '/blind-review', icon: Hide },
       { label: '规则修订审批', path: '/rule-revisions', icon: EditPen },
     ],
   },

@@ -16,6 +16,7 @@ GROUPS = [
     ("分析与建议（M3/M4）", ["analyses", "rules", "advices"]),
     ("标注回流（M6+）", ["annotations"]),
     ("研究闭环（M7 软件）", ["risk_predictions", "risk_follow_ups", "revisit_tasks", "dataset_versions", "model_evaluations"]),
+    ("盲法复核（计划 0007 P1-9）", ["blind_review_batches", "blind_review_items", "blind_review_votes"]),
     ("设备协议（M7 软件）", ["device_heartbeats", "device_events"]),
 ]
 

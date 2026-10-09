@@ -100,6 +100,18 @@ const router = createRouter({
       meta: { title: '研究闭环' },
     },
     {
+      path: '/blind-review',
+      name: 'blind-review',
+      component: () => import('../views/BlindReviewView.vue'),
+      meta: { title: '盲法复核' },
+    },
+    {
+      path: '/blind-review/:id',
+      name: 'blind-review-session',
+      component: () => import('../views/BlindReviewSessionView.vue'),
+      meta: { title: '盲评判读' },
+    },
+    {
       path: '/patrols',
       name: 'patrols',
       component: () => import('../views/PatrolsView.vue'),

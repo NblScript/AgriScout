@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.timeutil import field_date
-from app.models import Analysis, Annotation, CapturePoint, DatasetVersion, ModelEvaluation, Patrol
+from app.models import Analysis, Annotation, BlindReviewItem, CapturePoint, DatasetVersion, ModelEvaluation, Patrol
 from app.services.evaluation_metrics import average_precision
 
 
@@ -103,7 +103,29 @@ def _source_filter_clause(stmt, source_filter: dict[str, Any] | None):
     max_id = source_filter.get("max_annotation_id")
     if max_id is not None:
         stmt = stmt.where(Annotation.id <= int(max_id))
+    blind_batch_id = source_filter.get("blind_batch_id")
+    if blind_batch_id is not None:
+        # 只收某盲评批次定论写出的标注（D25）
+        stmt = stmt.where(Annotation.id.in_(
+            select(BlindReviewItem.annotation_id).where(BlindReviewItem.batch_id == int(blind_batch_id)),
+        ))
     return stmt
+
+
+def _blind_batches(db: Session, annotation_ids: list[int]) -> dict[int, list[int]]:
+    """标注编号 → 定论写出这条标注的盲评批次（同一张照片可能进过几批）。"""
+    wanted = set(annotation_ids)
+    links: dict[int, list[int]] = {}
+    if wanted:
+        # 盲评定论的条数远少于标注，整表取出再筛，免得 IN 列表超过 SQLite 的参数上限
+        for annotation_id, batch_id in db.execute(
+            select(BlindReviewItem.annotation_id, BlindReviewItem.batch_id)
+            .where(BlindReviewItem.annotation_id.is_not(None))
+            .order_by(BlindReviewItem.batch_id)
+        ):
+            if annotation_id in wanted:
+                links.setdefault(annotation_id, []).append(batch_id)
+    return links
 
 
 def _label_list(label_schema: dict[str, Any], key: str, default: Sequence[str]) -> list[str]:
@@ -221,8 +243,10 @@ def build_dataset_snapshot(
         )
 
     assigned = assign_splits(Counter(row["group"] for row in rows), split)
+    blind = _blind_batches(db, [row["annotation_id"] for row in rows])
     for row in rows:
         row["split"] = assigned[row["group"]]
+        row["blind_batch_ids"] = blind.get(row["annotation_id"], [])
 
     lines = [json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")) for row in rows]
     ndjson = "\n".join(lines) + ("\n" if lines else "")
