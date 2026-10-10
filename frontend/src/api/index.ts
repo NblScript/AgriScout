@@ -8,6 +8,10 @@ import type {
   Annotation,
   AnnotationLabel,
   AnnotationSummary,
+  BlindLabel,
+  BlindReviewBatch,
+  BlindReviewResult,
+  BlindReviewTask,
   CapturePointFull,
   Crop,
   Device,
@@ -375,6 +379,33 @@ export const softwareLoopApi = {
   evaluations: () => request<ModelEvaluation[]>('/model-evaluations'),
   approveEvaluation: (id: number, approved_by: string) =>
     request<ModelEvaluation>(`/model-evaluations/${id}/approve`, { method: 'POST', body: { approved_by } }),
+}
+
+/* ---------- 盲法复核（计划 0007 P1-9，D25） ---------- */
+
+export interface BlindReviewCreatePayload {
+  field_id: number
+  name: string
+  date_from: string
+  date_to: string
+  sample_size: number
+  seed: number
+  reference_keys: string[]
+  side: 'under' | 'any'
+  double_review: boolean
+}
+
+export const blindReviewApi = {
+  list: (fieldId?: number) => request<BlindReviewBatch[]>(fieldId ? `/blind-reviews?field_id=${fieldId}` : '/blind-reviews'),
+  get: (id: number) => request<BlindReviewBatch>(`/blind-reviews/${id}`),
+  create: (payload: BlindReviewCreatePayload) =>
+    request<BlindReviewBatch>('/blind-reviews', { method: 'POST', body: payload }),
+  /** 这位判读人的下一张；没有了返回 null */
+  next: (id: number) => request<BlindReviewTask | null>(`/blind-reviews/${id}/next`),
+  vote: (id: number, itemId: number, label: BlindLabel) =>
+    request<{ item_id: number; recorded: boolean }>(`/blind-reviews/${id}/items/${itemId}/votes`, { method: 'POST', body: { label } }),
+  /** 已定论的照片（未定论的不列） */
+  results: (id: number) => request<BlindReviewResult[]>(`/blind-reviews/${id}/results`),
 }
 
 /* ---------- 人工确认株状态（0015 时间线「确认状态」；0018 阶段 B 起时间线和待确认页共用） ---------- */

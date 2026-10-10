@@ -6,6 +6,7 @@ from app.api.v1 import (
     agent,
     annotations,
     auth,
+    blind_review,
     capture_points,
     crops,
     device_protocol,
@@ -51,3 +52,4 @@ api_router.include_router(reports.router)
 api_router.include_router(agent.router)
 api_router.include_router(rule_revisions.router)
 api_router.include_router(software_loop.router)
+api_router.include_router(blind_review.router)

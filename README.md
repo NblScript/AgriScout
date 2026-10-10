@@ -62,7 +62,7 @@ AgriScout（巡知）是一套面向病害风险预测与主动学习的农田�
 - 人工复核：建议采纳/驳回、采样点标签、标注修改和 NDJSON 训练集导出。
 - AI 报告与问答：LLM 只作为解释层；诊断 Agent 只读查询，所有问答留痕。
 - 规则进化：Agent 可以起草规则修订案，但必须经过影子运行和人工审批才能生效。
-- 研究闭环：按逐点分析生成带时间窗和证据的风险预测，主动排序复巡/标注任务（线上与离线重放共用同一联合策略，质量取实测图像质量，D17），记录人工随访结论，并以冻结数据集和模型评估闸门管理发布：冻结时按「地块 + 田间日期」整组划分训练 / 验证 / 测试并记下种子，模型评估提交逐条预测、由平台对照测试组重算指标，审批只认平台的数（D24）。
+- 研究闭环：按逐点分析生成带时间窗和证据的风险预测，主动排序复巡/标注任务（线上与离线重放共用同一联合策略，质量取实测图像质量，D17），记录人工随访结论，并以冻结数据集和模型评估闸门管理发布：冻结时按「地块 + 田间日期」整组划分训练 / 验证 / 测试并记下种子，模型评估提交逐条预测、由平台对照测试组重算指标，审批只认平台的数（D24）。测试集标签可走盲法复核：判读页只给照片，两人独立判读、分歧由第三人定论，随机抽查与固定参考株同批，定论写成标注供数据集按批次收录（D25）。
 - 设备协议：设备幂等注册、心跳、设备/任务事件、可回放故障注入，以及设备领取复巡任务（`/devices/{id}/tasks/next`）。
 - 虚拟巡田：独立模拟器提供 `healthy`、`dry`、`patchy_disease` 三种可复现场景；`season.py` 模拟整季多日期巡检，病害按潜伏期、天气和空间扩散发展，并模拟农技员随访。
   `greenhouse_run.py` 用大棚黄瓜模型（逐小时温湿度、侵染与发展、叶背 / 正面可见性）通过 HTTP 跑通「拉计划 → 拍照 → 分析 → 人工确认」闭环并导出真值。
@@ -84,7 +84,7 @@ AgriScout（巡知）是一套面向病害风险预测与主动学习的农田�
 | 条锈病识别模型 | 已完成 | `rust-cls-v1`：NWRD 公开田间数据训练，官方测试集图块 F1 0.82、ROC-AUC 0.93；默认不启用 |
 | LLM 报告 | 已完成 | 未配置模型时静默关闭，不阻塞主链路 |
 | 诊断 Agent / 规则修订 Agent | 已完成 | 分别遵守“只读”和“起草-审批”边界 |
-| M7 软件闭环 | 已完成 | 风险、复巡、随访、数据集/模型闸门和设备任务接口已接入 |
+| M7 软件闭环 | 已完成 | 风险、复巡、随访、数据集/模型闸门和设备任务接口已接入；数据集分组划分与评估重算（D24）、盲法复核（D25） |
 | 登录与角色权限 | 已完成 | 全部接口需登录（健康检查与登录除外），三种角色，测试逐个接口核对匿名访问被拒（D15） |
 | 真车采集端软件 | 已完成 | `rover/` 可用 `--fake` 无硬件跑通上传，烟测覆盖上传、断网续传与登录 |
 | 大棚按株建档与巡检计划 | 已完成 | 计划 0014、0015：株档案、协议 v2 子集、环境读数、每株状态、planner-v1 计划页；参数是启发式，待试拍校准 |
@@ -288,7 +288,7 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 
 - rover 主动采集（0016）三个阶段都已完成：停车补拍与图像质量（A）、协议 v2 与照片分步上传和株号定位（B）、离线执行巡检计划与任务回报（C），口径见决策 D23；
 - 试拍拿到真实照片后：霜霉病识别基线、黄瓜规则草稿（待农技复核）；
-- 计划 0007 剩余项：数据集分组划分已完成（D24），接着做盲法复核、时钟同步状态与告警；TX2 部署验证需要实物板子。
+- 计划 0007 剩余项：数据集分组划分（D24）与盲法复核（D25）已完成，接着做时钟同步状态与告警；TX2 部署验证需要实物板子。
 
 ## 已知边界
 
@@ -315,7 +315,7 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 - [rover/README.md](rover/README.md)：真车采集端安装、参数与失败行为。
 - [docs/design-docs/decision-registry.md](docs/design-docs/decision-registry.md)：编号决策注册表与规则引擎生命周期。
 - [docs/exec-plans/active/0013-greenhouse-active-acquisition.md](docs/exec-plans/active/0013-greenhouse-active-acquisition.md)：温室方向软件线总览（拆分、依赖顺序、共同约定）；子计划 0014–0018 都已完成归档，口径见决策注册表。
-- [docs/exec-plans/active/0007-application-alignment.md](docs/exec-plans/active/0007-application-alignment.md)：进行中的执行计划（与作物无关的剩余改造：时钟、盲法复核、数据集划分、TX2）。
+- [docs/exec-plans/active/0007-application-alignment.md](docs/exec-plans/active/0007-application-alignment.md)：进行中的执行计划（与作物无关的剩余改造：时钟、TX2）。
 - [docs/exec-plans/tech-debt-tracker.md](docs/exec-plans/tech-debt-tracker.md)：技术债台账（含历次审查未修项）。
 - [docs/exec-plans/README.md](docs/exec-plans/README.md)：执行计划约定；已删除历史文档的取回方式。
 - [docs/generated/db-schema.md](docs/generated/db-schema.md)：自动生成的数据库结构快照。

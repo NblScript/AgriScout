@@ -614,6 +614,79 @@ export interface ModelEvaluation {
   updated_at: string
 }
 
+/* ---------- 盲法复核（计划 0007 P1-9，D25）：判读只给照片，不带株号、模型输出、来源和别人的判读 ---------- */
+
+export type BlindLabel = 'normal' | 'downy_mildew_early' | 'downy_mildew_symptomatic' | 'other'
+
+/** 盲评四选一；「看不清」写成标注 other，评估时不参与（D24） */
+export const BLIND_OPTIONS: { label: BlindLabel; text: string }[] = [
+  { label: 'normal', text: '健康' },
+  { label: 'downy_mildew_early', text: '早期' },
+  { label: 'downy_mildew_symptomatic', text: '明显' },
+  { label: 'other', text: '看不清' },
+]
+
+export type BlindItemStatus = 'pending' | 'partial' | 'disputed' | 'agreed' | 'adjudicated'
+
+export interface BlindReviewSummary {
+  status_counts: Record<BlindItemStatus, number>
+  resolved: number
+  /** 两人都判过的张数（算一致率和 κ 用） */
+  pairs: number
+  agreement: number | null
+  kappa: number | null
+  /** 定论按来源分：random 随机抽查 / reference 固定参考 */
+  final_labels: Record<string, Record<string, number>>
+  my_votes: number | null
+}
+
+export interface BlindReviewBatch {
+  id: number
+  field_id: number
+  name: string
+  status: 'open' | 'done'
+  seed: number
+  params: {
+    date_from: string
+    date_to: string
+    sample_size: number
+    reference_keys: string[]
+    side: 'under' | 'any'
+    double_review: boolean
+  }
+  item_count: number
+  created_by: string
+  done_at: string | null
+  created_at: string
+  summary: BlindReviewSummary
+}
+
+export interface BlindReviewTask {
+  batch_id: number
+  item_id: number
+  position: number
+  item_count: number
+  /** 1 独立判读；2 分歧后的二次判读 */
+  round: 1 | 2
+  photo_url: string | null
+  /** 二次判读时前两次的判读，不含判读人 */
+  prior_labels: BlindLabel[]
+}
+
+export interface BlindReviewResult {
+  position: number
+  item_id: number
+  capture_point_id: number
+  patrol_id: number
+  observation_key: string | null
+  captured_at: string
+  photo_url: string | null
+  origin: 'random' | 'reference'
+  status: BlindItemStatus
+  final_label: BlindLabel
+  annotation_id: number | null
+}
+
 export interface DeviceHeartbeat {
   id: number
   device_id: number

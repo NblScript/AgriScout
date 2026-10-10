@@ -344,6 +344,65 @@
 
 索引 `ix_model_evaluations_dataset_version_id`：(dataset_version_id)
 
+## 盲法复核（计划 0007 P1-9）
+
+### blind_review_batches
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | Integer | PK | — |
+| field_id | Integer | FK→fields.id、NOT NULL | — |
+| name | String(100) | NOT NULL | — |
+| status | String(20) | NOT NULL | — |
+| seed | Integer | NOT NULL | — |
+| params | JSON | NOT NULL | — |
+| item_count | Integer | NOT NULL | — |
+| created_by | String(80) | NOT NULL | — |
+| done_at | DateTime | — | — |
+| created_at | DateTime | NOT NULL、default=now() | — |
+| updated_at | DateTime | NOT NULL、default=now() | — |
+
+索引 `ix_blind_review_batches_field_id`：(field_id)
+
+### blind_review_items
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | Integer | PK | — |
+| batch_id | Integer | FK→blind_review_batches.id、NOT NULL | — |
+| capture_point_id | Integer | FK→capture_points.id、NOT NULL | — |
+| position | Integer | NOT NULL | — |
+| origin | String(20) | NOT NULL | — |
+| status | String(20) | NOT NULL | — |
+| final_label | String(50) | — | — |
+| annotation_id | Integer | FK→annotations.id | — |
+| resolved_at | DateTime | — | — |
+| created_at | DateTime | NOT NULL、default=now() | — |
+| updated_at | DateTime | NOT NULL、default=now() | — |
+
+索引 `ix_blind_review_items_annotation_id`：(annotation_id)
+
+索引 `ix_blind_review_items_batch_id`：(batch_id)
+
+索引 `ix_blind_review_items_capture_point_id`：(capture_point_id)
+
+### blind_review_votes
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| id | Integer | PK | — |
+| item_id | Integer | FK→blind_review_items.id、NOT NULL | — |
+| reviewer_user_id | Integer | FK→users.id、NOT NULL | — |
+| reviewer_name | String(80) | NOT NULL | — |
+| label | String(50) | NOT NULL | — |
+| round | Integer | NOT NULL | — |
+| created_at | DateTime | NOT NULL、default=now() | — |
+| updated_at | DateTime | NOT NULL、default=now() | — |
+
+索引 `ix_blind_review_votes_item_id`：(item_id)
+
+索引 `ix_blind_review_votes_reviewer_user_id`：(reviewer_user_id)
+
 ## 设备协议（M7 软件）
 
 ### device_heartbeats

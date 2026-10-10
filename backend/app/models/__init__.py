@@ -4,6 +4,9 @@ from app.models.advice import Advice
 from app.models.agent_conversation import AgentConversation
 from app.models.annotation import Annotation
 from app.models.analysis import Analysis
+from app.models.blind_review_batch import BlindReviewBatch
+from app.models.blind_review_item import BlindReviewItem
+from app.models.blind_review_vote import BlindReviewVote
 from app.models.capture_point import CapturePoint
 from app.models.crop import Crop
 from app.models.device import Device
@@ -31,6 +34,9 @@ __all__ = [
     "AgentConversation",
     "Annotation",
     "Analysis",
+    "BlindReviewBatch",
+    "BlindReviewItem",
+    "BlindReviewVote",
     "CapturePoint",
     "Crop",
     "Device",
