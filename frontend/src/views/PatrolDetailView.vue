@@ -25,6 +25,7 @@ import {
   ANALYSIS_STATUS_LABELS, FACILITY_LABELS, isGreenhouse,
   type AnalysisSummary, type AnnotationSummary, type CapturePointFull, type FacilityType, type Field, type PatrolDetail,
 } from '../types'
+import { describeClock, describeSync } from '../utils/clock'
 import { fieldClock } from '../utils/fieldTime'
 
 const route = useRoute()
@@ -116,6 +117,14 @@ watch(openPanels, (value) => {
 function statusType(status: string): 'success' | 'danger' | 'warning' | 'info' {
   return status === 'done' ? 'success' : status === 'error' ? 'danger' : status === 'running' ? 'warning' : 'info'
 }
+/** 拍摄时间可能不准（D26）：平台只提示不改时间，回放里的时间照车端原样显示 */
+const timeWarnings = computed(() => patrol.value?.time_warnings ?? [])
+/** 告警里已经说了时间差，这里只补对时状态 */
+const clockText = computed(() => {
+  const clock = patrol.value?.clock
+  if (!clock) return ''
+  return timeWarnings.value.some((w) => w.code === 'clock_offset') ? describeSync(clock) : describeClock(clock)
+})
 const subtitle = computed(() => {
   const p = patrol.value
   if (!p) return ''
@@ -157,6 +166,14 @@ const subtitle = computed(() => {
   </EmptyState>
   <el-skeleton v-else-if="!patrol" animated :rows="10" />
   <template v-else>
+    <el-alert v-if="timeWarnings.length" type="warning" :closable="false" show-icon class="time-alert"
+              title="这次巡检的拍摄时间可能不准">
+      <ul class="time-list">
+        <li v-for="w in timeWarnings" :key="w.code">{{ w.message }}</li>
+      </ul>
+      <p v-if="clockText" class="text-12">出车时车端时钟：{{ clockText }}。</p>
+      <p class="text-12">时间照车端原样显示，平台没有改；看时间线、按日期统计时留意。</p>
+    </el-alert>
     <PatrolGreenhouseMode v-if="greenhouse" :key="`g${version}`" :patrol="patrol" :points="points" @annotated="loadAnnSummary" />
     <PatrolFieldMode v-else :key="`f${version}`" :patrol="patrol" :points="points" :boundary="boundary" @annotated="loadAnnSummary" />
 
@@ -170,6 +187,9 @@ const subtitle = computed(() => {
 
 <style scoped>
 .stats { font-variant-numeric: tabular-nums; }
+.time-alert { margin-bottom: var(--space-4); }
+.time-alert p { margin: var(--space-1) 0 0; }
+.time-list { margin: var(--space-1) 0 0; padding-left: var(--space-5); }
 .panels {
   margin-top: var(--space-4);
   border: 1px solid var(--border);

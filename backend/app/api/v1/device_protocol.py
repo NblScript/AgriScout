@@ -21,6 +21,7 @@ from app.schemas.device_protocol import (
     DeviceRegisterIn,
     FaultInjectionIn,
 )
+from app.services.clock_check import heartbeat_warnings
 from app.services.device_safety import is_locking_event, release_after_fault_clear
 
 router = APIRouter(tags=["device-protocol"])
@@ -140,7 +141,13 @@ def receive_heartbeat(
         return existing
 
     is_latest = _is_latest_heartbeat(db, device_id, payload.observed_at)
-    obj = DeviceHeartbeat(device_id=device_id, **payload.model_dump())
+    data = payload.model_dump()
+    # 时钟检查（计划 0007 P0-2，D26）：只有车端自己填了 observed_at 才算时间差，没填的由平台补当前时间
+    skew, warnings = heartbeat_warnings(
+        observed_at=payload.observed_at if "observed_at" in payload.model_fields_set else None,
+        clock=data["clock"], received_at=datetime.now(timezone.utc),
+    )
+    obj = DeviceHeartbeat(device_id=device_id, **data, clock_skew_s=skew, time_warnings=warnings or None)
     db.add(obj)
     # 心跳中的状态是设备自报状态；平台不根据缺失的传感器值臆造状态。
     if is_latest:

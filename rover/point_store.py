@@ -210,20 +210,19 @@ class PointStore:
         ended = datetime.fromisoformat(self._points[-1]["captured_at"])
         if ended <= started:
             ended = started + timedelta(seconds=1)
-        return {
-            "schema_version": "2.0",
-            "patrol": {
-                "field_id": meta["field_id"],
-                "planting_id": meta.get("planting_id"),
-                "device": meta["device"],
-                "started_at": meta["started_at"],
-                "ended_at": ended.isoformat(),
-                "track": track,
-                "notes": meta.get("notes"),
-                "client_package_id": client_package_id,
-            },
-            "capture_points": capture_points,
+        header = {
+            "field_id": meta["field_id"],
+            "planting_id": meta.get("planting_id"),
+            "device": meta["device"],
+            "started_at": meta["started_at"],
+            "ended_at": ended.isoformat(),
+            "track": track,
+            "notes": meta.get("notes"),
+            "client_package_id": client_package_id,
         }
+        if meta.get("clock") is not None:  # 出车时的时钟状态（计划 0007 P0-2）；旧目录没有就不带
+            header["clock"] = meta["clock"]
+        return {"schema_version": "2.0", "patrol": header, "capture_points": capture_points}
 
     def seal(self, package_id: str) -> None:
         """组包进入上传队列后封存目录：照片留到平台确认收包，之后不再续拍、不再重复组包。"""

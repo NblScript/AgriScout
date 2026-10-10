@@ -2,9 +2,10 @@
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.device import DeviceBase, DeviceStatus
+from app.schemas.patrol import ClockPayload, TimeWarning, warnings_or_empty
 
 
 def _utc_now() -> datetime:
@@ -34,6 +35,8 @@ class DeviceHeartbeatIn(BaseModel):
     temperature_c: float | None = None
     error_code: str | None = Field(default=None, max_length=80)
     payload: dict[str, Any] = Field(default_factory=dict)
+    # 车端本机时钟状态（计划 0007 P0-2，D26）
+    clock: ClockPayload | None = None
 
 
 class DeviceHeartbeatOut(DeviceHeartbeatIn):
@@ -41,6 +44,11 @@ class DeviceHeartbeatOut(DeviceHeartbeatIn):
 
     id: int
     device_id: int
+    # 心跳时间减平台接收时间（秒）；心跳没带 observed_at 时为空
+    clock_skew_s: float | None = None
+    time_warnings: list[TimeWarning] = Field(default_factory=list)
+
+    _no_null_warnings = field_validator("time_warnings", mode="before")(warnings_or_empty)
     created_at: datetime
     updated_at: datetime
 
@@ -88,4 +96,5 @@ __all__ = [
     "DeviceHeartbeatOut",
     "DeviceRegisterIn",
     "FaultInjectionIn",
+    "TimeWarning",
 ]

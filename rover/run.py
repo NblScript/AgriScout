@@ -25,10 +25,11 @@ from typing import Any
 import httpx
 
 try:
-    from . import acquire, hardware, plan, positioning, upload
+    from . import acquire, clock, hardware, plan, positioning, upload
     from .point_store import PointStore
 except ImportError:  # 在 rover/ 目录下直接运行 python run.py
     import acquire  # type: ignore[no-redef]
+    import clock  # type: ignore[no-redef]
     import hardware  # type: ignore[no-redef]
     import plan  # type: ignore[no-redef]
     import positioning  # type: ignore[no-redef]
@@ -424,6 +425,8 @@ def send_queued(
             counts = plan.report_tasks(client, reports, patrol_id=result["patrol_id"], call=retry("task"))
             print(f"[任务] package={package_id} 已完成 {counts['completed']} 条，写明未完成原因 {counts['noted']} 条，"
                   f"平台上已结束跳过 {counts['skipped']} 条")
+        for warning in result.get("warnings") or []:  # 平台的时间告警（计划 0007 P0-2）：包已收下，只提示
+            print(f"[时钟] 平台提示 package={package_id}：{warning}")
     except (OSError, ValueError, RuntimeError, KeyError) as exc:
         conflict = isinstance(exc, ApiError) and exc.status_code == 409
         try:
@@ -691,12 +694,16 @@ def build_package(
     track: list[list[float]],
     start_dt: datetime,
     fake: bool,
+    clock_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """将采集结果组装成巡检包 v1，结束时间取最后一个真实采集时间。"""
+    """将采集结果组装成巡检包，结束时间取最后一个真实采集时间。
+
+    点位只有 v1 字段；带出车时的时钟状态时包头多一个 ``clock``，按协议声明为 2.0（计划 0007 P0-2）。
+    """
     end_dt = datetime.fromisoformat(capture_points[-1]["captured_at"])
     if end_dt <= start_dt:
         end_dt = start_dt + timedelta(seconds=1)
-    return {
+    package: dict[str, Any] = {
         "patrol": {
             "field_id": field_id,
             "planting_id": planting_id,
@@ -708,6 +715,10 @@ def build_package(
         },
         "capture_points": capture_points,
     }
+    if clock_status is not None:
+        package["schema_version"] = "2.0"
+        package["patrol"]["clock"] = clock_status
+    return package
 
 
 def seal_patrol(spool: PackageSpool, store: PointStore, *, last_error: str | None = None) -> Path:
@@ -804,6 +815,8 @@ def open_stops_patrol(
         # 定位（计划 0016-B3）：本趟巡的那一垄；里程来源决定没读到标签时的 position_source
         "row_layout": asdict(args.row_layout) if args.row_layout else None,
         "fake_odometer": bool(args.fake),
+        # 出车时的时钟状态（计划 0007 P0-2）；续拍沿用这里的，组包时放进包头
+        "clock": getattr(args, "clock_status", None),
     }
     return create_patrol(spool, args, started, meta)
 
@@ -833,6 +846,7 @@ def open_plan_patrol(spool: PackageSpool, args: argparse.Namespace, resume_dir: 
         # 续拍和组包都以这里存的计划为准，执行中换了计划文件也不影响这一趟
         "plan": {key: data.get(key) for key in ("field_id", "plan_version", "plan_date", "generation", "window",
                                                 "stops")},
+        "clock": getattr(args, "clock_status", None),
     }
     return create_patrol(spool, args, started, meta)
 
@@ -934,8 +948,12 @@ def run(args: argparse.Namespace) -> int:
     queued_path: Path | None = None
     try:
         online = True
+        health: dict[str, Any] | None = None
+        sent = received = None
         try:
+            sent = datetime.now(TZ_CN)
             health = client.get("/api/v1/health")
+            received = datetime.now(TZ_CN)
         except ApiError as exc:
             # 按计划执行和续拍在拍完之前用不到平台，棚里没网照常拍，包留在队列（计划 0016-C）
             if not (exc.retryable and (args.plan or (args.resume and args.mode == "stops"))):
@@ -947,6 +965,11 @@ def run(args: argparse.Namespace) -> int:
                 f"[联通] 平台 v{health['version']} ({health['environment']}) "
                 f"数据库 {health['database']}",
             )
+        # 出车时的时钟状态（计划 0007 P0-2）：随包上报，平台据此给出时间告警
+        args.clock_status = clock.clock_status(health, sent, received)
+        print(f"[时钟] {clock.describe(args.clock_status)}")
+        if (clock_warning := clock.warning(args.clock_status)) is not None:
+            print(f"[提示] {clock_warning}")
         unfinished = PointStore.unfinished(spool.directory)
         resume_dir = unfinished[-1] if args.mode == "stops" and args.resume and unfinished else None
         if args.resume and resume_dir is None and args.mode == "stops":
@@ -1008,6 +1031,7 @@ def run(args: argparse.Namespace) -> int:
             points, track, start_dt = collect_points(args, source)
             package = build_package(
                 field["id"], planting["id"], args.device, points, track, start_dt, args.fake,
+                clock_status=args.clock_status,
             )
             queued_path = spool.save(package)
         if not online:

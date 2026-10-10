@@ -32,6 +32,10 @@ class DeviceHeartbeat(TimestampMixin, Base):
     temperature_c: Mapped[float | None] = mapped_column(Float)
     error_code: Mapped[str | None] = mapped_column(String(80))
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    # 车端时钟状态、心跳时间减平台接收时间（秒）、平台给出的时间告警（计划 0007 P0-2，D26）
+    clock: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    clock_skew_s: Mapped[float | None] = mapped_column(Float)
+    time_warnings: Mapped[list[dict[str, str]] | None] = mapped_column(JSON)
 
     device: Mapped["Device"] = relationship()  # type: ignore[name-defined]
     mission: Mapped["Patrol | None"] = relationship()  # type: ignore[name-defined]

@@ -277,7 +277,7 @@ class RoverSmokeTests(unittest.TestCase):
                 "--width", "32",
                 "--height", "24",
                 "--fake",
-                "--mode", "legacy",  # 阶段 B 起默认 stops；本例验证旧模式的 v1 包
+                "--mode", "legacy",  # 阶段 B 起默认 stops；本例验证旧模式的包（点位只有 v1 字段）
             ])
 
             self.assertEqual(result, 0)
@@ -285,6 +285,10 @@ class RoverSmokeTests(unittest.TestCase):
             package = server.ingest_payload
             assert package is not None
             header = package["patrol"]
+            # 包头带出车时的时钟状态（计划 0007 P0-2），按协议声明 2.0；这个假平台不给 server_time，量不出时间差
+            self.assertEqual(package["schema_version"], "2.0")
+            self.assertEqual(set(header["clock"]), {"synced", "source", "offset_s", "measured_at"})
+            self.assertIsNone(header["clock"]["offset_s"])
             started = datetime.fromisoformat(header["started_at"])
             ended = datetime.fromisoformat(header["ended_at"])
             self.assertLess(started, ended)

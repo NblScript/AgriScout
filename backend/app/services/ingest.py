@@ -6,6 +6,7 @@
 import hashlib
 import json
 import logging
+from datetime import datetime, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -19,15 +20,25 @@ from app.schemas.patrol import (
     decode_base64_photo,
     is_photo_url,
 )
+from app.services.clock_check import patrol_warnings
 from app.services.observation_units import UnitResolver
 from app.services.storage import Storage, photo_suffix
 
 
+# 包摘要定稿后协议头部新加的可选字段
+LATER_HEADER_FIELDS = ("clock",)
+
+
 def package_digest(package: PatrolPackageIn) -> str:
-    """校验后包的规范 JSON 的 SHA-256：判定同一包号的重传是否内容一致（计划 0014）。"""
-    canonical = json.dumps(
-        package.model_dump(mode="json"), ensure_ascii=False, sort_keys=True, separators=(",", ":"),
-    )
+    """校验后包的规范 JSON 的 SHA-256：判定同一包号的重传是否内容一致（计划 0014）。
+
+    协议后来加的可选字段（头部 ``clock``，计划 0007 P0-2）为空时不进摘要，升级前收下的包重传时摘要不变。
+    """
+    data = package.model_dump(mode="json")
+    for name in LATER_HEADER_FIELDS:
+        if data["patrol"].get(name) is None:
+            data["patrol"].pop(name, None)
+    canonical = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -43,6 +54,7 @@ def _replay_result(db: Session, device_id: int, client_package_id: str, digest: 
     points = db.scalar(select(func.count()).where(CapturePoint.patrol_id == existing.id)) or 0
     return IngestResultOut(
         patrol_id=existing.id, capture_points=points, photos_saved=0, photos_referenced=0, duplicate=True,
+        warnings=[w["message"] for w in existing.time_warnings or []],
     )
 
 
@@ -110,8 +122,11 @@ def _cleanup_new_photos(db: Session, storage: Storage, urls: list[str]) -> None:
             logger.warning("orphan photo cleanup failed: %s", url)
 
 
-def ingest_patrol_package(db: Session, package: PatrolPackageIn, storage: Storage) -> IngestResultOut:
+def ingest_patrol_package(
+    db: Session, package: PatrolPackageIn, storage: Storage, *, received_at: datetime | None = None,
+) -> IngestResultOut:
     header = package.patrol
+    received_at = received_at or datetime.now(timezone.utc)
 
     field = db.get(Field, header.field_id)
     if field is None:
@@ -145,6 +160,12 @@ def ingest_patrol_package(db: Session, package: PatrolPackageIn, storage: Storag
     photos_referenced = 0
     # 本次新建的照片文件 URL：落库失败时清理，避免孤儿文件（去重命中的共享照片不在此列）
     created_photo_urls: list[str] = []
+    clock = header.clock.model_dump(mode="json") if header.clock is not None else None
+    # 时间告警只提示不拒收（计划 0007 P0-2，D26）：时间错了也是现场数据，入库后由人判断
+    warnings = patrol_warnings(
+        started_at=header.started_at, ended_at=header.ended_at,
+        captured=[cp.captured_at for cp in package.capture_points], clock=clock, received_at=received_at,
+    )
     patrol = Patrol(
         field_id=field.id,
         planting_id=planting_id,
@@ -158,6 +179,8 @@ def ingest_patrol_package(db: Session, package: PatrolPackageIn, storage: Storag
         schema_version=package.schema_version,
         client_package_id=header.client_package_id,
         package_sha256=digest,
+        clock=clock,
+        time_warnings=warnings or None,
     )
     units = UnitResolver(db, field.id)
 
@@ -210,6 +233,7 @@ def ingest_patrol_package(db: Session, package: PatrolPackageIn, storage: Storag
         capture_points=len(package.capture_points),
         photos_saved=photos_saved,
         photos_referenced=photos_referenced,
+        warnings=[w["message"] for w in warnings],
     )
 
 

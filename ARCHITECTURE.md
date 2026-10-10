@@ -70,6 +70,9 @@ core/            config(pydantic-settings) / db(Session) / deps(认证与角色�
   变更须同步 simulator 与 rover（红线 4）。v2 子集（计划 0014）：点级 `observation_key`（株号）、`route_chainage_m`、
   `distance_source`、`position_source`、`view`（视角、补拍次数、质量），头部 `client_package_id`；出现任一 v2 字段而
   `schema_version` 不是 "2.0" 时 422，v1 包行为不变。其余目标字段见 docs/08 §9。
+- **时钟状态与时间告警**（D26）：v2 头部 `clock`（对时状态、来源、本机减平台的时间差）；平台对晚于接收时间、早于 2020 年、
+  时间差超过 60 秒、离线且未对时的包给出告警，存巡检 `time_warnings`、回执带 `warnings`，只提示不拒收、不改时间。
+  `/api/v1/health` 给 `server_time` 供采集端量时间差；心跳同样可带 `clock`，平台另记心跳时间差。
 - **重传幂等**：带 `client_package_id` 时按（设备, 键）判重，内容哈希取规范 JSON 的 SHA-256：同键同内容 200 +
   `duplicate=true` 且不再调度分析，同键异内容 409（detail 带原 `patrol_id`）；不带键仍按「地块 + 设备 + 开始时间」判重。
 - **照片分步上传**（计划 0016-B）：`POST /api/v1/media` 收原始图片字节（jpeg/png，≤8MB，新建 201、已有 200，返回
@@ -112,7 +115,7 @@ core/            config(pydantic-settings) / db(Session) / deps(认证与角色�
 |---|---|---|
 | L0 | 颜色统计占位 + 日历法生育期 | `placeholder-color-v0`，默认 |
 | L1 | 公开数据训练：麦穗检测 wheat-yolo（GWD）、条锈病图块分类 rust-cls（NWRD，D14） | 已实现，可选启用 |
-| L2 | 车载自采数据微调 + 场边部署（TX2：ONNX → TensorRT） | 待真车数据（计划 0007 P1-10） |
+| L2 | 车载自采数据微调 + 场边部署（TX2：ONNX → TensorRT） | 待真车数据与 TX2 实物（技术债台账「TX2 部署未验证」） |
 
 建议线（规则兜底，LLM 只做解释）：
 

@@ -89,6 +89,19 @@ export AGRISCOUT_USERNAME=rover AGRISCOUT_PASSWORD='<口令>'
 
 底盘驱动（开到指定位置）还没接，`--plan` 目前也只能配合 `--fake`（假底盘直接到位，假标签读车所在的那株）。
 
+## 时钟检查（计划 0007 P0-2，决策 D26）
+
+Pi 3B 没有 RTC，断网开机时系统时间可能停在上次关机甚至 1970 年，拍摄时间就跟着错。rover 不改系统时间，只检测和上报：
+
+- 出车连平台时调一次 `/api/v1/health`，取平台给的 `server_time`，按请求前后两次本机时间的中点算出「本机减平台」的时间差（正数是本机快）；
+- 系统对时状态先问 `chronyc -n tracking`（看 `Leap status`），没有 chrony 再问 `timedatectl show -p NTPSynchronized --value`；都查不到记为未知；
+- 两者写进包头 `clock`（续拍沿用出车时记下的），开头打印一行 `[时钟] 已对时（chrony），与平台差 +0.4 秒`；
+  时间差超过 60 秒，或离线时系统报告未对时，再打印一行 `[提示]`，照常拍；
+- 平台收包后按时间戳和时钟状态给出告警（拍摄时间晚于接收时间、早于 2020 年、时钟偏差大等），上传后打印 `[时钟] 平台提示 …`，
+  巡检列表也会标「时间存疑」。包照常收下，时间不改。
+
+legacy 模式的包头也带 `clock`，因此声明协议 2.0（点位仍只有 v1 字段）。时钟硬件（加 DS3231 模块，或让 TX2 用 chrony 做局域网时间源）由团队定。
+
 ## 温湿度记录仪 CSV 上传（计划 0015）
 
 棚内冠层温湿度记录仪通常只能导出 CSV。`env_upload.py` 按参数读列名、时区和编码，分批调用
@@ -110,12 +123,13 @@ export AGRISCOUT_USERNAME=rover AGRISCOUT_PASSWORD='<口令>'
 
 ```bash
 python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_store rover.test_env_upload \
-  rover.test_positioning rover.test_upload_v2 rover.test_plan
+  rover.test_positioning rover.test_upload_v2 rover.test_plan rover.test_clock
 ```
 
 烟测使用本地 HTTP mock，不导入后端内部模块，也不需要摄像头；它覆盖 `--fake` 上传、巡检包时间顺序、非 JSON/网络错误，以及采集失败时的资源清理；
 `test_upload_v2` 用按接口合同写的假平台检查 v2 包的字段约束、先传照片后交包、照片已有时跳过、重复补传与 409；
-`test_plan` 在同一个假平台上加了计划和任务接口，检查下载计划、断网执行、只拍名单株、补拍视角、任务回报与续拍。
+`test_plan` 在同一个假平台上加了计划和任务接口，检查下载计划、断网执行、只拍名单株、补拍视角、任务回报与续拍；
+`test_clock` 检查对时状态的读取和时间差的算法，`test_upload_v2` 里另有一项让假平台的时钟慢 10 分钟，检查包头 `clock` 和当场提示。
 
 ## 关键参数
 
@@ -135,7 +149,7 @@ python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_stor
 | `--upload-retries` | 2 | 网络或 5xx/429 等临时错误的额外重试次数 |
 | `--retry-delay` | 0.5 | 指数退避的基础等待秒数 |
 | `--flush-spool` | 关 | 只补传队列，不启动新的采集 |
-| `--mode` | `stops` | `stops` 停车按视角序列拍并补拍，分步上传 v2 包；`legacy` 沿直线等间隔拍一张，发 v1 包 |
+| `--mode` | `stops` | `stops` 停车按视角序列拍并补拍，分步上传 v2 包；`legacy` 沿直线等间隔拍一张，整包上传（点位只有 v1 字段，包头带时钟状态，声明 2.0） |
 | `--views` / `--stops` / `--stop-spacing` | 示例文件 / 5 / 0.4 | stops 模式的视角序列、停车点数、假里程计间距（米）；给了布局时后两项默认取该垄株数和株距 |
 | `--layout` / `--row` | 空 / 第一垄 | 棚内布局 JSON 和本趟巡的垄号；给了布局才按里程推算株号 |
 | `--max-attempts` / `--pitch-step` | 3 / 5 | 每个视角最多拍几次；叶背补拍每次加的仰角（度） |

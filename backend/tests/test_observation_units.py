@@ -179,7 +179,7 @@ def test_unique_constraint_race_resolves_to_duplicate(client, monkeypatch):
     resp = client.post(f"{BASE}/ingest/patrol", json=package)
     assert resp.status_code == 200, resp.text
     assert resp.json() == {"patrol_id": existing_id, "capture_points": 0, "photos_saved": 0,
-                           "photos_referenced": 0, "duplicate": True}
+                           "photos_referenced": 0, "duplicate": True, "warnings": []}
     assert calls["n"] == 2
 
 

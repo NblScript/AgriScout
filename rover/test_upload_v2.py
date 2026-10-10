@@ -12,8 +12,10 @@ import re
 import tempfile
 import threading
 import unittest
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from rover import run as rover_run
@@ -27,6 +29,8 @@ PACKAGE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 POINT_FIELDS = {"seq", "distance_m", "lng", "lat", "captured_at", "photo", "weather", "observation_key",
                 "route_chainage_m", "distance_source", "position_source", "view"}
 VIEW_FIELDS = {"side", "pitch_deg", "yaw_deg", "height_m", "fill_light", "attempt", "accepted", "quality"}
+CLOCK_FIELDS = {"synced", "source", "offset_s", "measured_at"}
+CLOCK_SOURCES = {"chrony", "ntp", "rtc", "gnss", "manual", "unknown"}
 
 
 def v2_violations(package: dict) -> list[str]:
@@ -35,6 +39,12 @@ def v2_violations(package: dict) -> list[str]:
         problems.append("schema_version")
     if not PACKAGE_ID_RE.match(str(package["patrol"].get("client_package_id", ""))):
         problems.append("client_package_id")
+    clock = package["patrol"].get("clock")
+    if clock is not None:  # 计划 0007 P0-2：出车时的时钟状态
+        if set(clock) - CLOCK_FIELDS or clock.get("source", "unknown") not in CLOCK_SOURCES:
+            problems.append("clock")
+        if clock.get("synced") not in (None, True, False) or not isinstance(clock.get("offset_s"), (int, float, type(None))):
+            problems.append("clock 取值")
     seqs = [p["seq"] for p in package["capture_points"]]
     if len(seqs) != len(set(seqs)) or not seqs:
         problems.append("seq")
@@ -86,7 +96,8 @@ class _Handler(BaseHTTPRequestHandler):
         platform = self.server
         platform.log.append(("GET", url.path))
         if url.path == "/api/v1/health":
-            self._json(200, {"version": "fake", "environment": "test", "database": "memory"})
+            self._json(200, {"version": "fake", "environment": "test", "database": "memory",
+                             "server_time": (datetime.now(timezone.utc) - platform.clock_lag).isoformat()})
         elif url.path == "/api/v1/media/exists":
             digest = parse_qs(url.query)["sha256"][0]
             found = platform.media.get(digest)
@@ -164,6 +175,7 @@ class _Platform(HTTPServer):
         self.packages: dict[tuple, tuple[int, str]] = {}
         self.ingest_status: int | None = None
         self.lose_next_response = False
+        self.clock_lag = timedelta(0)  # 平台时间比真实时间慢多少（模拟车端时钟快了）
         self._thread = threading.Thread(target=self.serve_forever, daemon=True)
 
     def __enter__(self) -> "_Platform":
@@ -220,6 +232,25 @@ class UploadV2Tests(unittest.TestCase):
         # 默认作物是黄瓜（生育期占位，待农技复核）
         self.assertEqual(platform.records["/api/v1/crops"][0]["name"], "黄瓜")
         self.assertEqual(list(self.spool.iterdir()), [])  # 队列文件和照片目录都删了
+
+    def test_package_carries_clock_status_measured_against_the_platform(self) -> None:
+        """计划 0007 P0-2：出车时量一次与平台的时间差，连同系统对时状态放进包头。"""
+        with _Platform() as platform, patch.object(rover_run.clock, "run_command", lambda _cmd: None):
+            platform.clock_lag = timedelta(minutes=10)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                result = rover_run.main([
+                    "--api", platform.base_url, "--fake", "--interval", "0", "--width", "64", "--height", "48",
+                    "--device", "rover-clock", "--spool-dir", str(self.spool), "--upload-retries", "0", "--stops", "1",
+                ])
+        self.assertEqual(result, 0)
+        package = platform.ingested[0]
+        self.assertEqual(v2_violations(package), [])
+        clock = package["patrol"]["clock"]
+        self.assertEqual((clock["synced"], clock["source"]), (None, "unknown"))
+        self.assertAlmostEqual(clock["offset_s"], 600, delta=5)
+        self.assertIn("本机比平台快 约 10 分钟", out.getvalue())
+        self.assertIn("拍摄时间会不准", out.getvalue())
 
     def test_photos_already_on_the_platform_are_not_uploaded_again(self) -> None:
         with _Platform() as platform:

@@ -38,7 +38,7 @@ docs/exec-plans/active/<编号>-<主题>.md   ← 开工时创建，随进展更
 
 ## 在档计划
 
-- active：见目录（当前为 0007、0013；0007 只剩与作物无关的项；0013 是温室方向软件线总览，子计划 0014–0018 都已完成归档）
+- active：见目录（当前为 0013，温室方向软件线总览，子计划 0014–0018 都已完成归档；与作物无关的 0007 已归档）
 - 技术债与可选打磨统一记 `tech-debt-tracker.md`，不单独开计划
 
 ## 已删除的历史文档（2026-09-29 清理）
@@ -55,6 +55,7 @@ docs/exec-plans/active/<编号>-<主题>.md   ← 开工时创建，随进展更
 | 执行计划 0016（rover 主动采集：质量反馈补拍、逐点落盘、协议 v2 与照片分步上传、株号定位、离线执行巡检计划；含三个阶段的决策记录） | 「docs: 归档计划 0016」commit（`git log --grep "归档计划 0016"` 查哈希） | `docs/exec-plans/active/0016-rover-active-capture.md` |
 | 执行计划 0017（大棚黄瓜模拟与巡检策略离线比较；含执行中的决策记录） | 「docs: 计划 0017 完成」commit（`git log --grep "计划 0017 完成"` 查哈希） | `docs/exec-plans/active/0017-greenhouse-simulator-replay.md` |
 | 执行计划 0018（前端重做：设计系统、外壳、各页面；含两个阶段的决策记录、色板与色盲检查数据） | 「docs: 计划 0018 完成」commit（`git log --grep "计划 0018 完成"` 查哈希） | `docs/exec-plans/active/0018-frontend-redesign.md` |
+| 执行计划 0007（申报书对齐：数据集分组划分、盲法复核、时钟检查；含被 D16 作废的小麦时间线与评审建议） | 「docs: 计划 0007 P0-2 完成」commit（`git log --grep "计划 0007 P0-2 完成"` 查哈希） | `docs/exec-plans/active/0007-application-alignment.md` |
 | 代码审查记录（三轮）、申报书方案评审 | `5ab7309` | `docs/reviews/2026-09-25-code-review.md`、`docs/reviews/2026-09-25-application-review.md` |
 | 主计划 v1.0、讨论决策日志、嵌入式学习路线、项目介绍 v1.0、产品规格索引 | `5ab7309` | `docs/04-master-plan.md`、`docs/05-discussion-decisions.md`、`docs/06-embedded-learning-roadmap.txt`、`docs/07-project-introduction.md`、`docs/product-specs/index.md` |
 
@@ -71,3 +72,5 @@ docs/exec-plans/active/<编号>-<主题>.md   ← 开工时创建，随进展更
 AGENTS 命令速查与代码地图，计划 0013「进度」（多种子结论，只证明流程），技术债台账（人工判健康后早期分数不再推给人）。
 计划 0016 → 决策 D23，rover/README「停车补拍模式」「按巡检计划执行」，ARCHITECTURE「契约」（图像质量、照片分步上传、按计划离线执行），
 README「当前能力」，AGENTS 命令速查与代码地图，计划 0013「进度」，技术债台账（分步上传的照片不清理；清掉 rover 重传遇 409、更新设备领任务不分类型）。
+计划 0007 → 决策 D24、D25、D26 与 T7，README「当前能力」「下一阶段」「已知边界」，ARCHITECTURE「契约」，rover/README「时钟检查」，
+AGENTS 代码地图，技术债台账（TX2 部署未验证、标签口径偏差未量化）；指导教师资格见 `competition-rules.md` 合规清单。
