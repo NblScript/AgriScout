@@ -3,8 +3,8 @@
 巡知（AgriScout）：面向病害风险预测与主动学习的农田智能巡检系统。小车沿垄近地拍照 → 平台异步逐点分析 →
 区域风险预测 → 复巡/标注任务 → 人工随访与复核 → 数据集冻结与模型闸门；规则引擎给出可溯源农事建议。
 2027 挑战杯科技发明 A 类。2026-10 起方向调整为设施大棚黄瓜霜霉病的风险驱动闭环主动采集（D16，以计划 0013 为准，
-docs/09 申报书待重写）。已完成：平台软件闭环、离线重放（H1–H3）、risk-lr-v1、rust-cls-v1、登录与角色权限（D15）、前端按大棚工作流重做（D19、D20）、大棚模拟与策略离线比较（D21）、rover 主动采集与离线执行计划（D23）；
-进行中：计划 0013（温室方向总览，接子计划前先读其「共同约定」）、0007（与作物无关的剩余项）。
+docs/09 申报书待重写）。已完成：平台软件闭环、离线重放（H1–H3）、risk-lr-v1、rust-cls-v1、登录与角色权限（D15）、前端按大棚工作流重做（D19、D20）、大棚模拟与策略离线比较（D21）、rover 主动采集与离线执行计划（D23）、数据集分组划分（D24）、盲法复核（D25）、采集端时钟告警（D26）；
+进行中：计划 0013（温室方向总览，接子计划前先读其「共同约定」）。
 
 **本文件是地图不是说明书**——约束看红线节，细节按「文档导航」按需读。
 所有跨会话知识必须落在仓库文件里，聊天记录等于不存在。
@@ -38,7 +38,7 @@ cd rover && .venv/bin/python run.py --api http://<后端IP>:8000 --fake
 cd rover && .venv/bin/python run.py --api http://<后端IP>:8000 --fake --layout layout.example.json --fake-script normal,blurry  # 默认停车补拍 + 株号定位 + 分步上传（0016-A/B；真车暂用 --mode legacy）
 cd rover && .venv/bin/python run.py --api http://<后端IP>:8000 --plan-fetch plan.json --field-id 3  # 下载巡检计划；进棚 --plan plan.json --layout <布局> --fake 离线执行（0016-C）
 cd rover && .venv/bin/python env_upload.py --api http://<后端IP>:8000 --field-id 3 --csv th-01.csv --sensor-key th-01  # 温湿度记录仪 CSV（0015）
-python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_store rover.test_env_upload rover.test_positioning rover.test_upload_v2 rover.test_plan  # 仓库根目录运行，无硬件
+python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_store rover.test_env_upload rover.test_positioning rover.test_upload_v2 rover.test_plan rover.test_clock  # 仓库根目录运行，无硬件
 
 # ML 训练（独立环境）
 cd ml && .venv/bin/python data/prepare_gwd.py && .venv/bin/python train.py
@@ -57,17 +57,17 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 | `backend/app/models/` | 27 张表，每实体一文件；`timestamps.py` 公共 mixin；`__init__.py` 为注册中心 |
 | `backend/app/api/v1/` | 路由层：CRUD + ingest + 分析 + 建议 + 标注 + stats + 报告 + Agent + 规则修订 + `device_protocol`（注册/心跳/事件/故障注入）+ `software_loop`（风险/复巡/随访/数据集/模型评估）+ `auth`/`users`（登录与用户管理，D15）+ `observation_units`（株档案/批量建档/单株时间线，计划 0014）+ `greenhouse`（棚内环境上报与查询、每株状态、巡检计划，计划 0015）+ `media`（照片分步上传与查重，计划 0016-B）+ `blind_review`（盲法复核批次、判读与结果，D25） |
 | `backend/app/services/analysis/` | Analyzer 协议（base.py）+ 占位颜色版 + YOLO 版（麦穗，可选）+ disease_classifier（条锈病图块分类，可选）+ image_quality（iq-rule-v1，每点写 detail）+ 后台 runner |
-| `backend/app/services/` | advice(规则引擎) / agent_chat+agent_tools(L2 诊断) / agent_rule_draft+rule_feedback+shadow_run+rule_revision(L1 起草生效) / llm_report(报告) / ingest+observation_units(重传幂等、株号解析与自动建档) / storage / risk_prediction+risk_inputs+region_association+active_learning+evidence_feedback+dataset_governance(M7 研究闭环，纯函数优先) / evaluation_metrics+offline_replay(随访指标与 H1–H3 离线重放) / logistic+risk_features+risk_model(risk-lr 可训练风险模型，D12) / revisit_planning(线上复巡生成，与离线共用联合策略，D17) / greenhouse_env+plant_state+patrol_planner+greenhouse_plans(大棚环境指标、每株状态、planner-v1 与计划落库，D18/D22) / greenhouse_replay(大棚巡检策略离线比较，调用线上 planner，D21) / blind_review(盲法复核抽样、判读状态机与 κ，D25) |
+| `backend/app/services/` | advice(规则引擎) / agent_chat+agent_tools(L2 诊断) / agent_rule_draft+rule_feedback+shadow_run+rule_revision(L1 起草生效) / llm_report(报告) / ingest+observation_units(重传幂等、株号解析与自动建档) / storage / risk_prediction+risk_inputs+region_association+active_learning+evidence_feedback+dataset_governance(M7 研究闭环，纯函数优先) / evaluation_metrics+offline_replay(随访指标与 H1–H3 离线重放) / logistic+risk_features+risk_model(risk-lr 可训练风险模型，D12) / revisit_planning(线上复巡生成，与离线共用联合策略，D17) / greenhouse_env+plant_state+patrol_planner+greenhouse_plans(大棚环境指标、每株状态、planner-v1 与计划落库，D18/D22) / greenhouse_replay(大棚巡检策略离线比较，调用线上 planner，D21) / blind_review(盲法复核抽样、判读状态机与 κ，D25) / clock_check(采集端时间告警，只提示不改时间，D26) |
 | `backend/app/tools/` | `sync_rules`（YAML 同步）、`gen_db_schema`（表结构快照）、`replay_eval`（离线重放报告）、`train_risk_lr`（训练导出风险模型）、`al_replay_images`（H3 真实图像数据选样对比）、`greenhouse_replay`（大棚巡检策略比较报告）、`create_user`（建号/重置口令） |
 | `backend/rules/wheat.yaml` | 规则种子库 18 条（单一事实源，经 sync_rules 同步入表） |
 | `backend/app/schemas/` | DTO + 巡检包协议 v1 + 设备协议（对采集端的合同） |
-| `backend/migrations/versions/` | 手写 Alembic 迁移，`00NN_主题` 命名（当前 0018） |
+| `backend/migrations/versions/` | 手写 Alembic 迁移，`00NN_主题` 命名（当前 0019） |
 | `frontend/src/views/` | HomeView（/home 工作台）+ ConfirmQueueView（待确认，侧滑确认）+ FieldDetailView 与 `field/` 五个标签页（概览/巡检计划/株档案/环境/巡检记录；旧 `/fields/:id/units`、`/plan` 即其子路由）+ UnitTimelineView（单株时间线）+ PatrolsView/PatrolDetailView（回放外壳，大棚按株 / 大田地图两种模式，D19）+ ResearchLoopView + BlindReviewView/BlindReviewSessionView（盲法复核批次与只给照片的判读页，D25）+ 七个管理页（地块/作物/种植/设备/用户/规则修订审批/系统状态）+ BigScreenView（/screen 展示屏）+ LoginView |
 | `frontend/src/layouts/` · `styles/` | 外壳（计划 0018）：AppShell + 分组侧栏 + 顶栏（面包屑、地块切换器、展示屏、用户菜单），导航定义在 `nav.ts`；`styles/tokens.css` 设计令牌是颜色、间距、字号的唯一来源（株状态色、任务类型色在此），`theme.css` 把 Element Plus 变量映射到令牌 |
 | `frontend/src/components/` | `ui/` 通用组件（PageHeader/SectionCard/StatCard/StateTag/TaskTypeTag/QualityBadge/EmptyState）+ PlantGrid（「垄 × 株」状态网格）+ EnvPanel/ConfirmPanel（工作台、大棚详情、展示屏共用）+ `plant/`（单株照片、状态、确认表单，D20）+ `patrol/`（回放各块：播放条、照片与病斑框、单株卡、采样点卡、问一问/报告/建议分区）+ MapCanvas、EChart；`composables/` 放共用数据加载（useGreenhouseBoard、useFieldDetail、useTimelineCache） |
 | `frontend/src/api/index.ts` · `types.ts` | 每资源一个 api 对象；类型单一事实源，对齐 backend schemas |
 | `simulator/` | 独立虚拟巡田，只走 HTTP（禁止 import 后端内部）；`season.py` 多日期病害扩散模拟季；`greenhouse.py` + `greenhouse_run.py` 大棚黄瓜模型与闭环（D21） |
-| `rover/` | 真车采集端：`run.py` 编排上传与 spool 断网续传；`hardware`（硬件接口+假实现）/`quality`（iq-rule-v1）/`acquire`（视角补拍）/`point_store`（逐点落盘）/`positioning`（布局与株号定位）/`upload`（照片分步上传）/`plan`（按巡检计划离线执行与任务回报）/`env_upload`（温湿度 CSV 上传）；只走 HTTP |
+| `rover/` | 真车采集端：`run.py` 编排上传与 spool 断网续传；`hardware`（硬件接口+假实现）/`quality`（iq-rule-v1）/`acquire`（视角补拍）/`point_store`（逐点落盘）/`positioning`（布局与株号定位）/`upload`（照片分步上传）/`plan`（按巡检计划离线执行与任务回报）/`clock`（对时状态与平台对表，D26）/`env_upload`（温湿度 CSV 上传）；只走 HTTP |
 | `ml/` | YOLO 训练环境（与后端运行时分离）：麦穗检测（GWD）、条锈病图块分类（NWRD，D14） |
 | `tools/` | download_tiles.py 离线瓦片下载（高德源） |
 
@@ -103,6 +103,7 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 | 改数据库 / 看表结构 | `docs/generated/db-schema.md`（生成物，勿手改） |
 | 动 Analyzer 或接入新识别模型 | `ARCHITECTURE.md`「契约」「能力分级」、`services/analysis/base.py`、决策 D14 |
 | 动规则/建议逻辑 | `backend/rules/wheat.yaml` 文件头（格式）、`services/advice.py`、注册表「规则引擎生命周期」 |
+| 动采集端时间 / 时钟告警 | 决策 D26、T7，`services/clock_check.py`、`rover/clock.py` |
 | 动风险预测/复巡/数据集闸门/盲法复核 | 决策 D10–D13、D17、D24、D25，`api/v1/software_loop.py`、`services/revisit_planning.py`、`services/offline_replay.py` |
 | 动大棚环境 / 每株状态 / 巡检计划 | 决策 D18、D22、`services/patrol_planner.py`、`services/greenhouse_plans.py`；改完用 `greenhouse_replay` 复跑策略比较（D21） |
 | 动前端页面 / 颜色与样式 / 人工确认 | 决策 D19、D20，`styles/tokens.css`、`layouts/nav.ts`、`api/index.ts` 的 `confirmApi` |
