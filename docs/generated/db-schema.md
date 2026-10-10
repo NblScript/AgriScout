@@ -85,6 +85,8 @@
 | schema_version | String(8) | NOT NULL、default=1.0 | — |
 | client_package_id | String(64) | — | — |
 | package_sha256 | String(64) | — | — |
+| clock | JSON | — | — |
+| time_warnings | JSON | — | — |
 | created_at | DateTime | NOT NULL、default=now() | — |
 | updated_at | DateTime | NOT NULL、default=now() | — |
 
@@ -422,6 +424,9 @@
 | temperature_c | Float | — | — |
 | error_code | String(80) | — | — |
 | payload | JSON | NOT NULL | — |
+| clock | JSON | — | — |
+| clock_skew_s | Float | — | — |
+| time_warnings | JSON | — | — |
 | created_at | DateTime | NOT NULL、default=now() | — |
 | updated_at | DateTime | NOT NULL、default=now() | — |
 

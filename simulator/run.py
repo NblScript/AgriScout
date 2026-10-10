@@ -72,12 +72,13 @@ def build_package(args, scenario: Scenario, rng: random.Random) -> tuple[dict, d
                     origin_lat=args.origin_lat, origin_lng=args.origin_lng)
     profile = scenario.profile
 
-    start_dt = datetime.now(TZ_CN).replace(second=0, microsecond=0)
     capture_points: list[dict] = []
     track: list[list[float]] = []
 
     local = s_path(layout)
     total = len(local)
+    # 模拟「刚巡完一趟就上传」：开始时间往前推整趟时长，最后一个点不晚于现在（否则平台会报拍摄时间在未来，计划 0007 P0-2）
+    start_dt = (datetime.now(TZ_CN) - timedelta(seconds=(total - 1) * SECONDS_PER_STEP)).replace(second=0, microsecond=0)
     for idx, (x, y, dist) in enumerate(local):
         lng, lat = to_lng_lat(x, y, layout)
         track.append([round(lng, 6), round(lat, 6)])
@@ -204,6 +205,8 @@ def main() -> int:
         return 2
 
     package, meta = build_package(args, scenario, rng)
+    if args.v2:  # 协议 v2 头部带本机时钟状态（计划 0007 P0-2）
+        package["patrol"]["clock"] = client.clock_status()
     field_id, _crop_id, planting_id = register_assets(client, args, meta)
     package["patrol"]["field_id"] = field_id
     package["patrol"]["planting_id"] = planting_id
@@ -216,6 +219,8 @@ def main() -> int:
     result = client.ingest_patrol(package)
     print(f"[上传] 巡检包入库 patrol_id={result['patrol_id']} "
           f"({time.time()-t0:.1f}s, 照片落盘 {result['photos_saved']} 引用 {result['photos_referenced']})")
+    for warning in result.get("warnings", []):  # 平台的时间告警（计划 0007 P0-2）：只提示，包照收
+        print(f"[时钟] 平台提示：{warning}")
 
     print("[分析] 等待后台管线…")
     status = wait_analysis(client, result["patrol_id"], args.timeout)

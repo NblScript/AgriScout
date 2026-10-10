@@ -5,7 +5,8 @@
 - track 是 [[lng,lat],...] 裸坐标数组，服务端转 GeoJSON LineString 存储；
 - 单包单事务：任一点非法则整包拒绝；
 - v2 最小子集（计划 0014）：包级 schema_version、头部 client_package_id（幂等）、点级
-  observation_key / route_chainage_m / distance_source / position_source / view。
+  observation_key / route_chainage_m / distance_source / position_source / view；
+  头部 clock（计划 0007 P0-2，D26）：车端本机时钟状态，平台据此和各时间戳给出时间告警，不改时间。
   出现任一 v2 字段而 schema_version 不是 "2.0" 时整包拒绝；v1 包行为不变。
 """
 import base64
@@ -83,6 +84,29 @@ class ViewPayload(BaseModel):
         return v
 
 
+class ClockPayload(BaseModel):
+    """车端本机时钟状态（v2，计划 0007 P0-2，D26）：建巡检时记下，只用于告警，平台不据此改时间。"""
+
+    # 系统报告的对时状态（chrony / systemd-timesyncd）；查不到为空
+    synced: bool | None = None
+    source: Literal["chrony", "ntp", "rtc", "gnss", "manual", "unknown"] = "unknown"
+    # 本机时间减平台时间（秒），正数表示本机快；联网时量，离线为空
+    offset_s: float | None = PField(default=None, allow_inf_nan=False)
+    measured_at: datetime | None = None  # 量时间差的时刻（本机时间）
+
+
+class TimeWarning(BaseModel):
+    """平台给出的时间告警（计划 0007 P0-2，D26）：code 见 services/clock_check.py。"""
+
+    code: str
+    message: str
+
+
+def warnings_or_empty(value: Any) -> Any:
+    """旧记录的告警列为空（NULL），读出时当作没有告警。"""
+    return [] if value is None else value
+
+
 V2_POINT_FIELDS = ("observation_key", "route_chainage_m", "distance_source", "position_source", "view")
 
 
@@ -128,6 +152,8 @@ class PatrolHeaderPayload(BaseModel):
     notes: str | None = None
     # v2：采集端稳定包号，同设备同包号重传按内容哈希判定幂等（计划 0014）
     client_package_id: str | None = PField(default=None, pattern=CLIENT_PACKAGE_ID_PATTERN)
+    # v2：建巡检时的车端时钟状态（计划 0007 P0-2）
+    clock: ClockPayload | None = None
 
     @field_validator("track")
     @classmethod
@@ -173,7 +199,7 @@ class PatrolPackageIn(BaseModel):
     def v2_fields_need_v2(self) -> "PatrolPackageIn":
         if self.schema_version == "2.0":
             return self
-        used = {"patrol.client_package_id"} if self.patrol.client_package_id is not None else set()
+        used = {f"patrol.{name}" for name in ("client_package_id", "clock") if getattr(self.patrol, name) is not None}
         used |= {f"capture_points[].{name}" for cp in self.capture_points
                  for name in V2_POINT_FIELDS if getattr(cp, name) is not None}
         if used:
@@ -190,3 +216,5 @@ class IngestResultOut(BaseModel):
     photos_referenced: int  # 直接引用外部 URL 的照片数
     # 同设备同包号、同内容的重传：返回已有 patrol_id，不重复落库也不重复分析（计划 0014）
     duplicate: bool = False
+    # 时间告警（计划 0007 P0-2）：拍摄时间可能不准的原因，车端照样入库，只提示
+    warnings: list[str] = PField(default_factory=list)

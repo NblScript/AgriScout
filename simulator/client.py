@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -74,6 +75,19 @@ class ApiClient:
     # ---------- 业务封装 ----------
     def health(self) -> dict:
         return self.get("/api/v1/health")
+
+    def clock_status(self) -> dict:
+        """本机与平台的时间差（协议 v2 头部 clock，计划 0007 P0-2），按请求往返的中点算；模拟器不查系统对时状态。"""
+        sent = datetime.now(timezone.utc)
+        server_time = self.health().get("server_time")
+        received = datetime.now(timezone.utc)
+        offset = None
+        if server_time:
+            server = datetime.fromisoformat(server_time)
+            server = server if server.tzinfo else server.replace(tzinfo=timezone.utc)
+            offset = round((sent + (received - sent) / 2 - server).total_seconds(), 3)
+        return {"synced": None, "source": "unknown", "offset_s": offset,
+                "measured_at": received.isoformat() if offset is not None else None}
 
     def list_fields(self) -> list[dict]:
         return self.get("/api/v1/fields")

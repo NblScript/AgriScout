@@ -30,6 +30,9 @@ class Patrol(TimestampMixin, Base):
     schema_version: Mapped[str] = mapped_column(String(8), nullable=False, default="1.0", server_default="1.0")
     client_package_id: Mapped[str | None] = mapped_column(String(64))
     package_sha256: Mapped[str | None] = mapped_column(String(64))
+    # 车端时钟状态与平台给出的时间告警 [{code, message}]（计划 0007 P0-2，D26）；旧巡检为空
+    clock: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    time_warnings: Mapped[list[dict[str, str]] | None] = mapped_column(JSON)
 
     field: Mapped["Field"] = relationship()  # type: ignore[name-defined]  # noqa: F821
     planting: Mapped["Planting | None"] = relationship()  # type: ignore[name-defined]  # noqa: F821

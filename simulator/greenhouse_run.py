@@ -179,6 +179,7 @@ def build_package(world: World, args, field_id: int, day: int, period: str, shot
                      "quality": {"ok": photo.accepted, "method": "sim-greenhouse"}},
         })
     end = start + timedelta(seconds=max(len(shots) - 1, 1) * SECONDS_PER_SHOT)
+    # 不带 clock（计划 0007 P0-2）：这里重放的是模拟的过去几天，没有一台真车的时钟可报；包号固定，重跑时内容也不变
     return {
         "schema_version": "2.0",
         "patrol": {

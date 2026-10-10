@@ -1,4 +1,6 @@
-"""健康检查：前端联通性验证用。"""
+"""健康检查：前端联通性验证用；顺带给出平台时间，采集端据此量本机时钟的偏差（计划 0007 P0-2）。"""
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -24,4 +26,5 @@ def health(db: Session = Depends(get_db)) -> dict:
         "version": settings.version,
         "environment": settings.environment,
         "database": database,
+        "server_time": datetime.now(timezone.utc).isoformat(),
     }

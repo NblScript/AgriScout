@@ -2,10 +2,10 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.analysis import AnalysisOut
-from app.schemas.patrol import WeatherPayload
+from app.schemas.patrol import TimeWarning, WeatherPayload, warnings_or_empty
 
 
 class WeatherOut(WeatherPayload):
@@ -47,11 +47,16 @@ class PatrolOut(BaseModel):
     ended_at: datetime | None = None
     status: str
     analysis_status: str
+    # 拍摄时间可能不准的原因（计划 0007 P0-2，D26）；没有告警为空列表
+    time_warnings: list[TimeWarning] = Field(default_factory=list)
+
+    _no_null_warnings = field_validator("time_warnings", mode="before")(warnings_or_empty)
 
 
 class PatrolDetailOut(PatrolOut):
     track: dict[str, Any] | None = None
     schema_version: str = "1.0"
     client_package_id: str | None = None
+    clock: dict[str, Any] | None = None  # 建巡检时的车端时钟状态（协议 v2 头部 clock）
     point_count: int
     notes: str | None = None

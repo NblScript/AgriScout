@@ -9,7 +9,7 @@ import PageHeader from '../components/ui/PageHeader.vue'
 import SectionCard from '../components/ui/SectionCard.vue'
 import { fieldsApi, patrolsApi } from '../api'
 import { errMsg } from '../api/http'
-import type { Field, Patrol } from '../types'
+import type { Field, Patrol, TimeWarning } from '../types'
 import { fieldClock } from '../utils/fieldTime'
 
 const route = useRoute()
@@ -100,6 +100,15 @@ const DATA_TEXT: Record<string, string> = { received: '已接收' }
       </el-table-column>
       <el-table-column prop="started_at" label="开始时间" min-width="150" :formatter="fmtTime" class-name="tabular" />
       <el-table-column prop="ended_at" label="结束时间" min-width="150" :formatter="fmtTime" class-name="tabular" />
+      <el-table-column label="时钟" width="100">
+        <template #default="{ row }">
+          <el-tooltip v-if="row.time_warnings?.length" placement="top"
+                      :content="row.time_warnings.map((w: TimeWarning) => w.message).join('；')">
+            <el-tag size="small" type="warning" effect="plain">时间存疑</el-tag>
+          </el-tooltip>
+          <span v-else class="muted">—</span>
+        </template>
+      </el-table-column>
       <el-table-column label="数据" width="90">
         <template #default="{ row }">
           <el-tag size="small" :type="row.status === 'received' ? 'success' : 'info'" effect="plain">

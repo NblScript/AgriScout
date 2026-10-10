@@ -307,6 +307,22 @@ export interface Patrol {
   ended_at: string | null
   status: string
   analysis_status: 'pending' | 'running' | 'done' | 'error'
+  /** 拍摄时间可能不准的原因（计划 0007 P0-2，D26）；没有告警为空 */
+  time_warnings: TimeWarning[]
+}
+
+/** 平台给出的时间告警：code 见后端 services/clock_check.py */
+export interface TimeWarning {
+  code: 'future_timestamp' | 'implausible_timestamp' | 'clock_offset' | 'clock_unsynced' | 'heartbeat_skew' | string
+  message: string
+}
+
+/** 车端出车时的时钟状态（协议 v2 头部 clock）：offset_s 为本机减平台，正数表示本机快 */
+export interface ClockStatus {
+  synced: boolean | null
+  source: 'chrony' | 'ntp' | 'rtc' | 'gnss' | 'manual' | 'unknown'
+  offset_s: number | null
+  measured_at: string | null
 }
 
 export const ANALYSIS_STATUS_LABELS: Record<Patrol['analysis_status'], string> = {
@@ -322,6 +338,7 @@ export interface PatrolDetail extends Patrol {
   notes: string | null
   schema_version: string
   client_package_id: string | null
+  clock: ClockStatus | null
 }
 
 export interface RuleSnapshot {
@@ -701,6 +718,10 @@ export interface DeviceHeartbeat {
   temperature_c: number | null
   error_code: string | null
   payload: Record<string, unknown>
+  clock: ClockStatus | null
+  /** 心跳时间减平台接收时间（秒）；心跳没带 observed_at 时为空 */
+  clock_skew_s: number | null
+  time_warnings: TimeWarning[]
   created_at: string
   updated_at: string
 }
