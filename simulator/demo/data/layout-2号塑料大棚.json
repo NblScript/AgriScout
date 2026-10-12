@@ -1,0 +1,8 @@
+{
+  "_comment": "演示用棚内布局：2号塑料大棚 3 垄 × 10 株，株距 0.4 米，第 1 株在行内 0 米处。与平台批量建档同结构，也可直接给 rover --layout 用。数字是演示值，不是实测。",
+  "rows": [
+    {"row_no": 1, "plants": 10, "spacing_m": 0.4, "start_chainage_m": 0.0},
+    {"row_no": 2, "plants": 10, "spacing_m": 0.4, "start_chainage_m": 0.0},
+    {"row_no": 3, "plants": 10, "spacing_m": 0.4, "start_chainage_m": 0.0}
+  ]
+}

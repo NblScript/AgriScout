@@ -62,8 +62,13 @@ simulator/
 ├── greenhouse_run.py  # 大棚闭环：建档 → 环境 → 每天拉计划、拍照、确认 → 导出真值
 ├── test_greenhouse.py # 大棚模型单测（仓库根目录 python -m unittest simulator.test_greenhouse）
 ├── test_epidemic.py  # 病害模型单测（仓库根目录 python -m unittest simulator.test_epidemic）
+├── demo/            # 演示数据：两个黄瓜大棚的加载脚本与布局，见 demo/README.md
 └── test_geo_v2.py    # --v2 株号推导单测（仓库根目录 python -m unittest simulator.test_geo_v2）
 ```
+
+## 演示数据
+
+要给人看界面时，用 [demo/load_demo.py](demo/README.md) 往空库里装两个黄瓜大棚：近两周的叶背巡检、温湿度、今日计划、研究闭环和一个盲评批次，日期按加载当天推算。只走 HTTP，几秒钟装完；数据是造的，只演示流程。
 
 ## 多日期模拟季（执行计划 0008）
 

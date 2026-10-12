@@ -265,6 +265,12 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 .venv/bin/python train_rust.py
 .venv/bin/python eval_rust.py
 .venv/bin/python export_model.py --kind rust
+# 黄瓜霜霉病基线（计划 0019，公开数据；下载时读许可，只取原图，近重复分组后按组划分；平台暂未接入）
+.venv/bin/python data/prepare_dm.py
+.venv/bin/python train_dm.py
+.venv/bin/python eval_dm.py --split val      # 比较结构只看验证集
+.venv/bin/python eval_dm.py                  # 选定后测试集只跑一次
+.venv/bin/python export_model.py --kind dm
 ```
 
 规则的单一事实源是 [backend/rules/wheat.yaml](backend/rules/wheat.yaml)（小麦方向的规则，现作方法验证；黄瓜规则草稿等试拍后做，WP6）。修改 YAML 后同步入表；历史建议使用冻结快照，不会被新规则回写。
@@ -287,7 +293,7 @@ python3 -m pip install --target "$SITE_PACKAGES" -r requirements.txt
 场地核实与试拍前只做不依赖场地的部分：
 
 - rover 主动采集（0016）三个阶段都已完成：停车补拍与图像质量（A）、协议 v2 与照片分步上传和株号定位（B）、离线执行巡检计划与任务回报（C），口径见决策 D23；
-- 试拍拿到真实照片后：霜霉病识别基线、黄瓜规则草稿（待农技复核）；
+- 霜霉病识别基线的公开数据部分已开工（[计划 0019](docs/exec-plans/active/0019-downy-mildew-baseline.md)，在 A100 上训练），早期分级和叶背判别等试拍照片；黄瓜规则草稿（待农技复核）也等试拍后做；
 - 计划 0007（与作物无关的改造）已归档：数据集分组划分（D24）、盲法复核（D25）、时钟检查与告警（D26）；TX2 部署验证需要实物板子，记在技术债台账；时钟硬件（DS3231 或 chrony 局域网时间源）由团队定（T7）。
 
 ## 已知边界

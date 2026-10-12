@@ -4,7 +4,7 @@
 区域风险预测 → 复巡/标注任务 → 人工随访与复核 → 数据集冻结与模型闸门；规则引擎给出可溯源农事建议。
 2027 挑战杯科技发明 A 类。2026-10 起方向调整为设施大棚黄瓜霜霉病的风险驱动闭环主动采集（D16，以计划 0013 为准，
 docs/09 申报书待重写）。已完成：平台软件闭环、离线重放（H1–H3）、risk-lr-v1、rust-cls-v1、登录与角色权限（D15）、前端按大棚工作流重做（D19、D20）、大棚模拟与策略离线比较（D21）、rover 主动采集与离线执行计划（D23）、数据集分组划分（D24）、盲法复核（D25）、采集端时钟告警（D26）；
-进行中：计划 0013（温室方向总览，接子计划前先读其「共同约定」）。
+进行中：计划 0013（温室方向总览，接子计划前先读其「共同约定」）、计划 0019（霜霉病识别基线，公开数据，A100 训练）。
 
 **本文件是地图不是说明书**——约束看红线节，细节按「文档导航」按需读。
 所有跨会话知识必须落在仓库文件里，聊天记录等于不存在。
@@ -44,8 +44,9 @@ python -m unittest rover.test_run_smoke rover.test_acquire rover.test_point_stor
 cd ml && .venv/bin/python data/prepare_gwd.py && .venv/bin/python train.py
 cd ml && .venv/bin/python export_model.py            # 产物 → backend/models/（gitignore）
 cd ml && .venv/bin/python data/prepare_nwrd.py && .venv/bin/python train_rust.py && .venv/bin/python eval_rust.py
+cd ml && .venv/bin/python data/prepare_dm.py && .venv/bin/python train_dm.py && .venv/bin/python eval_dm.py  # 霜霉病基线（计划 0019）
 cd ml && .venv/bin/python export_model.py --kind rust  # 条锈病模型 → rust-cls-v{N}.pt + .json 说明（后端 DISEASE_MODEL_PATH）
-python -m unittest ml.test_prepare_nwrd            # 仓库根目录运行，NWRD 切块口径单测
+python -m unittest ml.test_prepare_nwrd ml.test_prepare_dm   # 仓库根目录运行，NWRD 切块与霜霉病去重划分单测
 cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/python -m app.tools.al_replay_images \
   --samples ../ml/data/nwrd_cls/al_features.json --pool-prevalence 0.05   # H3 真实数据选样对比（计划 0011）
 ```
@@ -66,9 +67,9 @@ cd ml && .venv/bin/python al_features_nwrd.py && cd ../backend && .venv/bin/pyth
 | `frontend/src/layouts/` · `styles/` | 外壳（计划 0018）：AppShell + 分组侧栏 + 顶栏（面包屑、地块切换器、展示屏、用户菜单），导航定义在 `nav.ts`；`styles/tokens.css` 设计令牌是颜色、间距、字号的唯一来源（株状态色、任务类型色在此），`theme.css` 把 Element Plus 变量映射到令牌 |
 | `frontend/src/components/` | `ui/` 通用组件（PageHeader/SectionCard/StatCard/StateTag/TaskTypeTag/QualityBadge/EmptyState）+ PlantGrid（「垄 × 株」状态网格）+ EnvPanel/ConfirmPanel（工作台、大棚详情、展示屏共用）+ `plant/`（单株照片、状态、确认表单，D20）+ `patrol/`（回放各块：播放条、照片与病斑框、单株卡、采样点卡、问一问/报告/建议分区）+ MapCanvas、EChart；`composables/` 放共用数据加载（useGreenhouseBoard、useFieldDetail、useTimelineCache） |
 | `frontend/src/api/index.ts` · `types.ts` | 每资源一个 api 对象；类型单一事实源，对齐 backend schemas |
-| `simulator/` | 独立虚拟巡田，只走 HTTP（禁止 import 后端内部）；`season.py` 多日期病害扩散模拟季；`greenhouse.py` + `greenhouse_run.py` 大棚黄瓜模型与闭环（D21） |
+| `simulator/` | 独立虚拟巡田，只走 HTTP（禁止 import 后端内部）；`season.py` 多日期病害扩散模拟季；`greenhouse.py` + `greenhouse_run.py` 大棚黄瓜模型与闭环（D21）；`demo/load_demo.py` 往空库装演示数据 |
 | `rover/` | 真车采集端：`run.py` 编排上传与 spool 断网续传；`hardware`（硬件接口+假实现）/`quality`（iq-rule-v1）/`acquire`（视角补拍）/`point_store`（逐点落盘）/`positioning`（布局与株号定位）/`upload`（照片分步上传）/`plan`（按巡检计划离线执行与任务回报）/`clock`（对时状态与平台对表，D26）/`env_upload`（温湿度 CSV 上传）；只走 HTTP |
-| `ml/` | YOLO 训练环境（与后端运行时分离）：麦穗检测（GWD）、条锈病图块分类（NWRD，D14） |
+| `ml/` | YOLO 训练环境（与后端运行时分离）：麦穗检测（GWD）、条锈病图块分类（NWRD，D14）、黄瓜霜霉病整叶分类（公开数据，计划 0019，平台未接入） |
 | `tools/` | download_tiles.py 离线瓦片下载（高德源） |
 
 ## 不可变红线（违反=返工）
