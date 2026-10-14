@@ -1,8 +1,9 @@
 # 0019 · dm-cls-v1：黄瓜霜霉病识别基线（公开数据，A100 训练）
 
 ## 状态
-进行中（2026-10-12）。计划 0013 WP5 里不依赖试拍的那一半：用公开数据先训「霜霉病 / 健康」基线。
-用户租了 A100 服务器做模型迭代；训练在服务器上跑（Remote Control 或用户执行脚本），本仓库容器下载不了 Mendeley、也没有显卡。
+暂停（2026-10-14）：租用的 A100 服务器（bitahub）到期，真实数据上还没下载、没训练。脚本已写好，假数据上跑通了数据准备、训练、评估、导出。
+计划 0013 WP5 里不依赖试拍的那一半：用公开数据先训「霜霉病 / 健康」基线。有了能跑训练的机器再从「进度」第三项继续；
+本仓库的云端容器下载不了 Mendeley、也没有显卡，SSH 只能从用户自己的电脑发起。服务器上试过一次：Ubuntu 的 Python 3.12 要先 `apt install python3.12-venv` 才能建 venv。
 
 ## 背景
 平台里每株状态（`services/plant_state.py`）的模型分现在是占位：取最近一张合格叶背图的 `risk_score`，阈值 0.4 / 0.7 是经验初值，
@@ -36,7 +37,7 @@
   看完测试结果、拿到试拍叶背照片后再定接入方式（新决策）。
 
 ## 进度
-- [ ] `ml/data/prepare_dm.py`：下载、读许可、只取原图、类别映射、近重复分组、按组分层划分、清单；纯函数单测 `ml/test_prepare_dm.py`
-- [ ] `ml/train_dm.py`、`ml/eval_dm.py`、`ml/export_model.py --kind dm`
+- [x] `ml/data/prepare_dm.py`：下载、读许可、只取原图、类别映射、近重复分组、按组分层划分、清单；纯函数单测 `ml/test_prepare_dm.py`
+- [x] `ml/train_dm.py`、`ml/eval_dm.py`、`ml/export_model.py --kind dm`（假数据上跑通全流程）
 - [ ] 服务器上实跑：下载核对许可和目录结构 → 固定数据校验值 → 训练（比较 yolov8n-cls / yolo11n-cls / yolov8s-cls，按验证集选）→ 测试集评估 → 导出
 - [ ] 结果写回本计划和 README，登记决策；平台接入方式与用户商定
