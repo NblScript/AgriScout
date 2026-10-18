@@ -94,6 +94,33 @@
   --chart-axis: var(--neutral-600);
   --chart-grid: var(--neutral-200);
 
+  /*
+   * ---------- 数字孪生大棚（/twin，数媒大赛展示用的深色 3D 页）----------
+   * 只在 TwinView 和它的 Three.js 场景里用；株状态、任务类型仍取上面的令牌，「不明」在深色场景里换成中灰。
+   */
+  --twin-bg-top: #0b1a1f;
+  --twin-bg-bottom: #16302c;
+  --twin-ground: #0f1f1c;
+  --twin-floor: #1c2f2a;
+  --twin-soil: #4a3a2c;
+  --twin-wall: #5b5148;
+  --twin-frame: #b9c7c2;
+  --twin-film: #bfe9f2;
+  --twin-accent: #3ee0c5;
+  --twin-rover: #eef3f1;
+  --twin-unknown: #7f8c86;
+  /* 深色底上提亮的三种色：明显（红）、确认（紫）、补拍（蓝）；原令牌在深色底上发闷 */
+  --twin-symptomatic: #e2574c;
+  --twin-confirm: #9b6cf0;
+  --twin-reshoot: #5b8ef5;
+  --twin-heat-low: #2a9d6f;
+  --twin-heat-mid: #f0b429;
+  --twin-heat-high: #e0412f;
+  --twin-panel: rgba(10, 24, 26, 0.72);
+  --twin-panel-border: rgba(62, 224, 197, 0.22);
+  --twin-text: #e8f1ee;
+  --twin-text-dim: #93a8a1;
+
   /* ---------- 文字、背景、描边 ---------- */
   --text-primary: var(--neutral-900);
   --text-regular: var(--neutral-700);

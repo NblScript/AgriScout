@@ -46,6 +46,7 @@ export default defineConfig({
           echarts: ['echarts'],
           'element-plus': ['element-plus'],
           leaflet: ['leaflet'],
+          three: ['three'],
         },
       },
     },

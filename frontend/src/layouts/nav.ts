@@ -1,7 +1,7 @@
 /** 侧栏导航（计划 0018 设计 3）：按「工作 / 研究 / 管理」分组；展示屏在侧栏和顶栏各有一个入口。 */
 import type { Component } from 'vue'
 import {
-  Calendar, Camera, Cherry, Cpu, DataAnalysis, EditPen, Hide, House, MapLocation, Monitor, Odometer, Stamp, User,
+  Box, Calendar, Camera, Cherry, Cpu, DataAnalysis, EditPen, Hide, House, MapLocation, Monitor, Odometer, Stamp, User,
 } from '@element-plus/icons-vue'
 import type { Field } from '../types'
 
@@ -30,6 +30,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: '大棚与地块', path: '/fields', icon: MapLocation, match: ['/fields', '/units'] },
       { label: '巡检记录', path: '/patrols', icon: Camera },
       { label: '展示屏', path: '/screen', icon: Monitor },
+      { label: '数字孪生', path: '/twin', icon: Box },
     ],
   },
   {

@@ -39,6 +39,13 @@ const router = createRouter({
       meta: { title: '展示屏', bare: true },
     },
     {
+      // 数字孪生大棚（数媒大赛）：全屏深色 3D 页，?field= 指定大棚
+      path: '/twin',
+      name: 'twin',
+      component: () => import('../views/TwinView.vue'),
+      meta: { title: '数字孪生大棚', bare: true },
+    },
+    {
       path: '/dashboard',
       name: 'dashboard',
       component: () => import('../views/DashboardView.vue'),
