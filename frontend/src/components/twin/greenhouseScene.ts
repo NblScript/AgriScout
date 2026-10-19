@@ -67,35 +67,136 @@ const PLANT_GAP = 0.45
 const AISLE_MARGIN = 2.0 // 株列两端到后墙/前沿的过道（前沿棚低，巡检车走的前过道要往里收）
 const ROVER_SPEED = 1.8 // 演示加速，米/秒
 const SHOOT_SECONDS = 1.5
-const LEAVES = 11 // 每株叶片数
-const LEAF_SCALE = 1.9 // 叶比实物放大，远景里看得出株状态色
+const LEAVES = 12 // 每株叶片数
+const LEAF_SCALE = 1.7 // 叶比实物放大，远景里看得出株状态色
 const DOCK_SECONDS = 2.5
 const SCAN_SECONDS = 5 // 地面扫描环一圈的时长
 const FLOW_DOTS = 36 // 路线上流动的光点数
 /** 株状态 → 叶片自发光强度：异常株「亮起来」，健康与不明不发光 */
-const STATE_GLOW: Record<PlantStateValue, number> = { healthy: 0.06, early: 0.3, symptomatic: 0.75, unknown: 0 }
+const STATE_GLOW: Record<PlantStateValue, number> = { healthy: 0.05, early: 0.2, symptomatic: 0.45, unknown: 0 }
 
 type Segment =
   | { kind: 'move'; from: THREE.Vector3; to: THREE.Vector3; dur: number }
   | { kind: 'shoot'; plant: number; at: THREE.Vector3; dur: number; index: number }
   | { kind: 'dock'; at: THREE.Vector3; dur: number }
 
-/** 一片黄瓜叶：五个浅裂的掌状轮廓，叶柄端在原点、沿 +y 伸出，长约 0.3 m */
-function leafGeometry(): THREE.BufferGeometry {
-  const shape = new THREE.Shape()
-  const lobes = 5
-  const pts: THREE.Vector2[] = []
-  for (let i = 0; i <= lobes * 2; i++) {
-    const a = Math.PI * (0.05 + (0.9 * i) / (lobes * 2)) // 从右下绕到左下
-    const rad = i % 2 === 0 ? 0.15 : 0.1
-    pts.push(new THREE.Vector2(Math.cos(a) * rad * 1.1, 0.13 + Math.sin(a) * rad))
+/** 黄瓜叶五个裂片：中裂片、两侧裂片、两基裂片（角度从叶尖方向起算，弧度）与相对长度 */
+const LOBES: [number, number][] = [[0, 1], [1.0, 0.86], [-1.0, 0.86], [1.95, 0.6], [-1.95, 0.6]]
+const LEAF_SIZE = 0.24 // 叶柄端到中裂片尖的长度（米，演示前放大）
+
+/** 叶缘半径：裂片尖成锐角、裂片之间是浅缺刻、基部心形凹入，再叠一层细锯齿 */
+function leafRadius(theta: number): number {
+  let r = 0.5 * (1 - (Math.abs(theta) / Math.PI) ** 3) // 打底：越靠基部越短，到正后方收成心形凹口
+  for (const [at, len] of LOBES) {
+    const d = Math.abs(theta - at)
+    if (d < 0.62) r = Math.max(r, len * (1 - d / 0.62) ** 0.55)
   }
-  shape.moveTo(0, 0)
-  for (const p of pts.reverse()) shape.lineTo(p.x, p.y)
-  shape.lineTo(0, 0)
-  const geo = new THREE.ShapeGeometry(shape)
+  return r * (1 + 0.03 * Math.sin(theta * 38) * Math.min(1, r * 2))
+}
+
+/**
+ * 一片黄瓜叶：以叶柄端为圆心按叶缘半径铺放射网格（48 × 4），叶面横向微凹、叶尖下垂、叶缘起伏，
+ * 法线重算后受光有明暗；UV 以叶柄端为中心，配叶脉贴图。叶在 XY 平面、沿 +y 伸出，+z 为叶面朝上。
+ */
+function leafGeometry(): THREE.BufferGeometry {
+  const N = 48
+  const R = 4
+  const pos: number[] = [0, 0, 0]
+  const uv: number[] = [0.5, 0.5]
+  const span = LEAF_SIZE * 1.1
+  for (let j = 1; j <= R; j++) {
+    const f = j / R
+    for (let i = 0; i < N; i++) {
+      const theta = -Math.PI + (i / N) * Math.PI * 2
+      const r = leafRadius(theta) * LEAF_SIZE * f
+      const x = Math.sin(theta) * r
+      const y = Math.cos(theta) * r
+      const z = -2.2 * x * x - 1.6 * Math.max(0, y) ** 2 + 0.012 * Math.sin(theta * 5) * f * f
+      pos.push(x, y, z)
+      uv.push(0.5 + x / (2 * span), 0.5 + y / (2 * span))
+    }
+  }
+  const idx: number[] = []
+  for (let i = 0; i < N; i++) idx.push(0, 1 + i, 1 + ((i + 1) % N))
+  for (let j = 1; j < R; j++) {
+    const a0 = 1 + (j - 1) * N
+    const b0 = 1 + j * N
+    for (let i = 0; i < N; i++) {
+      const i1 = (i + 1) % N
+      idx.push(a0 + i, b0 + i, b0 + i1, a0 + i, b0 + i1, a0 + i1)
+    }
+  }
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2))
+  geo.setIndex(idx)
   geo.computeVertexNormals()
   return geo
+}
+
+/** 叶脉贴图（灰度，与株状态色相乘）：五条主脉从叶柄端放射到裂片尖，每条再分出侧脉；叶缘略暗 */
+function leafTexture(): THREE.Texture {
+  const S = 256
+  const c = S / 2
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = S
+  const ctx = canvas.getContext('2d')!
+  const base = ctx.createRadialGradient(c, c, 0, c, c, c)
+  base.addColorStop(0, 'rgb(225,225,225)')
+  base.addColorStop(0.7, 'rgb(200,200,200)')
+  base.addColorStop(1, 'rgb(165,165,165)')
+  ctx.fillStyle = base
+  ctx.fillRect(0, 0, S, S)
+  // 细小斑驳，避免大片纯色
+  for (let i = 0; i < 1400; i++) {
+    const v = 185 + Math.floor(hash01(i * 3.7) * 40)
+    ctx.fillStyle = `rgba(${v},${v},${v},0.35)`
+    ctx.fillRect(hash01(i * 1.3) * S, hash01(i * 2.9) * S, 2, 2)
+  }
+  const toPx = (theta: number, r: number) => [c + Math.sin(theta) * r * (c / 1.1), c - Math.cos(theta) * r * (c / 1.1)]
+  ctx.lineCap = 'round'
+  for (const [at, len] of LOBES) {
+    const [tx, ty] = toPx(at, len * 0.95)
+    ctx.strokeStyle = 'rgb(250,250,245)'
+    ctx.lineWidth = 3.2
+    ctx.beginPath(); ctx.moveTo(c, c); ctx.lineTo(tx, ty); ctx.stroke()
+    ctx.lineWidth = 1.4
+    for (const k of [0.3, 0.52, 0.72]) {
+      for (const side of [-1, 1]) {
+        const [sx, sy] = toPx(at, len * k)
+        const [ex, ey] = toPx(at + side * 0.42, len * (k + 0.24))
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke()
+      }
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.anisotropy = 4
+  return tex
+}
+
+/** 一圈卷须：细螺旋管，长约 0.12 m */
+function tendrilGeometry(): THREE.BufferGeometry {
+  const pts: THREE.Vector3[] = []
+  for (let i = 0; i <= 40; i++) {
+    const t = i / 40
+    const a = t * Math.PI * 6
+    const rad = 0.012 + 0.018 * t
+    pts.push(new THREE.Vector3(Math.cos(a) * rad * t, -t * 0.03 + t * t * 0.12, Math.sin(a) * rad * t))
+  }
+  return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 40, 0.0025, 4)
+}
+
+/** 黄瓜花：五片圆瓣，直径约 5 cm，在 XY 平面朝 +z */
+function flowerGeometry(): THREE.BufferGeometry {
+  const shape = new THREE.Shape()
+  for (let i = 0; i <= 60; i++) {
+    const a = (i / 60) * Math.PI * 2
+    const r = 0.025 * (0.55 + 0.45 * Math.abs(Math.cos(a * 2.5)))
+    if (i === 0) shape.moveTo(Math.cos(a) * r, Math.sin(a) * r)
+    else shape.lineTo(Math.cos(a) * r, Math.sin(a) * r)
+  }
+  return new THREE.ShapeGeometry(shape)
 }
 
 /** 可复现的伪随机（同一株每次刷新长得一样） */
@@ -565,14 +666,19 @@ export class GreenhouseScene {
 
   private buildPlants() {
     const n = this.plants.length
-    const stems = new THREE.InstancedMesh(
-      new THREE.CylinderGeometry(0.016, 0.022, 1.95, 5),
-      new THREE.MeshStandardMaterial({ color: 0x24493a, roughness: 0.8 }),
+    // 吊蔓绳：从垄面拉到顶上的钢丝，黄瓜顺绳往上爬
+    const twine = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.004, 0.004, 1.9, 4),
+      new THREE.MeshStandardMaterial({ color: 0xcfc7a8, roughness: 0.9 }),
       n,
     )
-    // 叶：黄瓜掌状叶的五角轮廓，每株 LEAVES 片沿茎螺旋上升、叶尖略下垂；按株号取一点随机，看着不像复制粘贴
-    const leafMat = new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.05, side: THREE.DoubleSide })
-    // 每片叶一个自发光强度（aGlow），发光色取叶色：异常株亮、健康株不亮
+    const stems = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.011, 0.02, 1.95, 6),
+      new THREE.MeshStandardMaterial({ color: 0x35663a, roughness: 0.75 }),
+      n,
+    )
+    const leafMat = new THREE.MeshStandardMaterial({ map: leafTexture(), roughness: 0.55, metalness: 0.02, side: THREE.DoubleSide })
+    // 每片叶一个自发光强度（aGlow），发光色取叶色：异常株亮、健康株基本不亮
     leafMat.onBeforeCompile = (shader) => {
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', 'attribute float aGlow;\nvarying float vGlow;\n#include <common>')
@@ -584,10 +690,20 @@ export class GreenhouseScene {
     const leaves = new THREE.InstancedMesh(leafGeometry(), leafMat, n * LEAVES)
     this.glowAttr = new THREE.InstancedBufferAttribute(new Float32Array(n * LEAVES), 1)
     leaves.geometry.setAttribute('aGlow', this.glowAttr)
-    // 瓜：每株两根垂着的小黄瓜
+    // 叶柄：从茎节斜伸到叶基
+    const petioles = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.005, 0.007, 1, 4),
+      new THREE.MeshStandardMaterial({ color: 0x4a7d3f, roughness: 0.7 }),
+      n * LEAVES,
+    )
+    const tendrils = new THREE.InstancedMesh(tendrilGeometry(), new THREE.MeshStandardMaterial({ color: 0x8cc163, roughness: 0.6 }), n * 2)
+    const flowers = new THREE.InstancedMesh(flowerGeometry(), new THREE.MeshStandardMaterial({
+      color: 0xf4cc3a, emissive: 0x5a4300, roughness: 0.5, side: THREE.DoubleSide,
+    }), n * 2)
+    // 瓜：每株两根垂着的黄瓜，略弯、带一点歪
     const fruits = new THREE.InstancedMesh(
-      new THREE.CapsuleGeometry(0.025, 0.16, 3, 6),
-      new THREE.MeshStandardMaterial({ color: 0x3f6b2a, roughness: 0.45 }),
+      new THREE.CapsuleGeometry(0.021, 0.2, 4, 8),
+      new THREE.MeshStandardMaterial({ color: 0x2f5a26, roughness: 0.5 }),
       n * 2,
     )
     const m = new THREE.Matrix4()
@@ -596,35 +712,63 @@ export class GreenhouseScene {
     const one = new THREE.Vector3(1, 1, 1)
     const s = new THREE.Vector3()
     const pos = new THREE.Vector3()
+    const node = new THREE.Vector3()
+    const dir = new THREE.Vector3()
+    const upY = new THREE.Vector3(0, 1, 0)
     this.positions.forEach((p, i) => {
       const seed = this.plants[i].unitId
       const r = hash01(seed)
       const k = 0.9 + r * 0.2
+      m.compose(pos.set(p.x + 0.015, 1.1, p.z), q.identity(), one)
+      twine.setMatrixAt(i, m)
       m.compose(pos.set(p.x, 0.98 * k, p.z), q.identity(), s.set(1, k, 1))
       stems.setMatrixAt(i, m)
       for (let j = 0; j < LEAVES; j++) {
-        const h = (0.32 + (j / (LEAVES - 1)) * 1.5) * k
-        const yaw = j * 2.4 + r * 6.283
-        const size = LEAF_SCALE * (1.1 - (j / LEAVES) * 0.4) * (0.9 + hash01(seed * 31 + j) * 0.2)
-        e.set(-Math.PI / 2 - 0.15 - hash01(seed * 7 + j) * 0.25, yaw, 0, 'YXZ')
+        const h = (0.3 + (j / (LEAVES - 1)) * 1.55) * k
+        const yaw = j * 2.4 + r * 6.283 // 黄金角错开，像真实的互生叶序
+        const size = LEAF_SCALE * (1.12 - (j / LEAVES) * 0.42) * (0.9 + hash01(seed * 31 + j) * 0.2)
+        const out = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw))
+        node.set(p.x, h, p.z)
+        // 叶柄斜向上伸出约 12 cm，叶基落在柄端
+        const tip = node.clone().addScaledVector(out, 0.1 + 0.03 * hash01(seed + j)).add(new THREE.Vector3(0, 0.07, 0))
+        dir.subVectors(tip, node)
+        const len = dir.length()
+        q.setFromUnitVectors(upY, dir.normalize())
+        m.compose(pos.copy(node).add(tip).multiplyScalar(0.5), q, s.set(1, len, 1))
+        petioles.setMatrixAt(i * LEAVES + j, m)
+        e.set(-Math.PI / 2 - 0.1 - hash01(seed * 7 + j) * 0.3, yaw, (hash01(seed * 11 + j) - 0.5) * 0.4, 'YXZ')
         q.setFromEuler(e)
-        pos.set(p.x - Math.sin(yaw) * 0.02, h, p.z - Math.cos(yaw) * 0.02)
-        m.compose(pos, q, s.set(size, size, size))
+        m.compose(tip, q, s.set(size, size, size))
         leaves.setMatrixAt(i * LEAVES + j, m)
       }
       for (let j = 0; j < 2; j++) {
-        const yaw = r * 6.283 + j * 2.8
-        m.compose(pos.set(p.x + Math.sin(yaw) * 0.09, (0.75 + j * 0.42 + r * 0.1) * k, p.z + Math.cos(yaw) * 0.09), q.identity(), one)
+        const yaw = r * 6.283 + j * 3.1 + 1.2
+        const h = (1.1 + j * 0.55) * k
+        // 卷须
+        e.set(0, yaw, 0.4)
+        q.setFromEuler(e)
+        m.compose(pos.set(p.x + Math.sin(yaw) * 0.03, h, p.z + Math.cos(yaw) * 0.03), q, one)
+        tendrils.setMatrixAt(i * 2 + j, m)
+        // 花：开在叶腋，朝外微仰
+        const fy = r * 6.283 + j * 2.2 + 0.6
+        e.set(-0.5, fy, 0, 'YXZ')
+        q.setFromEuler(e)
+        m.compose(pos.set(p.x + Math.sin(fy) * 0.07, (0.95 + j * 0.62) * k, p.z + Math.cos(fy) * 0.07), q, one)
+        flowers.setMatrixAt(i * 2 + j, m)
+        // 瓜
+        const gy = r * 6.283 + j * 2.8
+        e.set(0.12 * (hash01(seed + j * 5) - 0.5), gy, 0.18 * (hash01(seed * 3 + j) - 0.3))
+        q.setFromEuler(e)
+        m.compose(pos.set(p.x + Math.sin(gy) * 0.09, (0.7 + j * 0.45 + r * 0.1) * k, p.z + Math.cos(gy) * 0.09), q, one)
         fruits.setMatrixAt(i * 2 + j, m)
       }
     })
-    stems.castShadow = true
-    leaves.castShadow = true
+    for (const mesh of [stems, leaves, petioles, fruits]) mesh.castShadow = true
     leaves.receiveShadow = true
-    fruits.castShadow = true
+    leaves.computeBoundingSphere()
     this.canopy = leaves
     this.paintCanopy()
-    this.world.add(stems, leaves, fruits)
+    this.world.add(twine, stems, petioles, leaves, tendrils, flowers, fruits)
   }
 
   private paintCanopy() {
@@ -756,7 +900,7 @@ export class GreenhouseScene {
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.BufferAttribute(arr, 3))
     const dew = new THREE.Points(geo, new THREE.PointsMaterial({
-      color: 0xdff3ff, size: 0.05, transparent: true, opacity: 0.55, depthWrite: false,
+      color: 0xdff3ff, size: 0.07, map: this.dotTexture(), transparent: true, opacity: 0.55, depthWrite: false,
     }))
     dew.visible = this.lightMode === 'dawn'
     this.dew = dew
@@ -888,7 +1032,7 @@ export class GreenhouseScene {
     const dots = new THREE.Points(
       new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(FLOW_DOTS * 3), 3)),
       new THREE.PointsMaterial({
-        color: this.glowColor(accent, 2), size: 0.16, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+        color: this.glowColor(accent, 2), size: 0.2, map: this.dotTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
       }),
     )
     this.flowDots = dots
@@ -1112,6 +1256,20 @@ export class GreenhouseScene {
 
   /* ------------------------------------------------------------------ 工具 */
 
+  /** 圆形柔边的点贴图（默认的点是方块，近看很假） */
+  private dotTexture(): THREE.Texture {
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = 32
+    const ctx = canvas.getContext('2d')!
+    const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 16)
+    g.addColorStop(0, 'rgba(255,255,255,1)')
+    g.addColorStop(0.4, 'rgba(255,255,255,0.5)')
+    g.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, 32, 32)
+    return new THREE.CanvasTexture(canvas)
+  }
+
   /** 提亮到 1 以上的颜色（toneMapped: false 时超出部分进辉光） */
   private glowColor(base: THREE.Color, k: number): THREE.Color {
     return base.clone().multiplyScalar(k)
@@ -1158,7 +1316,7 @@ export class GreenhouseScene {
     ring.position.y = 0.21
     const beam = new THREE.Mesh(
       new THREE.CylinderGeometry(0.4, 0.4, 2.6, 32, 1, true),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.05, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }),
     )
     beam.position.y = 1.3
     g.add(ring, beam)
