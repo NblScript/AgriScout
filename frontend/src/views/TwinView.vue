@@ -64,6 +64,23 @@ const planItems = computed(() => {
 const isTodayPlan = computed(() => plan.value?.plan_date === fieldDate(now.value))
 const counts = computed(() => stateCounts(states.value))
 const progress = computed(() => planProgress(plan.value))
+/** 株状态环：conic-gradient 按占比分段，颜色与图例同源 */
+const ring = computed(() => {
+  const total = states.value.length
+  if (!total) return 'conic-gradient(var(--twin-panel-border) 0 100%)'
+  const color: Record<PlantStateValue, string> = {
+    healthy: 'var(--twin-healthy)', early: 'var(--state-early)', symptomatic: 'var(--twin-symptomatic)', unknown: 'var(--twin-unknown)',
+  }
+  let at = 0
+  const stops = STATE_ORDER.map((s) => {
+    const from = at
+    at += (counts.value[s] / total) * 100
+    return `${color[s]} ${from}% ${at}%`
+  })
+  return `conic-gradient(${stops.join(', ')})`
+})
+const attention = computed(() => counts.value.early + counts.value.symptomatic)
+const progressPct = computed(() => (progress.value?.total ? Math.round((progress.value.done / progress.value.total) * 100) : 0))
 const listCounts = computed(() => {
   const out = {} as Record<PlanListName, number>
   for (const name of PLAN_LISTS) out[name] = plan.value?.[name].filter((i) => i.task_status !== 'cancelled').length ?? 0
@@ -231,7 +248,7 @@ function saveShot() {
 function palette(): TwinPalette {
   return {
     state: {
-      healthy: cssVar('--state-healthy', '#3a9b6c'),
+      healthy: cssVar('--twin-healthy', '#2f9f79'),
       early: cssVar('--state-early', '#e9a823'),
       symptomatic: cssVar('--twin-symptomatic', '#e2574c'),
       unknown: cssVar('--twin-unknown', '#7f8c86'),
@@ -296,18 +313,23 @@ onBeforeUnmount(() => {
 <template>
   <div class="twin">
     <div ref="host" class="stage" />
+    <div class="vignette" aria-hidden="true" />
 
     <!-- 顶栏 -->
     <header class="hud top">
       <div class="brand">
-        <span class="logo" aria-hidden="true">孪</span>
-        <span class="brand-text"><b>数字孪生大棚</b><small>风险驱动的设施黄瓜病害主动巡检</small></span>
+        <span class="logo" aria-hidden="true">瞳</span>
+        <span class="brand-text"><b>禾瞳 AgriSight</b><small>设施大棚病害风险感知与智能巡检</small></span>
       </div>
       <nav class="fields" aria-label="切换大棚">
         <button v-for="f in greenhouses" :key="f.id" type="button" :class="{ on: f.id === fieldId }" @click="chooseField(f.id)">
           {{ f.name }}
         </button>
       </nav>
+      <div class="title" aria-hidden="true">
+        <b>{{ field?.name ?? '数字孪生大棚' }}</b>
+        <span>数字孪生 · 病害风险态势</span>
+      </div>
       <div class="clock">
         <b>{{ fieldTimeHms(now) }}</b>
         <span>{{ fieldDateLabel(now) }}</span>
@@ -318,7 +340,16 @@ onBeforeUnmount(() => {
     <aside class="hud left">
       <section class="panel">
         <h3>全棚株状态</h3>
-        <div class="total"><b>{{ states.length }}</b><span>株在册</span></div>
+        <div class="overview">
+          <div class="ring" :style="{ background: ring }" aria-hidden="true">
+            <span><b>{{ states.length }}</b><small>株在册</small></span>
+          </div>
+          <div class="kpi">
+            <span>需关注</span>
+            <b :class="{ alert: attention > 0 }">{{ attention }}</b>
+            <small>早期 {{ counts.early }} · 明显 {{ counts.symptomatic }}</small>
+          </div>
+        </div>
         <ul class="states">
           <li v-for="s in STATE_ORDER" :key="s" :class="`st-${s}`">
             <i aria-hidden="true">{{ STATE_SHAPES[s] }}</i>
@@ -343,8 +374,8 @@ onBeforeUnmount(() => {
             </li>
           </ul>
           <p v-if="progress" class="progress">
-            已完成 <b>{{ progress.done }}</b> / {{ progress.total }}
-            <span class="bar" aria-hidden="true"><em :style="{ width: progress.total ? `${(progress.done / progress.total) * 100}%` : '0' }" /></span>
+            <span>已完成 <b>{{ progress.done }}</b> / {{ progress.total }}</span><b class="pct">{{ progressPct }}%</b>
+            <span class="bar" aria-hidden="true"><em :style="{ width: `${progressPct}%` }" /></span>
           </p>
         </template>
         <p v-else class="dim">还没有生成过巡检计划</p>
@@ -475,6 +506,17 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
 }
+/* 四周压暗、上下各一条渐变带，面板浮在画面上也读得清 */
+.vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    linear-gradient(to bottom, rgba(4, 12, 15, 0.85), transparent 120px),
+    linear-gradient(to top, rgba(4, 12, 15, 0.8), transparent 110px),
+    radial-gradient(ellipse at 50% 55%, transparent 55%, rgba(2, 8, 10, 0.55) 100%);
+}
 .hud {
   position: absolute;
   z-index: 2;
@@ -485,22 +527,51 @@ onBeforeUnmount(() => {
   pointer-events: auto;
 }
 .panel {
-  background: var(--twin-panel);
+  position: relative;
+  background: linear-gradient(160deg, var(--twin-panel-strong), var(--twin-panel) 60%);
   border: 1px solid var(--twin-panel-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-3) var(--space-4);
-  backdrop-filter: blur(8px);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  border-radius: 4px;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(62, 224, 197, 0.08);
 }
+/* 左上、右下两个发光折角 */
+.panel::before,
+.panel::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--twin-accent);
+  pointer-events: none;
+  filter: drop-shadow(0 0 4px var(--twin-glow));
+}
+.panel::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+.panel::after { bottom: -1px; right: -1px; border-left: none; border-top: none; }
 h3 {
-  margin: 0 0 var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: 0 0 var(--space-2) 10px;
   font-size: var(--fs-14);
   font-weight: var(--fw-semibold);
-  letter-spacing: 0.04em;
-  color: var(--twin-accent);
+  letter-spacing: 0.12em;
+  color: var(--twin-text);
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
+  position: relative;
+  border-bottom: 1px solid transparent;
+  border-image: linear-gradient(to right, var(--twin-panel-border), transparent) 1;
+}
+h3::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 3px;
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--twin-accent);
+  box-shadow: 0 0 8px var(--twin-glow);
 }
 h3 small {
   color: var(--twin-text-dim);
@@ -546,8 +617,8 @@ b {
   font-weight: 700;
   font-size: 20px;
   color: var(--twin-bg-top);
-  background: linear-gradient(135deg, var(--twin-accent), var(--state-healthy));
-  box-shadow: 0 0 18px rgba(62, 224, 197, 0.45);
+  background: linear-gradient(135deg, var(--twin-accent), var(--twin-healthy));
+  box-shadow: 0 0 18px var(--twin-glow);
 }
 .brand-text {
   display: flex;
@@ -563,8 +634,57 @@ b {
 }
 .fields {
   display: flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
+  gap: 0;
+  padding: 3px;
+  border: 1px solid var(--twin-panel-border);
+  border-radius: 6px;
+  background: var(--twin-panel);
+  backdrop-filter: blur(8px);
+}
+.fields button {
+  border: none !important;
+  background: transparent !important;
+  border-radius: 4px !important;
+  backdrop-filter: none !important;
+}
+.fields button.on {
+  background: color-mix(in srgb, var(--twin-accent) 16%, transparent) !important;
+}
+/* 顶部居中的标题：梯形底板 + 发光下沿 */
+.title {
+  position: absolute;
+  left: 50%;
+  top: -16px;
+  transform: translateX(-50%);
+  min-width: 460px;
+  padding: 14px 64px 12px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: linear-gradient(to bottom, rgba(10, 32, 34, 0.92), rgba(10, 32, 34, 0.6));
+  clip-path: polygon(0 0, 100% 0, calc(100% - 36px) 100%, 36px 100%);
+  pointer-events: none;
+}
+.title::after {
+  content: '';
+  position: absolute;
+  left: 36px;
+  right: 36px;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(to right, transparent, var(--twin-accent), transparent);
+  box-shadow: 0 0 12px var(--twin-glow);
+}
+.title b {
+  font-size: 26px;
+  letter-spacing: 0.18em;
+  text-shadow: 0 0 14px var(--twin-glow);
+}
+.title span {
+  font-size: var(--fs-12);
+  letter-spacing: 0.3em;
+  color: var(--twin-accent);
 }
 .fields button,
 .controls button,
@@ -604,6 +724,7 @@ b {
 .clock b {
   font-size: var(--fs-24);
   letter-spacing: 0.06em;
+  text-shadow: 0 0 10px var(--twin-glow);
 }
 .clock span {
   font-size: var(--fs-12);
@@ -627,6 +748,57 @@ b {
 .right {
   right: var(--space-4);
   width: 320px;
+}
+.overview {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+.ring {
+  position: relative;
+  flex: none;
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 0 18px rgba(62, 224, 197, 0.18);
+}
+.ring > span {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: var(--twin-panel-strong);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.6);
+}
+.ring b {
+  font-size: 26px;
+  line-height: 1.1;
+  text-shadow: 0 0 10px var(--twin-glow);
+}
+.ring small,
+.kpi span,
+.kpi small {
+  font-size: var(--fs-12);
+  color: var(--twin-text-dim);
+}
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.kpi b {
+  font-size: 34px;
+  line-height: 1.1;
+}
+.kpi b.alert {
+  color: var(--state-early);
+  text-shadow: 0 0 14px color-mix(in srgb, var(--state-early) 60%, transparent);
 }
 .total {
   display: flex;
@@ -675,7 +847,7 @@ b {
   background: currentColor;
   border-radius: 2px;
 }
-.st-healthy { color: var(--state-healthy); }
+.st-healthy { color: var(--twin-healthy); }
 .st-early { color: var(--state-early); }
 .st-symptomatic { color: var(--twin-symptomatic); }
 .st-unknown { color: var(--twin-unknown); }
@@ -704,6 +876,21 @@ b {
   margin: var(--space-3) 0 0;
   font-size: var(--fs-13);
   color: var(--twin-text-dim);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.progress .pct {
+  font-size: var(--fs-20);
+  color: var(--twin-accent);
+  text-shadow: 0 0 10px var(--twin-glow);
+}
+.progress .bar {
+  flex-basis: 100%;
+}
+.bar em {
+  box-shadow: 0 0 8px currentColor;
 }
 .progress b {
   color: var(--twin-text);
@@ -860,7 +1047,7 @@ b {
   align-items: center;
   gap: var(--space-2);
   padding: 8px 14px;
-  border-radius: 999px;
+  border-radius: 6px;
   background: var(--twin-panel);
   border: 1px solid var(--twin-panel-border);
   font-size: var(--fs-13);
@@ -895,7 +1082,7 @@ b {
   font-size: var(--fs-12);
   color: var(--twin-text);
   padding: 8px 14px;
-  border-radius: 999px;
+  border-radius: 6px;
   background: var(--twin-panel);
   border: 1px solid var(--twin-panel-border);
   backdrop-filter: blur(8px);
@@ -916,7 +1103,7 @@ b {
 .legend > span:not(.sep) {
   color: var(--twin-text);
 }
-.legend > span.st-healthy i { color: var(--state-healthy); }
+.legend > span.st-healthy i { color: var(--twin-healthy); }
 .legend > span.st-early i { color: var(--state-early); }
 .legend > span.st-symptomatic i { color: var(--twin-symptomatic); }
 .legend > span.st-unknown i { color: var(--twin-unknown); }
@@ -928,8 +1115,31 @@ b {
 .controls {
   margin-left: auto;
   display: flex;
-  gap: var(--space-2);
+  gap: 2px;
   flex-wrap: wrap;
+  padding: 3px;
+  border: 1px solid var(--twin-panel-border);
+  border-radius: 6px;
+  background: var(--twin-panel);
+  backdrop-filter: blur(8px);
+}
+/* 工具条：按钮去掉各自的边框，合成一条 */
+.controls button,
+.controls .btn {
+  border-color: transparent;
+  background: transparent;
+  border-radius: 4px;
+  backdrop-filter: none;
+}
+.controls button:hover,
+.controls .btn:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--twin-accent) 10%, transparent);
+}
+.controls button.on {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--twin-accent) 18%, transparent);
+  box-shadow: none;
 }
 
 .tip {

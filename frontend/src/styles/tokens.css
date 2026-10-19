@@ -96,19 +96,21 @@
 
   /*
    * ---------- 数字孪生大棚（/twin，数媒大赛展示用的深色 3D 页）----------
-   * 只在 TwinView 和它的 Three.js 场景里用；株状态、任务类型仍取上面的令牌，「不明」在深色场景里换成中灰。
+   * 只在 TwinView 和它的 Three.js 场景里用；株状态、任务类型仍取上面的令牌，「不明」在深色场景里换成中灰，健康换成偏青的深绿。
    */
-  --twin-bg-top: #0b1a1f;
-  --twin-bg-bottom: #16302c;
-  --twin-ground: #0f1f1c;
-  --twin-floor: #1c2f2a;
-  --twin-soil: #4a3a2c;
-  --twin-wall: #5b5148;
-  --twin-frame: #b9c7c2;
+  --twin-bg-top: #08151a;
+  --twin-bg-bottom: #12302d;
+  --twin-ground: #071210;
+  --twin-floor: #10201e;
+  --twin-soil: #2e2a25;
+  --twin-wall: #1a2a2e;
+  --twin-frame: #a9c4bf;
   --twin-film: #bfe9f2;
   --twin-accent: #3ee0c5;
   --twin-rover: #eef3f1;
   --twin-unknown: #7f8c86;
+  /* 3D 里健康株略偏青、压暗一点，异常株才显眼 */
+  --twin-healthy: #2f9f79;
   /* 深色底上提亮的三种色：明显（红）、确认（紫）、补拍（蓝）；原令牌在深色底上发闷 */
   --twin-symptomatic: #e2574c;
   --twin-confirm: #9b6cf0;

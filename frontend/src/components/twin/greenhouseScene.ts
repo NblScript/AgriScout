@@ -2,11 +2,17 @@
  * 数字孪生大棚的 Three.js 场景（数媒大赛）：棚体、垄、植株按「垄 × 株」摆放并按当前状态着色，
  * 今日计划的株脚下画名单色圈，「推给人确认」的株立光柱；巡检车按计划里要拍的株沿过道行驶、停车、两次闪光（正面、叶背）。
  * 只管画面和交互，不取数：数据由 TwinView 传入，点株、悬停、巡检车进度通过回调交回页面。
+ * 视觉走「数字孪生」科技风：深色底、发光网格与扫描环、棚架发光轮廓、辉光后处理；异常株自发光（早期弱、明显强），
+ * 健康株压暗，一眼看出哪里有问题；巡检车的计划路线画成光带，光点沿路线流动。
  * 棚体尺寸是示意（行距 1.5 m、株距 0.45 m），不是实测。
  */
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js'
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import type { PlanListName, PlantStateValue } from '../../types'
 
 export interface TwinPlant {
@@ -64,6 +70,10 @@ const SHOOT_SECONDS = 1.5
 const LEAVES = 11 // 每株叶片数
 const LEAF_SCALE = 1.9 // 叶比实物放大，远景里看得出株状态色
 const DOCK_SECONDS = 2.5
+const SCAN_SECONDS = 5 // 地面扫描环一圈的时长
+const FLOW_DOTS = 36 // 路线上流动的光点数
+/** 株状态 → 叶片自发光强度：异常株「亮起来」，健康与不明不发光 */
+const STATE_GLOW: Record<PlantStateValue, number> = { healthy: 0.06, early: 0.3, symptomatic: 0.75, unknown: 0 }
 
 type Segment =
   | { kind: 'move'; from: THREE.Vector3; to: THREE.Vector3; dur: number }
@@ -96,6 +106,8 @@ function hash01(n: number): number {
 
 export class GreenhouseScene {
   private renderer: THREE.WebGLRenderer
+  private composer: EffectComposer
+  private bloom: UnrealBloomPass
   private labelRenderer: CSS2DRenderer
   private scene = new THREE.Scene()
   private camera: THREE.PerspectiveCamera
@@ -109,6 +121,8 @@ export class GreenhouseScene {
 
   private hemi = new THREE.HemisphereLight(0xffffff, 0x223322, 1)
   private sun = new THREE.DirectionalLight(0xffffff, 1.6)
+  /** 背后的青色轮廓光，勾出叶缘和棚架 */
+  private rim = new THREE.DirectionalLight(0x5fe8d6, 0.6)
   private flash = new THREE.PointLight(0xffffff, 0, 4, 2)
 
   /** 每次 setData 重建的内容都挂在这里，换棚时整组丢弃 */
@@ -119,6 +133,13 @@ export class GreenhouseScene {
   private beams: THREE.InstancedMesh | null = null
   private heat: THREE.Mesh | null = null
   private dew: THREE.Points | null = null
+  private glowAttr: THREE.InstancedBufferAttribute | null = null
+  private scan: THREE.Mesh | null = null
+  private markers: THREE.InstancedMesh | null = null
+  private markerBase: THREE.Matrix4[] = []
+  private flowDots: THREE.Points | null = null
+  private routePts: THREE.Vector3[] = []
+  private routeLen: number[] = []
   private hoverMark: THREE.Mesh
   private selectMark: THREE.Group
   private shotRing: THREE.Mesh
@@ -150,7 +171,13 @@ export class GreenhouseScene {
     this.labelRenderer.domElement.className = 'twin-labels'
     container.appendChild(this.labelRenderer.domElement)
 
-    this.camera = new THREE.PerspectiveCamera(38, 1, 0.1, 400)
+    this.camera = new THREE.PerspectiveCamera(36, 1, 0.1, 400)
+    // 辉光后处理：只有亮于阈值的部分（发光轮廓、异常株、光柱、闪光）泛光
+    this.composer = new EffectComposer(this.renderer)
+    this.composer.addPass(new RenderPass(this.scene, this.camera))
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.85, 0.55, 0.8)
+    this.composer.addPass(this.bloom)
+    this.composer.addPass(new OutputPass())
     this.controls = new OrbitControls(this.camera, this.renderer.domElement)
     this.controls.enableDamping = true
     this.controls.dampingFactor = 0.08
@@ -162,7 +189,8 @@ export class GreenhouseScene {
     this.sun.castShadow = true
     this.sun.shadow.mapSize.set(2048, 2048)
     this.sun.shadow.bias = -0.0004
-    this.scene.add(this.hemi, this.sun, this.sun.target, this.flash, this.world)
+    this.rim.position.set(-20, 12, -30)
+    this.scene.add(this.hemi, this.sun, this.sun.target, this.rim, this.flash, this.world)
 
     const accent = new THREE.Color(palette.accent)
     this.hoverMark = new THREE.Mesh(
@@ -261,22 +289,27 @@ export class GreenhouseScene {
     const dawn = mode === 'dawn'
     const top = new THREE.Color(this.palette.bgTop)
     const bottom = new THREE.Color(this.palette.bgBottom)
-    this.scene.background = this.gradientTexture(dawn ? top : top.clone().lerp(new THREE.Color(0x6fa6c9), 0.55),
-      dawn ? bottom : bottom.clone().lerp(new THREE.Color(0xcfe3d6), 0.6))
-    this.scene.fog = new THREE.Fog(dawn ? bottom : new THREE.Color(0xb9d3c4), 30, dawn ? 95 : 140)
-    this.hemi.color.set(dawn ? 0x9fc3e6 : 0xffffff)
-    this.hemi.groundColor.set(dawn ? 0x1d2a26 : 0x4a5a4f)
-    this.hemi.intensity = dawn ? 0.9 : 1.5
-    this.sun.color.set(dawn ? 0xffc89a : 0xffffff)
-    this.sun.intensity = dawn ? 1.1 : 2.2
+    // 清晨：深青夜色 + 暖色低角度晨光；白天：青灰天光，辉光收弱
+    const skyTop = dawn ? top.clone().multiplyScalar(0.55) : top.clone().lerp(new THREE.Color(0x3f6f80), 0.6)
+    const skyBottom = dawn ? bottom : bottom.clone().lerp(new THREE.Color(0x8fb8b0), 0.55)
+    this.scene.background = this.gradientTexture(skyTop, skyBottom)
+    this.scene.fog = new THREE.FogExp2(dawn ? bottom.clone().multiplyScalar(0.8) : skyBottom, dawn ? 0.014 : 0.009)
+    this.hemi.color.set(dawn ? 0x8fb6d9 : 0xffffff)
+    this.hemi.groundColor.set(dawn ? 0x0e1a18 : 0x3a4a44)
+    this.hemi.intensity = dawn ? 0.75 : 1.4
+    this.sun.color.set(dawn ? 0xffbf8a : 0xffffff)
+    this.sun.intensity = dawn ? 1.2 : 2.3
     this.sun.position.set(dawn ? 30 : 12, dawn ? 9 : 30, dawn ? 18 : 22)
-    this.renderer.toneMappingExposure = dawn ? 1.0 : 1.05
+    this.rim.intensity = dawn ? 0.9 : 0.35
+    this.bloom.strength = dawn ? 0.85 : 0.4
+    this.bloom.threshold = dawn ? 0.8 : 0.9
+    this.renderer.toneMappingExposure = dawn ? 1.05 : 1.0
     if (this.dew) this.dew.visible = dawn
   }
 
   /** 截图（视频素材用） */
   snapshot(): string {
-    this.renderer.render(this.scene, this.camera)
+    this.composer.render()
     return this.renderer.domElement.toDataURL('image/png')
   }
 
@@ -298,6 +331,7 @@ export class GreenhouseScene {
       if (Array.isArray(mat)) mat.forEach((m) => m.dispose())
       else mat?.dispose()
     })
+    this.composer.dispose()
     this.renderer.dispose()
     el.remove()
     this.labelRenderer.domElement.remove()
@@ -358,23 +392,56 @@ export class GreenhouseScene {
     const pal = this.palette
     const profile = this.roofProfile(facility)
     const SEG = 48
+    const accent = new THREE.Color(pal.accent)
 
-    // 地面与棚内地面
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(160, 64), new THREE.MeshStandardMaterial({ color: pal.ground, roughness: 1 }))
+    // 地面：深色微反光地坪 + 由近及远淡出的发光网格
+    const ground = new THREE.Mesh(
+      new THREE.CircleGeometry(160, 64),
+      new THREE.MeshStandardMaterial({ color: pal.ground, roughness: 0.6, metalness: 0.4 }),
+    )
     ground.rotation.x = -Math.PI / 2
-    ground.position.y = -0.02
+    ground.position.y = -0.03
     ground.receiveShadow = true
-    const grid = new THREE.GridHelper(120, 60, pal.accent, pal.accent)
-    const gridMat = grid.material as THREE.Material
-    gridMat.transparent = true
-    gridMat.opacity = 0.07
-    grid.position.y = -0.01
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(xHalf * 2, zHalf * 2), new THREE.MeshStandardMaterial({ color: pal.floor, roughness: 0.95 }))
-    floor.rotation.x = -Math.PI / 2
-    floor.receiveShadow = true
-    this.world.add(ground, grid, floor)
+    const grid = new THREE.Mesh(
+      new THREE.PlaneGeometry(120, 120),
+      new THREE.MeshBasicMaterial({
+        map: this.gridTexture(accent), transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending,
+      }),
+    )
+    grid.rotation.x = -Math.PI / 2
+    grid.position.y = -0.02
+    // 棚下的底座：略高出地面，四周一圈发光描边
+    const padX = xHalf + 0.9
+    const padZ = zHalf + 0.9
+    const pad = new THREE.Mesh(
+      new THREE.BoxGeometry(padX * 2, 0.12, padZ * 2),
+      new THREE.MeshStandardMaterial({ color: pal.floor, roughness: 0.5, metalness: 0.35 }),
+    )
+    pad.position.y = -0.07
+    pad.receiveShadow = true
+    const padEdge = new THREE.LineLoop(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-padX, 0, -padZ), new THREE.Vector3(padX, 0, -padZ),
+        new THREE.Vector3(padX, 0, padZ), new THREE.Vector3(-padX, 0, padZ),
+      ]),
+      new THREE.LineBasicMaterial({ color: this.glowColor(accent, 1.6), toneMapped: false }),
+    )
+    padEdge.position.y = -0.005
+    // 扫描环：从棚心向外扩散的一道光，循环
+    const scan = new THREE.Mesh(
+      new THREE.RingGeometry(0.993, 1, 160),
+      new THREE.MeshBasicMaterial({
+        color: this.glowColor(accent, 1.3), transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false,
+        blending: THREE.AdditiveBlending, toneMapped: false,
+      }),
+    )
+    scan.rotation.x = -Math.PI / 2
+    scan.position.y = 0.01
+    scan.userData.maxR = Math.hypot(padX, padZ) * 1.8
+    this.scan = scan
+    this.world.add(ground, grid, pad, padEdge, scan)
 
-    // 棚膜：沿 x 拉伸的曲面
+    // 棚膜：沿 x 拉伸的曲面，很淡，只留一点反光
     const film = new THREE.BufferGeometry()
     const verts: number[] = []
     const idx: number[] = []
@@ -389,8 +456,9 @@ export class GreenhouseScene {
     film.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3))
     film.setIndex(idx)
     film.computeVertexNormals()
-    const filmMat = new THREE.MeshPhysicalMaterial({
-      color: pal.film, transparent: true, opacity: 0.16, roughness: 0.15, metalness: 0, side: THREE.DoubleSide, depthWrite: false,
+    // 粗糙度留高：光滑膜面会把晨光反成一团高光，进辉光后发白
+    const filmMat = new THREE.MeshStandardMaterial({
+      color: pal.film, transparent: true, opacity: 0.06, roughness: 0.75, metalness: 0, side: THREE.DoubleSide, depthWrite: false,
     })
     this.world.add(new THREE.Mesh(film, filmMat))
 
@@ -410,36 +478,53 @@ export class GreenhouseScene {
       this.world.add(g)
     }
 
-    // 拱架与纵向拉杆
-    const frameMat = new THREE.MeshStandardMaterial({ color: pal.frame, metalness: 0.6, roughness: 0.35 })
+    // 拱架与纵向拉杆：金属细杆；两端山墙拱和屋脊、檐口画发光轮廓
+    const frameMat = new THREE.MeshStandardMaterial({ color: pal.frame, metalness: 0.7, roughness: 0.3, transparent: true, opacity: 0.55 })
     const ribCount = Math.max(2, Math.round((xHalf * 2) / 2.4))
     const ribPts = Array.from({ length: SEG + 1 }, (_, s) => profile(s / SEG))
     for (let r = 0; r <= ribCount; r++) {
       const x = -xHalf + (xHalf * 2 * r) / ribCount
       const curve = new THREE.CatmullRomCurve3(ribPts.map((p) => new THREE.Vector3(x, p.y, p.x)))
-      const rib = new THREE.Mesh(new THREE.TubeGeometry(curve, SEG, 0.035, 6), frameMat)
+      const rib = new THREE.Mesh(new THREE.TubeGeometry(curve, SEG, 0.025, 6), frameMat)
       rib.castShadow = true
       this.world.add(rib)
     }
-    for (const t of [0.16, 0.35, 0.55, 0.75, 0.92]) {
+    for (const t of [0.35, 0.55, 0.75]) {
       const p = profile(t)
-      const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, xHalf * 2, 6), frameMat)
+      const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, xHalf * 2, 6), frameMat)
       bar.rotation.z = Math.PI / 2
       bar.position.set(0, p.y, p.x)
       this.world.add(bar)
     }
+    const glowLine = new THREE.LineBasicMaterial({ color: this.glowColor(accent, 1.5), toneMapped: false })
+    for (const x of [-xHalf, xHalf]) {
+      this.world.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(ribPts.map((p) => new THREE.Vector3(x, p.y, p.x))), glowLine))
+    }
+    for (const t of [0, facility === 'solar_greenhouse' ? 0.16 : 0.5, 1]) {
+      const p = profile(t)
+      this.world.add(new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-xHalf, p.y, p.x), new THREE.Vector3(xHalf, p.y, p.x)]),
+        glowLine,
+      ))
+    }
 
-    // 日光温室的后墙（北）
+    // 日光温室的后墙（北）：深色墙体，顶边一道发光线
     if (facility === 'solar_greenhouse') {
       const wallH = roofH * 0.72
       const wall = new THREE.Mesh(
         new THREE.BoxGeometry(xHalf * 2 + 0.6, wallH, 0.7),
-        new THREE.MeshStandardMaterial({ color: pal.wall, roughness: 0.9 }),
+        new THREE.MeshStandardMaterial({ color: pal.wall, roughness: 0.55, metalness: 0.3 }),
       )
       wall.position.set(0, wallH / 2, -zHalf - 0.35)
       wall.castShadow = true
       wall.receiveShadow = true
-      this.world.add(wall)
+      const top = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(-xHalf - 0.3, wallH, -zHalf), new THREE.Vector3(xHalf + 0.3, wallH, -zHalf),
+        ]),
+        glowLine,
+      )
+      this.world.add(wall, top)
     }
 
     // 阴影相机罩住整个棚
@@ -459,8 +544,8 @@ export class GreenhouseScene {
   private buildRows() {
     const { zHalf } = this.bounds
     const len = zHalf * 2 - AISLE_MARGIN * 1.2
-    const soil = new THREE.MeshStandardMaterial({ color: this.palette.soil, roughness: 1 })
-    const wire = new THREE.LineBasicMaterial({ color: this.palette.frame, transparent: true, opacity: 0.55 })
+    const soil = new THREE.MeshStandardMaterial({ color: this.palette.soil, roughness: 0.85 })
+    const wire = new THREE.LineBasicMaterial({ color: this.palette.frame, transparent: true, opacity: 0.3 })
     for (let ri = 0; ri < this.rowCount; ri++) {
       const x = this.rowX(ri)
       const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.16, len), soil)
@@ -482,17 +567,27 @@ export class GreenhouseScene {
     const n = this.plants.length
     const stems = new THREE.InstancedMesh(
       new THREE.CylinderGeometry(0.016, 0.022, 1.95, 5),
-      new THREE.MeshStandardMaterial({ color: 0x2f5d3a, roughness: 0.9 }),
+      new THREE.MeshStandardMaterial({ color: 0x24493a, roughness: 0.8 }),
       n,
     )
     // 叶：黄瓜掌状叶的五角轮廓，每株 LEAVES 片沿茎螺旋上升、叶尖略下垂；按株号取一点随机，看着不像复制粘贴
-    const leaves = new THREE.InstancedMesh(leafGeometry(), new THREE.MeshStandardMaterial({
-      roughness: 0.7, flatShading: true, side: THREE.DoubleSide,
-    }), n * LEAVES)
+    const leafMat = new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.05, side: THREE.DoubleSide })
+    // 每片叶一个自发光强度（aGlow），发光色取叶色：异常株亮、健康株不亮
+    leafMat.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', 'attribute float aGlow;\nvarying float vGlow;\n#include <common>')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGlow = aGlow;')
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', 'varying float vGlow;\n#include <common>')
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vColor.rgb * vGlow;')
+    }
+    const leaves = new THREE.InstancedMesh(leafGeometry(), leafMat, n * LEAVES)
+    this.glowAttr = new THREE.InstancedBufferAttribute(new Float32Array(n * LEAVES), 1)
+    leaves.geometry.setAttribute('aGlow', this.glowAttr)
     // 瓜：每株两根垂着的小黄瓜
     const fruits = new THREE.InstancedMesh(
       new THREE.CapsuleGeometry(0.025, 0.16, 3, 6),
-      new THREE.MeshStandardMaterial({ color: 0x3f6b2a, roughness: 0.6 }),
+      new THREE.MeshStandardMaterial({ color: 0x3f6b2a, roughness: 0.45 }),
       n * 2,
     )
     const m = new THREE.Matrix4()
@@ -536,22 +631,28 @@ export class GreenhouseScene {
     if (!this.canopy) return
     const base = new THREE.Color()
     const c = new THREE.Color()
+    const glow = this.glowAttr
     this.plants.forEach((p, i) => {
       base.set(this.palette.state[p.state])
+      const g = STATE_GLOW[p.state] + (this.hovered === i ? 0.35 : 0)
       for (let j = 0; j < LEAVES; j++) {
-        c.copy(base).offsetHSL(0, 0, (hash01(p.unitId * 13 + j) - 0.5) * 0.08 + (this.hovered === i ? 0.14 : 0))
+        c.copy(base).offsetHSL(0, 0, (hash01(p.unitId * 13 + j) - 0.5) * 0.08 + (this.hovered === i ? 0.1 : 0))
         this.canopy!.setColorAt(i * LEAVES + j, c)
+        // 上层叶亮一点，像从株顶透出来
+        glow?.setX(i * LEAVES + j, g * (0.6 + (j / LEAVES) * 0.6))
       }
     })
     if (this.canopy.instanceColor) this.canopy.instanceColor.needsUpdate = true
+    if (glow) glow.needsUpdate = true
   }
 
   private buildPlanMarks() {
     const planned = this.plants.map((p, i) => ({ p, i })).filter(({ p }) => p.list)
     if (planned.length) {
+      // 名单色细圈悬在株顶，俯视时不被叶片挡住；确认圈最亮，其余三张名单收淡，免得满屏是圈
       const rings = new THREE.InstancedMesh(
-        new THREE.RingGeometry(0.2, 0.28, 32),
-        new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false }),
+        new THREE.RingGeometry(0.22, 0.25, 48),
+        new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }),
         planned.length,
       )
       const m = new THREE.Matrix4()
@@ -559,34 +660,45 @@ export class GreenhouseScene {
       const c = new THREE.Color()
       planned.forEach(({ p, i }, k) => {
         const at = this.positions[i]
-        // 名单色圈悬在株顶，俯视时不被叶片挡住
-        m.compose(new THREE.Vector3(at.x, 2.2, at.z), rot, new THREE.Vector3(1.3, 1.3, 1.3))
+        const confirm = p.list === 'confirm'
+        m.compose(new THREE.Vector3(at.x, 2.25, at.z), rot, new THREE.Vector3(1, 1, 1).multiplyScalar(confirm ? 1.5 : 1.1))
         rings.setMatrixAt(k, m)
-        rings.setColorAt(k, c.set(this.palette.task[p.list!]))
+        rings.setColorAt(k, c.set(this.palette.task[p.list!]).multiplyScalar(confirm ? 1.6 : 0.7))
       })
       rings.userData.planMark = true
       this.world.add(rings)
     }
-    // 推给人确认的株：竖一根光柱，远看也知道今天要人看哪几株
+    // 推给人确认的株：一根贯通的光柱 + 顶上一颗旋转的菱形标，远看也知道今天要人看哪几株
     const confirm = planned.filter(({ p }) => p.list === 'confirm')
     this.beams = null
+    this.markers = null
+    this.markerBase = []
     if (confirm.length) {
+      const color = this.glowColor(new THREE.Color(this.palette.task.confirm), 1.4)
       const beams = new THREE.InstancedMesh(
-        new THREE.CylinderGeometry(0.05, 0.05, 3.2, 10, 1, true),
-        new THREE.MeshBasicMaterial({
-          color: this.palette.task.confirm, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false,
-        }),
+        new THREE.CylinderGeometry(0.035, 0.035, 4.6, 10, 1, true),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
+        confirm.length,
+      )
+      const markers = new THREE.InstancedMesh(
+        new THREE.OctahedronGeometry(0.16, 0),
+        new THREE.MeshBasicMaterial({ color: this.glowColor(new THREE.Color(this.palette.task.confirm), 2), toneMapped: false }),
         confirm.length,
       )
       const m = new THREE.Matrix4()
       confirm.forEach(({ i }, k) => {
         const at = this.positions[i]
-        m.makeTranslation(at.x, 2.4, at.z)
+        m.makeTranslation(at.x, 2.3, at.z)
         beams.setMatrixAt(k, m)
+        const base = new THREE.Matrix4().makeTranslation(at.x, 3.35, at.z)
+        this.markerBase.push(base)
+        markers.setMatrixAt(k, base)
       })
       beams.userData.planMark = true
+      markers.userData.planMark = true
       this.beams = beams
-      this.world.add(beams)
+      this.markers = markers
+      this.world.add(beams, markers)
     }
   }
 
@@ -621,7 +733,7 @@ export class GreenhouseScene {
     tex.colorSpace = THREE.SRGBColorSpace
     const heat = new THREE.Mesh(
       new THREE.PlaneGeometry(xHalf * 2, zHalf * 2),
-      new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.85, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending }),
     )
     heat.rotation.x = -Math.PI / 2
     heat.position.y = 2.45 // 铺在株顶上方，俯视时不被叶片挡住
@@ -657,12 +769,21 @@ export class GreenhouseScene {
     const group = new THREE.Group()
     const body = new THREE.MeshStandardMaterial({ color: this.palette.rover, metalness: 0.3, roughness: 0.4 })
     const dark = new THREE.MeshStandardMaterial({ color: 0x1b2420, roughness: 0.7 })
-    const glow = new THREE.MeshBasicMaterial({ color: this.palette.accent })
+    const glow = new THREE.MeshBasicMaterial({ color: this.glowColor(new THREE.Color(this.palette.accent), 1.8), toneMapped: false })
     const chassis = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.2, 0.7), body)
     chassis.position.y = 0.22
     const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.47, 0.03, 0.71), glow)
     stripe.position.y = 0.28
-    group.add(chassis, stripe)
+    // 车底一圈地面光晕
+    const halo = new THREE.Mesh(
+      new THREE.RingGeometry(0.36, 0.44, 48),
+      new THREE.MeshBasicMaterial({
+        color: this.palette.accent, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending,
+      }),
+    )
+    halo.rotation.x = -Math.PI / 2
+    halo.position.y = 0.02
+    group.add(chassis, stripe, halo)
     for (const [x, z] of [[-0.25, -0.24], [0.25, -0.24], [-0.25, 0.24], [0.25, 0.24]]) {
       const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.06, 16), dark)
       wheel.rotation.z = Math.PI / 2
@@ -743,6 +864,44 @@ export class GreenhouseScene {
     this.roverTime = 0
     this.lastSegment = -1
     this.rover.position.copy(dock)
+    this.buildRoutePath(segs)
+  }
+
+  /** 计划路线画成贴地光带，光点沿路线流动（方向即行驶方向） */
+  private buildRoutePath(segs: Segment[]) {
+    const pts: THREE.Vector3[] = []
+    for (const seg of segs) {
+      if (seg.kind !== 'move') continue
+      if (!pts.length) pts.push(seg.from.clone().setY(0.04))
+      pts.push(seg.to.clone().setY(0.04))
+    }
+    this.routePts = pts
+    this.routeLen = [0]
+    for (let i = 1; i < pts.length; i++) this.routeLen.push(this.routeLen[i - 1] + pts[i].distanceTo(pts[i - 1]))
+    this.flowDots = null
+    if (pts.length < 2) return
+    const accent = new THREE.Color(this.palette.accent)
+    const line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({ color: accent, transparent: true, opacity: 0.45, depthWrite: false }),
+    )
+    const dots = new THREE.Points(
+      new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(FLOW_DOTS * 3), 3)),
+      new THREE.PointsMaterial({
+        color: this.glowColor(accent, 2), size: 0.16, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+      }),
+    )
+    this.flowDots = dots
+    this.world.add(line, dots)
+  }
+
+  /** 路线上距起点 d 米处的点 */
+  private routeAt(d: number, out: THREE.Vector3) {
+    const len = this.routeLen
+    let k = 1
+    while (k < len.length - 1 && len[k] < d) k += 1
+    const seg = len[k] - len[k - 1] || 1
+    return out.lerpVectors(this.routePts[k - 1], this.routePts[k], Math.min(1, Math.max(0, (d - len[k - 1]) / seg)))
   }
 
   private updateRover(dt: number) {
@@ -883,6 +1042,8 @@ export class GreenhouseScene {
     this.camera.aspect = w / h
     this.camera.updateProjectionMatrix()
     this.renderer.setSize(w, h)
+    this.composer.setPixelRatio(this.renderer.getPixelRatio())
+    this.composer.setSize(w, h)
     this.labelRenderer.setSize(w, h)
   }
 
@@ -908,12 +1069,84 @@ export class GreenhouseScene {
       const pulse = 1 + 0.06 * Math.sin(time * 4)
       this.selectMark.scale.set(pulse, 1, pulse)
     }
-    if (this.dew?.visible) this.dew.rotation.y = Math.sin(time * 0.05) * 0.02
-    this.renderer.render(this.scene, this.camera)
+    if (this.dew?.visible) {
+      this.dew.rotation.y = Math.sin(time * 0.05) * 0.02
+      ;(this.dew.material as THREE.PointsMaterial).opacity = 0.45 + 0.15 * Math.sin(time * 1.3)
+    }
+    this.animateTech(time)
+    this.composer.render()
     this.labelRenderer.render(this.scene, this.camera)
   }
 
+  /** 科技风的动效：扫描环扩散、确认标旋转浮动、路线光点流动 */
+  private animateTech(time: number) {
+    if (this.scan) {
+      const a = (time % SCAN_SECONDS) / SCAN_SECONDS
+      const r = 0.5 + a * (this.scan.userData.maxR as number)
+      this.scan.scale.set(r, r, 1)
+      ;(this.scan.material as THREE.MeshBasicMaterial).opacity = 0.7 * (1 - a) * Math.min(1, a * 8)
+    }
+    if (this.markers) {
+      const m = new THREE.Matrix4()
+      const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), time * 1.6)
+      const one = new THREE.Vector3(1, 1.5, 1)
+      const pos = new THREE.Vector3()
+      this.markerBase.forEach((base, k) => {
+        pos.setFromMatrixPosition(base)
+        pos.y += Math.sin(time * 2 + k) * 0.08
+        this.markers!.setMatrixAt(k, m.compose(pos, q, one))
+      })
+      this.markers.instanceMatrix.needsUpdate = true
+    }
+    if (this.flowDots && this.routeLen.length > 1) {
+      const total = this.routeLen[this.routeLen.length - 1]
+      const attr = this.flowDots.geometry.getAttribute('position') as THREE.BufferAttribute
+      const v = new THREE.Vector3()
+      for (let i = 0; i < FLOW_DOTS; i++) {
+        this.routeAt(((i / FLOW_DOTS) * total + time * 2.2) % total, v)
+        attr.setXYZ(i, v.x, v.y, v.z)
+      }
+      attr.needsUpdate = true
+    }
+  }
+
   /* ------------------------------------------------------------------ 工具 */
+
+  /** 提亮到 1 以上的颜色（toneMapped: false 时超出部分进辉光） */
+  private glowColor(base: THREE.Color, k: number): THREE.Color {
+    return base.clone().multiplyScalar(k)
+  }
+
+  /** 地面网格贴图：细线每格、粗线每 5 格，向四周径向淡出 */
+  private gridTexture(color: THREE.Color): THREE.Texture {
+    const size = 1024
+    const cells = 120
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = size
+    const ctx = canvas.getContext('2d')!
+    const hex = `#${color.getHexString()}`
+    for (let i = 0; i <= cells; i++) {
+      const v = Math.round((i / cells) * size) + 0.5
+      const major = i % 5 === 0
+      ctx.strokeStyle = hex
+      ctx.globalAlpha = major ? 0.5 : 0.16
+      ctx.lineWidth = 1
+      ctx.beginPath(); ctx.moveTo(v, 0); ctx.lineTo(v, size); ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(0, v); ctx.lineTo(size, v); ctx.stroke()
+    }
+    ctx.globalAlpha = 1
+    ctx.globalCompositeOperation = 'destination-in'
+    const fade = ctx.createRadialGradient(size / 2, size / 2, size * 0.06, size / 2, size / 2, size * 0.5)
+    fade.addColorStop(0, 'rgba(0,0,0,1)')
+    fade.addColorStop(0.35, 'rgba(0,0,0,0.45)')
+    fade.addColorStop(1, 'rgba(0,0,0,0)')
+    ctx.fillStyle = fade
+    ctx.fillRect(0, 0, size, size)
+    const tex = new THREE.CanvasTexture(canvas)
+    tex.colorSpace = THREE.SRGBColorSpace
+    tex.anisotropy = 4
+    return tex
+  }
 
   private makeSelectMark(color: THREE.Color): THREE.Group {
     const g = new THREE.Group()
@@ -965,6 +1198,13 @@ export class GreenhouseScene {
     this.beams = null
     this.heat = null
     this.dew = null
+    this.glowAttr = null
+    this.scan = null
+    this.markers = null
+    this.markerBase = []
+    this.flowDots = null
+    this.routePts = []
+    this.routeLen = []
     this.hovered = null
   }
 }
