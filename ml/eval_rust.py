@@ -44,8 +44,8 @@ def rust_probs(model: YOLO, images: list) -> np.ndarray:
     return np.array(probs)
 
 
-def binary_metrics(y: np.ndarray, p: np.ndarray) -> dict:
-    pred = (p >= THRESHOLD).astype(int)
+def binary_metrics(y: np.ndarray, p: np.ndarray, threshold: float = THRESHOLD) -> dict:
+    pred = (p >= threshold).astype(int)
     tn, fp, fn, tp = confusion_matrix(y, pred, labels=[0, 1]).ravel()
     return {
         "n": int(len(y)), "positives": int(y.sum()),

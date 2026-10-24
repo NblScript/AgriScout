@@ -50,6 +50,7 @@ rover/.rover-spool/
 ml/data/*
 !ml/data/prepare_gwd.py
 !ml/data/prepare_nwrd.py
+!ml/data/prepare_dm.py
 ml/runs/
 ml/.venv/
 *.pt
